@@ -70,9 +70,9 @@ export function BankSettlementPanel({ records, vehicles, canManage, refresh }: {
         <div className="mobileRecordFooter">{renderActions(r)}</div>
       </article>)}
       {rows.length === 0 && <span>No settlement records / 暂无记录</span>}
-    <Pagination className="mobileRecordPagination" current={Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize)))} total={rows.length} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(next, size) => { setPage(next); setPageSize(size); }} />
+    <Pagination className="mobileRecordPagination" current={Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize)))} total={rows.length} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(next, size) => { setPage(next); setPageSize(size); }} />
     </div>
-    <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" nativeSearch={{ fields: [{ name: "plate", label: "Car plate" }], values: { plate }, onSubmit: values => setPlate(String(values.plate ?? "")), onReset: () => setPlate("") }} rowKey="id" dataSource={rows} scroll={{ x: 850 }} pagination={{ defaultPageSize: 10, pageSize, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], onShowSizeChange: (_, size) => setPageSize(size) }} columns={[
+    <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" nativeSearch={{ fields: [{ name: "plate", label: "Car plate" }], values: { plate }, onSubmit: values => setPlate(String(values.plate ?? "")), onReset: () => setPlate("") }} rowKey="id" dataSource={rows} scroll={{ x: 850 }} pagination={{ defaultPageSize: 10, pageSize, showSizeChanger: true, pageSizeOptions: [10, 20, 30, 50, 100], onShowSizeChange: (_, size) => setPageSize(size) }} columns={[
       { title: "Car plate / 车牌", render: (_, r) => vehicles.find(v => v.id === r.vehicleId)?.plateNumber ?? "—" },
       { title: tab === "history" ? "Original amount / 原金额" : "Outstanding Bank Debt / 银行欠款", render: (_, r) => formatMoney(tab === "history" ? r.amount : r.bankDebtAmount ?? 0) },
       { title: "Direction / 付款对象", render: (_, r) => r.direction === "PayBank" ? "Pay to bank" : r.direction === "CollectFromSeller" ? "Collect from seller" : r.direction === "InternalOffset" ? "Internal offset" : "Pay seller" },

@@ -129,8 +129,8 @@ const johorHolidayReference = [
   "Weekend / 周末: Saturday + Sunday",
   "Public holidays should be reviewed yearly by HR"
 ];
-const hrRecordPageSize = 8;
-const businessTripPageSize = 5;
+const hrRecordPageSize = 10;
+const businessTripPageSize = 10;
 
 export type HrRecordFilters = {
   keyword?: string;
@@ -356,6 +356,7 @@ export function HrSalaryPage({
   const [selectedPayslipId, setSelectedPayslipId] = useState<string>();
   const selectedPayslip = selectedPayslipId ? payslips.find((slip) => slip.id === selectedPayslipId) : undefined;
   const [recordFilters, setRecordFilters] = useState<Record<HrRecordListKey, HrRecordFilters>>(initialHrRecordFilters);
+  const [recordPageSize, setRecordPageSize] = useState(10);
   const [recordPages, setRecordPages] = useState<Record<HrRecordListKey, number>>(initialHrRecordPages);
   const staffOptions = staffUsers.map((staff) => ({ value: staff.id, label: staffLabel(staff) }));
   const selfId = currentUser?.id ?? "";
@@ -676,12 +677,12 @@ export function HrSalaryPage({
     (record) => [record.staffName || staffName(record.staffUserId, visibleStaff), payslipStatusLabel(record.status), record.netPay].filter(Boolean).join(" "),
     (record) => record.status
   );
-  const attendancePage = paginateHrRecords(filteredAttendance, recordPages.attendance);
-  const businessTripPage = paginateHrRecords(filteredBusinessTrips, recordPages.businessTrips, businessTripPageSize);
-  const leavePage = paginateHrRecords(filteredLeaveRequests, recordPages.leave);
-  const balancePage = paginateHrRecords(filteredLeaveBalances, recordPages.balances);
-  const adjustmentPage = paginateHrRecords(filteredLeaveAdjustments, recordPages.adjustments);
-  const payslipPage = paginateHrRecords(filteredPayslips, recordPages.payslips);
+  const attendancePage = paginateHrRecords(filteredAttendance, recordPages.attendance, recordPageSize);
+  const businessTripPage = paginateHrRecords(filteredBusinessTrips, recordPages.businessTrips, recordPageSize);
+  const leavePage = paginateHrRecords(filteredLeaveRequests, recordPages.leave, recordPageSize);
+  const balancePage = paginateHrRecords(filteredLeaveBalances, recordPages.balances, recordPageSize);
+  const adjustmentPage = paginateHrRecords(filteredLeaveAdjustments, recordPages.adjustments, recordPageSize);
+  const payslipPage = paginateHrRecords(filteredPayslips, recordPages.payslips, recordPageSize);
   const attendanceEmptyText = hrRecordEmptyText(attendance.length, filteredAttendance.length, "No attendance records yet / 暂无打卡记录", "No attendance records match the current filters / 没有符合筛选条件的打卡记录");
   const businessTripEmptyText = hrRecordEmptyText(businessTrips.length, filteredBusinessTrips.length, "No outstation requests yet / 暂无外勤申请", "No outstation requests match the current filters / 没有符合筛选条件的外勤申请");
   const leaveEmptyText = hrRecordEmptyText(leaveRequests.length, filteredLeaveRequests.length, "No leave requests yet / 暂无请假记录", "No leave requests match the current filters / 没有符合筛选条件的请假记录");
@@ -724,7 +725,7 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredAttendance.length > hrRecordPageSize && <Pagination current={attendancePage.current} pageSize={hrRecordPageSize} total={filteredAttendance.length} showSizeChanger={false} onChange={(page) => setRecordPage("attendance", page)} />}
+      {filteredAttendance.length > 0 && <Pagination current={attendancePage.current} pageSize={recordPageSize} total={filteredAttendance.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setRecordPage("attendance", page); setRecordPageSize(size); }} />}
     </div>
   );
 
@@ -758,7 +759,7 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredBusinessTrips.length > businessTripPageSize && <Pagination current={businessTripPage.current} pageSize={businessTripPageSize} total={filteredBusinessTrips.length} showSizeChanger={false} onChange={(page) => setRecordPage("businessTrips", page)} />}
+      {filteredBusinessTrips.length > 0 && <Pagination current={businessTripPage.current} pageSize={recordPageSize} total={filteredBusinessTrips.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setRecordPage("businessTrips", page); setRecordPageSize(size); }} />}
     </div>
   );
 
@@ -805,7 +806,7 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeaveRequests.length > hrRecordPageSize && <Pagination current={leavePage.current} pageSize={hrRecordPageSize} total={filteredLeaveRequests.length} showSizeChanger={false} onChange={(page) => setRecordPage("leave", page)} />}
+      {filteredLeaveRequests.length > 0 && <Pagination current={leavePage.current} pageSize={recordPageSize} total={filteredLeaveRequests.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setRecordPage("leave", page); setRecordPageSize(size); }} />}
     </div>
   );
 
@@ -831,7 +832,7 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeaveBalances.length > hrRecordPageSize && <Pagination current={balancePage.current} pageSize={hrRecordPageSize} total={filteredLeaveBalances.length} showSizeChanger={false} onChange={(page) => setRecordPage("balances", page)} />}
+      {filteredLeaveBalances.length > 0 && <Pagination current={balancePage.current} pageSize={recordPageSize} total={filteredLeaveBalances.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setRecordPage("balances", page); setRecordPageSize(size); }} />}
     </div>
   );
 
@@ -859,7 +860,7 @@ export function HrSalaryPage({
           </div>
         </article>
       ))}
-      {filteredLeaveAdjustments.length > hrRecordPageSize && <Pagination current={adjustmentPage.current} pageSize={hrRecordPageSize} total={filteredLeaveAdjustments.length} showSizeChanger={false} onChange={(page) => setRecordPage("adjustments", page)} />}
+      {filteredLeaveAdjustments.length > 0 && <Pagination current={adjustmentPage.current} pageSize={recordPageSize} total={filteredLeaveAdjustments.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setRecordPage("adjustments", page); setRecordPageSize(size); }} />}
     </div>
   );
 
@@ -884,7 +885,7 @@ export function HrSalaryPage({
           </Space></div>
         </article>
       ))}
-      {filteredPayslips.length > hrRecordPageSize && <Pagination current={payslipPage.current} pageSize={hrRecordPageSize} total={filteredPayslips.length} showSizeChanger={false} onChange={(page) => setRecordPage("payslips", page)} />}
+      {filteredPayslips.length > 0 && <Pagination current={payslipPage.current} pageSize={recordPageSize} total={filteredPayslips.length} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(page, size) => { setRecordPage("payslips", page); setRecordPageSize(size); }} />}
     </div>
   );
 
@@ -905,7 +906,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("attendance")}
                 />
                 {attendanceMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} nativeSearch={recordNativeSearch("attendance", [{ name: "staff", label: "Staff / 员工" }, { name: "date", label: "Date / 日期" }], attendanceStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: attendancePage.current, onChange: (page) => setRecordPage("attendance", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={attendanceColumns} dataSource={filteredAttendance} nativeSearch={recordNativeSearch("attendance", [{ name: "staff", label: "Staff / 员工" }, { name: "date", label: "Date / 日期" }], attendanceStatusOptions)} pagination={{ ...tablePagination(recordPageSize), current: attendancePage.current, onChange: (page, size) => { setRecordPage("attendance", page); setRecordPageSize(size); } }} scroll={{ x: "max-content" }} locale={{ emptyText: attendanceEmptyText }} />
               </>
             )
           },
@@ -963,7 +964,7 @@ export function HrSalaryPage({
                       className="desktopDataTable"
                       rowKey="id"
                       size="small"
-                      pagination={{ ...tablePagination(businessTripPageSize), current: businessTripPage.current, onChange: (page) => setRecordPage("businessTrips", page) }}
+                      pagination={{ ...tablePagination(recordPageSize), current: businessTripPage.current, onChange: (page, size) => { setRecordPage("businessTrips", page); setRecordPageSize(size); } }}
                       scroll={{ x: "max-content" }}
                       locale={{ emptyText: businessTripEmptyText }}
                       dataSource={filteredBusinessTrips}
@@ -1057,7 +1058,7 @@ export function HrSalaryPage({
                     <Form.Item name="isActive" label="Status / 状态"><Select options={[{ value: true, label: "Active / 启用" }, { value: false, label: "Disabled / 停用" }]} /></Form.Item>
                     <Form.Item className="formActions"><Button type="primary" htmlType="submit">Add office network / 新增办公室网络</Button></Form.Item>
                   </Form>
-                  <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
+                  <OperationsProTable className="desktopDataTable" rowKey="id" columns={attendanceNetworkColumns} dataSource={attendanceNetworks} pagination={{ defaultPageSize: 10, showSizeChanger: true }} scroll={{ x: "max-content" }} locale={{ emptyText: "No office network configured / 尚未配置办公室网络" }} />
                 </ProCard>
               </Space>
             )
@@ -1086,7 +1087,7 @@ export function HrSalaryPage({
                   <OperationsProTable
                     rowKey={(item) => `${item.staffUserId}-${item.kind}-${item.startDate}-${item.endDate}`}
                     dataSource={availabilityCalendar}
-                    pagination={{ pageSize: 8, showSizeChanger: false }}
+                    pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 30] }}
                     columns={[
                       { title: "Staff / 员工", dataIndex: "staffDisplayName" },
                       { title: "Dates / 日期", dataIndex: "startDate", defaultSortOrder: "descend", sorter: (a, b, order) => compareRecordDates(a.startDate, b.startDate, order ?? "ascend"), render: (_: unknown, item: HrAvailabilityCalendarItem) => `${item.startDate} to ${item.endDate}` },
@@ -1188,7 +1189,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("leave")}
                 />
                 {leaveMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} nativeSearch={recordNativeSearch("leave", [{ name: "staff", label: "Staff / 员工" }, { name: "leaveType", label: "Leave type / 假期" }, { name: "date", label: "Date / 日期" }, { name: "reason", label: "Reason / 原因" }], leaveStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: leavePage.current, onChange: (page) => setRecordPage("leave", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={leaveColumns} dataSource={filteredLeaveRequests} nativeSearch={recordNativeSearch("leave", [{ name: "staff", label: "Staff / 员工" }, { name: "leaveType", label: "Leave type / 假期" }, { name: "date", label: "Date / 日期" }, { name: "reason", label: "Reason / 原因" }], leaveStatusOptions)} pagination={{ ...tablePagination(recordPageSize), current: leavePage.current, onChange: (page, size) => { setRecordPage("leave", page); setRecordPageSize(size); } }} scroll={{ x: "max-content" }} locale={{ emptyText: leaveEmptyText }} />
               </Space>
             )
           },
@@ -1243,7 +1244,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("balances")}
                 />
                 {balanceMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} nativeSearch={recordNativeSearch("balances", [{ name: "staff", label: "Staff / 员工" }, { name: "role", label: "Role / 角色" }, { name: "notes", label: "Notes / 备注" }])} pagination={{ ...tablePagination(hrRecordPageSize), current: balancePage.current, onChange: (page) => setRecordPage("balances", page) }} locale={{ emptyText: balanceEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={balanceColumns} dataSource={filteredLeaveBalances} nativeSearch={recordNativeSearch("balances", [{ name: "staff", label: "Staff / 员工" }, { name: "role", label: "Role / 角色" }, { name: "notes", label: "Notes / 备注" }])} pagination={{ ...tablePagination(recordPageSize), current: balancePage.current, onChange: (page, size) => { setRecordPage("balances", page); setRecordPageSize(size); } }} locale={{ emptyText: balanceEmptyText }} />
                 <HrRecordFilterControls
                   filters={recordFilters.adjustments}
                   total={leaveAdjustments.length}
@@ -1253,7 +1254,7 @@ export function HrSalaryPage({
                   onClear={() => clearRecordFilters("adjustments")}
                 />
                 {adjustmentMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} nativeSearch={recordNativeSearch("adjustments", [{ name: "staff", label: "Staff / 员工" }, { name: "action", label: "Action / 操作" }, { name: "date", label: "Date / 日期" }, { name: "reason", label: "Reason / 原因" }])} pagination={{ ...tablePagination(hrRecordPageSize), current: adjustmentPage.current, onChange: (page) => setRecordPage("adjustments", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={adjustmentColumns} dataSource={filteredLeaveAdjustments} nativeSearch={recordNativeSearch("adjustments", [{ name: "staff", label: "Staff / 员工" }, { name: "action", label: "Action / 操作" }, { name: "date", label: "Date / 日期" }, { name: "reason", label: "Reason / 原因" }])} pagination={{ ...tablePagination(recordPageSize), current: adjustmentPage.current, onChange: (page, size) => { setRecordPage("adjustments", page); setRecordPageSize(size); } }} scroll={{ x: "max-content" }} locale={{ emptyText: adjustmentEmptyText }} />
               </Space>
             )
           },
@@ -1277,7 +1278,7 @@ export function HrSalaryPage({
                         <Form.Item name="manualDeductions" label="Deductions / 扣除"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Profile / 保存资料</Button></Form.Item>
                       </Form>
-                      <OperationsProTable className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={false} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
+                      <OperationsProTable className="desktopDataTable" rowKey="id" columns={payrollProfileColumns} dataSource={payrollProfiles} pagination={{ defaultPageSize: 10, showSizeChanger: true }} scroll={{ x: "max-content" }} locale={{ emptyText: "No payroll profiles yet / 暂无薪资资料" }} />
                     </ProCard>
                     <ProCard title="Working Day Pay Period / 薪资月份">
                       <Form name="hrPayPeriod" form={payPeriodForm} layout="vertical" className="formGrid" style={{ alignItems: "start" }} onFinish={(values) => onCreatePayPeriod(payPeriodFromValues(values))} initialValues={payPeriodDefaults(dayjs(today))}>
@@ -1319,7 +1320,7 @@ export function HrSalaryPage({
                 <HrPayrollReview currentUser={currentUser} slip={selectedPayslip} period={selectedPayslip ? payPeriods.find((period) => period.id === selectedPayslip.payPeriodId) : undefined} onClose={() => setSelectedPayslipId(undefined)} onChanged={onWorkflowChanged} onLoadPayslip={onLoadPayslip} onDownloadPayslip={onDownloadPayslip} />
 
                 {payslipMobileCards}
-                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }], payslipStatusOptions)} pagination={{ ...tablePagination(hrRecordPageSize), current: payslipPage.current, onChange: (page) => setRecordPage("payslips", page) }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
+                <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={payslipColumns} dataSource={filteredPayslips} nativeSearch={recordNativeSearch("payslips", [{ name: "staff", label: "Staff / 员工" }], payslipStatusOptions)} pagination={{ ...tablePagination(recordPageSize), current: payslipPage.current, onChange: (page, size) => { setRecordPage("payslips", page); setRecordPageSize(size); } }} scroll={{ x: "max-content" }} locale={{ emptyText: payslipEmptyText }} />
               </Space>
             )
           },
@@ -1704,7 +1705,7 @@ function payrollReviewItems(slip: HrPayslip) {
 function tablePagination(pageSize = hrRecordPageSize): TablePaginationConfig {
   return {
     pageSize,
-    showSizeChanger: false,
+    showSizeChanger: true, pageSizeOptions: [10, 20, 30],
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} / 共 ${total} 条`
   };
 }

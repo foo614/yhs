@@ -23,7 +23,8 @@ import {
   deliveryDatePickerValue,
   deliveryDateString,
   deliveryTimePickerValue,
-  deliveryTimeString
+  deliveryTimeString,
+  nearestDeliveryFirst
 } from "./DeliveryWorkboardPage";
 import dayjs from "dayjs";
 
@@ -42,8 +43,8 @@ const baseItem: DeliveryWorkboardItem = {
   status: "BookingInspection",
   stage: "PlanDelivery",
   stageLabel: "Plan delivery",
-  nextAction: "Add inspection booking",
-  blocker: "Inspection booking is required.",
+  nextAction: "Prepare delivery documents",
+  blocker: "Delivery documents are required.",
   financeCleared: false,
   canRelease: false,
   terminal: false,
@@ -61,7 +62,7 @@ const baseItem: DeliveryWorkboardItem = {
   signedHandoverReceived: false,
   customerAcknowledged: false,
   finalChecklistConfirmed: false,
-  missingCategories: ["InspectionReport"],
+  missingCategories: ["DeliveryDocument"],
   evidence: []
 };
 
@@ -114,20 +115,26 @@ describe("simple delivery workboard", () => {
   it("filters one scannable list by car, stage, and staff-backed PIC", () => {
     const items: DeliveryWorkboardItem[] = [
       baseItem,
-      { ...baseItem, id: "delivery-2", vehicleId: "vehicle-2", plateNumber: "WXY 9876", customerName: "Siti Noor", picUserId: "staff-2", stage: "PrepareCar" }
+      { ...baseItem, id: "delivery-2", vehicleId: "vehicle-2", plateNumber: "WXY 9876", customerName: "Siti Noor", picUserId: "staff-2", stage: "ClearDocuments" }
     ];
 
     expect(filterDeliveryWorkboard(items, { keyword: "vpk", stage: "PlanDelivery", picUserId: "staff-1" })).toEqual([baseItem]);
     expect(filterDeliveryWorkboard(items, { keyword: "siti" }).map((item) => item.id)).toEqual(["delivery-2"]);
   });
 
-  it("uses four staff-facing stages and collapses only completed stages", () => {
+  it("uses three staff-facing stages and collapses only completed stages", () => {
     expect(deliveryStageLabel("PlanDelivery")).toBe("Plan delivery / 安排交车");
-    expect(deliveryStageLabel("PrepareCar")).toBe("Prepare car / 准备车辆");
     expect(deliveryStageLabel("ClearDocuments")).toBe("Clear documents / 文件确认");
     expect(deliveryStageLabel("Handover")).toBe("Handover / 交车");
-    expect(completedDeliveryStages("ClearDocuments")).toEqual(["PlanDelivery", "PrepareCar"]);
-    expect(completedDeliveryStages("Completed")).toEqual(["PlanDelivery", "PrepareCar", "ClearDocuments", "Handover"]);
+    expect(completedDeliveryStages("ClearDocuments")).toEqual(["PlanDelivery"]);
+    expect(completedDeliveryStages("Completed")).toEqual(["PlanDelivery", "ClearDocuments", "Handover"]);
+  });
+
+  it("orders records by nearest delivery date", () => {
+    expect(nearestDeliveryFirst([
+      { ...baseItem, id: "later", scheduledDate: "2026-09-02" },
+      { ...baseItem, id: "earlier", scheduledDate: "2026-08-28" }
+    ]).map((item) => item.id)).toEqual(["earlier", "later"]);
   });
 
   it("counts only timely staff blockers as needing action", () => {
@@ -139,6 +146,12 @@ describe("simple delivery workboard", () => {
 
   it("uses Singapore calendar dates for the This week counter", () => {
     expect(singaporeDateString(new Date("2026-08-26T16:30:00Z"))).toBe("2026-08-27");
+  });
+
+  it("keeps older released deliveries searchable after hiding them from the default list", () => {
+    const old = { ...baseItem, status: "Released" as const, releasedAt: "2026-08-01T10:00:00Z" };
+    expect(filterDeliveryWorkboard([old], {}, "2026-08-27")).toEqual([]);
+    expect(filterDeliveryWorkboard([old], { keyword: old.plateNumber }, "2026-08-27")).toEqual([old]);
   });
 
   it("turns summary counters into focused queue filters", () => {
@@ -215,14 +228,15 @@ describe("simple delivery workboard", () => {
     expect(markup).toContain("Car / 车辆");
     expect(markup).toContain("Customer / PIC");
     expect(markup).toContain("Next action / 下一步");
-    expect(markup).toContain("Inspection booking is required.");
+    expect(markup).toContain("Delivery documents are required.");
+    expect(markup).not.toContain("Inspection booking");
     expect(markup).toContain("aria-label=\"Delivery queue filters\"");
     expect(markup).not.toContain(">1 cars<");
     expect(markup).not.toContain("ReadyForRelease");
     expect(markup).not.toContain("BookingInspection");
   });
 
-  it("keeps Plan focused on PIC and inspection booking while rescheduling stays a reasoned action", () => {
+  it("keeps the editable Delivery plan on the same page", () => {
     const markup = renderToStaticMarkup(createElement(CurrentStageForm, {
       item: baseItem,
       picOptions: [{ id: "staff-1", displayName: "Ming Lee" }],
@@ -234,9 +248,9 @@ describe("simple delivery workboard", () => {
     }));
 
     expect(markup).toContain("PIC / 负责人");
-    expect(markup).toContain("Inspection booking / 验车预约");
-    expect(markup).toContain("More → Reschedule");
-    expect(markup).not.toContain("type=\"date\"");
+    expect(markup).toContain("Delivery date / 交车日期");
+    expect(markup).toContain("Save delivery plan / 保存交车安排");
+    expect(markup).not.toContain("Inspection booking / 验车预约");
   });
 
   it("offers legacy buyer locking only to Boss for the vehicle's existing confirmed buyer", () => {
@@ -273,7 +287,7 @@ describe("simple delivery workboard", () => {
     expect(markup).not.toContain("Select buyer");
   });
 
-  it("shows one customer notice and a read-only Finance invoice request state", () => {
+  it("keeps Delivery documents and Finance state while omitting the removed notice", () => {
     const clearDocuments: DeliveryWorkboardItem = {
       ...baseItem,
       stage: "ClearDocuments",
@@ -301,9 +315,8 @@ describe("simple delivery workboard", () => {
       onRequestInvoice: () => {}
     }));
 
-    expect(markup).toContain("2-day customer notice sent");
-    expect(markup).toContain("已提前两天通知客户");
-    expect(markup).not.toContain("Customer notified");
+    expect(markup).not.toContain("2-day customer notice sent");
+    expect(markup).not.toContain("已提前两天通知客户");
     expect(markup).toContain("Evidence reviewed and confirmed / 证据已审核确认");
     expect(markup).toContain("Delivery documents reviewed and confirmed");
     expect(markup).toContain("交车文件已审核确认");
@@ -348,6 +361,31 @@ describe("simple delivery workboard", () => {
     expect(markup).not.toContain("Windscreen insurance / 挡风玻璃保险");
     expect(markup).not.toContain("windscreen-policy.pdf");
     expect(markup).not.toContain("historic-windscreen-1");
+  });
+
+  it("keeps every uploaded Delivery document visible instead of collapsing history to one file", () => {
+    const markup = renderToStaticMarkup(createElement(DeliveryDrawerContent, {
+      item: {
+        ...baseItem,
+        stage: "ClearDocuments",
+        evidence: [
+          { category: "DeliveryDocument", isPresent: true, documentId: "delivery-doc-1", fileName: "handover.pdf", mimeType: "application/pdf" },
+          { category: "DeliveryDocument", isPresent: true, documentId: "delivery-doc-2", fileName: "signed-terms.pdf", mimeType: "application/pdf" }
+        ]
+      },
+      picOptions: [],
+      activity: [],
+      activityLoading: false,
+      saving: false,
+      onSave: noOp,
+      onUpload: noOp,
+      onRelease: () => {},
+      onRequestInvoice: () => {}
+    }));
+
+    expect(markup).toContain("handover.pdf");
+    expect(markup).toContain("signed-terms.pdf");
+    expect(markup).toContain("2 received");
   });
 
   it("keeps earlier completed stages editable until release or cancellation", () => {
@@ -396,16 +434,17 @@ describe("simple delivery workboard", () => {
     };
     const activePanels = getCompletedStageChildren(activeDrawer);
     const terminalPanels = getCompletedStageChildren(terminalDrawer);
-    const clearDocumentsPanel = activePanels[2].children as { props: { children: ReactNode } };
+    const clearDocumentsPanel = activePanels[1].children as { props: { children: ReactNode } };
     const clearDocumentsChildren = Children.toArray(clearDocumentsPanel.props.children);
     const savedSummaryMarkup = renderToStaticMarkup(clearDocumentsChildren[0] as ReactElement);
 
-    expect(activePanels).toHaveLength(3);
-    expect(activePanels.slice(0, 2).map((panel) => (panel.children as { type?: unknown }).type)).toEqual([CurrentStageForm, CurrentStageForm]);
+    expect(activePanels).toHaveLength(2);
+    expect((activePanels[0].children as { type?: unknown }).type).toBe(CurrentStageForm);
+    expect((activePanels[1].children as { type?: unknown }).type).not.toBe(CurrentStageForm);
     expect(savedSummaryMarkup).toContain("Document checks saved / 文件确认已保存");
     expect(savedSummaryMarkup).toContain("Next: waiting for Finance clearance before vehicle release.");
     expect((clearDocumentsChildren[1] as { props: { items: Array<{ label: string }> } }).props.items[0].label).toContain("Edit document checks");
-    expect(terminalPanels).toHaveLength(4);
+    expect(terminalPanels).toHaveLength(3);
     expect(terminalPanels.some((panel) => (panel.children as { type?: unknown }).type === CurrentStageForm)).toBe(false);
   });
 

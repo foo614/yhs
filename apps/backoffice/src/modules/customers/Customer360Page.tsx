@@ -72,6 +72,8 @@ const documentLabels: Record<CustomerProfileDocument["category"], string> = {
   ApDocument: "AP Document",
   StatusReceipt: "Status Receipt",
   LoanDocument: "Loan Document",
+  LoanOriginalDocument: "Original Loan Document / 原始贷款文件",
+  LoanEditedDocument: "Edited Loan Document / 修改贷款文件",
   DeliveryDocument: "Delivery Document",
   HandoverPhoto: "Handover Photo",
   SignedHandover: "Signed Handover",
@@ -395,7 +397,7 @@ function AuthorizedUploadsTable({
             pageSize,
             total: filteredDocuments.length,
             showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50],
+            pageSizeOptions: [10, 20, 30, 50],
             showTotal: (total) => `${total} file${total === 1 ? "" : "s"}`,
             onChange: (nextPage, nextPageSize) => {
               setPage(nextPage);

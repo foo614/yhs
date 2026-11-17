@@ -216,7 +216,8 @@ public static class CustomerProfileFactory
                         : !document.CustomerId.HasValue)
             .ToList();
         var visibleDocuments = profileDocuments
-            .Where(document => DepartmentAccess.CanUploadDocument(roleSet, document.Category))
+            .Where(document => DepartmentAccess.CanUploadDocument(roleSet, document.Category)
+                || (roleSet.Contains("Delivery") && document.DeliveryScheduleId.HasValue && document.Category == FileCategory.Voc))
             .OrderByDescending(document => document.UploadedAt)
             .ToList();
         var canViewDocuments = visibleDocuments.Count > 0 || roleSet.Any(role => Enum.GetValues<FileCategory>().Any(category => DepartmentAccess.CanUploadDocument([role], category)));

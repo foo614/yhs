@@ -135,8 +135,8 @@ public static class BackOfficeVehicleResponses
             canViewPrivateFields ? vehicle.DealerLateCharge : null,
             canViewPrivateFields ? vehicle.DealerDiscount : null);
 }
-public sealed record RepairApprovalRequest(string? Notes);
-public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges);
+public sealed record RepairApprovalRequest(string? Notes, decimal? ExpectedCost = null);
+public sealed record BackOfficeVehicleLookupResponse(Guid Id, string PlateNumber, string Make, string Model, int Year, StockOwner StockOwner, VehicleStatus Status, Guid? CustomerId, decimal SellingPrice, decimal AdditionalCharges, string? SalesAgentUserId);
 public sealed record SettlementDraftResponse(Guid VehicleId, Guid? OwnerId, decimal PurchasePrice);
 public sealed record VehicleIntakeSettlementRequest(decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null, string? BankName = null, string? BankAccountNumber = null, bool HasDebt = true);
 public sealed record SettlementCreateRequest(Guid VehicleId, decimal BankDebtAmount, decimal? ExpectedPurchasePrice = null, DateOnly? Deadline = null);
@@ -293,7 +293,8 @@ public sealed record ValidationResult(IReadOnlyList<ValidationError> Errors)
 {
     public bool IsValid => Errors.Count == 0;
 }
-public sealed record LoanDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories);
+public sealed record LoanDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories,
+    int OriginalDocumentCount = 0, int EditedDocumentCount = 0, int LouDocumentCount = 0);
 public sealed record DeliveryEvidenceItem(
     FileCategory Category,
     bool IsPresent,
@@ -330,7 +331,8 @@ public static class DepartmentAccess
         {
             FileCategory.PurchaseInvoice => false,
             FileCategory.Voc or FileCategory.IdentityCard or FileCategory.ApDocument or FileCategory.StatusReceipt => roleSet.Contains("Sales"),
-            FileCategory.LoanDocument => roleSet.Contains("Loan"),
+            FileCategory.LoanOriginalDocument => roleSet.Contains("Sales"),
+            FileCategory.LoanEditedDocument or FileCategory.LoanDocument => roleSet.Contains("Loan"),
             FileCategory.DeliveryDocument or FileCategory.InspectionReceipt or FileCategory.InspectionAppointmentConfirmation or FileCategory.InspectionReport or FileCategory.HandoverPhoto or FileCategory.SignedHandover or FileCategory.Policy or FileCategory.RoadTaxReceipt or FileCategory.WindscreenPolicy => roleSet.Contains("Delivery"),
             FileCategory.RepairInvoice => roleSet.Contains("Repair"),
             FileCategory.PaymentReceipt or FileCategory.PaymentInvoice => roleSet.Contains("Finance"),
@@ -344,6 +346,10 @@ public static class DepartmentAccess
         var roleSet = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (roleSet.Contains("BossAdmin")) return true;
         if (category == FileCategory.PurchaseInvoice) return false;
+        if (category is FileCategory.Voc or FileCategory.ApDocument or FileCategory.StatusReceipt or FileCategory.LoanOriginalDocument)
+            return roleSet.Contains("Sales") || roleSet.Contains("Loan");
+        if (category is FileCategory.LoanEditedDocument or FileCategory.LoanDocument)
+            return roleSet.Contains("Loan");
         return CanUploadDocument(roleSet, category);
     }
 
@@ -396,6 +402,8 @@ public static class DocumentOwnershipRules
         FileCategory.Voc,
         FileCategory.IdentityCard,
         FileCategory.ApDocument,
+        FileCategory.LoanOriginalDocument,
+        FileCategory.LoanEditedDocument,
         FileCategory.LoanDocument,
         FileCategory.DeliveryDocument,
         FileCategory.InspectionReport,
@@ -410,6 +418,8 @@ public static class DocumentOwnershipRules
     {
         FileCategory.PurchaseInvoice or FileCategory.Voc or FileCategory.ApDocument => DocumentOwnershipType.Seller,
         FileCategory.IdentityCard => DocumentOwnershipType.Buyer,
+        FileCategory.LoanOriginalDocument or
+        FileCategory.LoanEditedDocument or
         FileCategory.LoanDocument or
         FileCategory.DeliveryDocument or
         FileCategory.InspectionReport or
@@ -658,7 +668,8 @@ public static class BackOfficeVehicleLookup
             vehicle.Status,
             vehicle.CustomerId,
             vehicle.SellingPrice,
-            canViewPrivateFields ? vehicle.AdditionalCharges : 0m);
+            canViewPrivateFields ? vehicle.AdditionalCharges : 0m,
+            vehicle.SalesAgentUserId);
 }
 
 public static class FinanceSettlementDraft
@@ -1912,9 +1923,9 @@ public static class WorkflowReferenceRules
             errors.Add(new ValidationError("customer_not_found", "Loan must be linked to an existing customer."));
         }
 
-        if (loan.Status is (LoanStatus.Pending or LoanStatus.Approved or LoanStatus.Done) && loan.SubmittedAt is null)
+        if (loan.Status is (LoanStatus.Pending or LoanStatus.Submitted or LoanStatus.Approved or LoanStatus.Done) && loan.SubmittedAt is null)
         {
-            errors.Add(new ValidationError("loan_submitted_date_required", "Submitted date is required for active loan follow-up."));
+            errors.Add(new ValidationError("loan_submitted_date_required", "Created date is required for active loan follow-up."));
         }
 
         if ((loan.LouDone || loan.Status is LoanStatus.Approved or LoanStatus.Done) && !loan.LouApproved)
@@ -1969,6 +1980,131 @@ public static class LoanMutationRules
 public static class LoanDecisionRules
 {
     public const int RejectionReasonMaxLength = 500;
+    public static string LoanAdvisoryLockKey(Guid loanId) => $"loan:{loanId:N}";
+
+    public static bool CanProcess(LoanApplication loan, ClaimsPrincipal user, string currentUserId) =>
+        user.IsInRole("BossAdmin") ||
+        (user.IsInRole("Loan") && !string.IsNullOrWhiteSpace(currentUserId) && string.Equals(loan.TakenByUserId, currentUserId, StringComparison.Ordinal));
+
+    public static bool CanBrokerEdit(LoanApplication loan, Vehicle vehicle, ClaimsPrincipal user, string currentUserId) =>
+        user.IsInRole("Sales") &&
+        !user.IsInRole("BossAdmin") &&
+        !string.IsNullOrWhiteSpace(currentUserId) &&
+        string.Equals(vehicle.SalesAgentUserId, currentUserId, StringComparison.Ordinal) &&
+        vehicle.Id == loan.VehicleId &&
+        vehicle.CustomerId == loan.CustomerId &&
+        loan.Status is not (LoanStatus.Rejected or LoanStatus.Done);
+
+    public static bool CanEditLoan(LoanApplication loan, Vehicle vehicle, ClaimsPrincipal user, string currentUserId) =>
+        CanProcess(loan, user, currentUserId) || CanBrokerEdit(loan, vehicle, user, currentUserId);
+
+    public static bool CanBrokerViewLoanDocument(LoanApplication loan, Vehicle vehicle, ClaimsPrincipal user, string currentUserId) =>
+        user.IsInRole("Sales") &&
+        !user.IsInRole("BossAdmin") &&
+        !user.IsInRole("Loan") &&
+        !string.IsNullOrWhiteSpace(currentUserId) &&
+        string.Equals(vehicle.SalesAgentUserId, currentUserId, StringComparison.Ordinal) &&
+        vehicle.Id == loan.VehicleId &&
+        vehicle.CustomerId == loan.CustomerId;
+
+    public static ValidationResult ValidateApprovalEvidence(
+        LoanApplication loan,
+        IEnumerable<LoanBankOption> bankOptions)
+    {
+        var selected = bankOptions.FirstOrDefault(option => option.IsSelected);
+        var errors = new List<ValidationError>();
+        if (selected is null)
+        {
+            errors.Add(new("loan_selected_bank_required", "Select the final bank option before approving the loan."));
+        }
+
+        if (loan.LoanAmount is null || loan.InterestRate is null || loan.LoanTenureMonths is null || string.IsNullOrWhiteSpace(loan.LoanBank))
+        {
+            errors.Add(new("loan_lou_terms_required", "Record the selected LOU amount, bank, interest rate and tenure before approving the loan."));
+        }
+        else if (selected is not null &&
+            (loan.LoanAmount != selected.LoanAmount ||
+             !string.Equals(loan.LoanBank.Trim(), selected.BankName.Trim(), StringComparison.OrdinalIgnoreCase) ||
+             loan.InterestRate != selected.InterestRate ||
+             loan.LoanTenureMonths != selected.TenureMonths ||
+             !string.Equals(loan.LoanTerms?.Trim(), selected.Terms?.Trim(), StringComparison.Ordinal)))
+        {
+            errors.Add(new("loan_lou_terms_not_selected", "The canonical LOU terms must match the selected bank option before approval."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
+    public static LoanApplication PrepareBrokerCreate(LoanApplication loan, DateOnly submittedAt) => loan with
+    {
+        Status = LoanStatus.Pending,
+        LouApproved = false,
+        LouDone = false,
+        SubmittedAt = submittedAt,
+        TakenByUserId = null,
+        TakenByName = null,
+        TakenAt = null,
+        LoanAmount = null,
+        LoanBank = null,
+        InterestRate = null,
+        LoanTenureMonths = null,
+        LoanTerms = null,
+        FinalSellingPrice = null,
+        NcdAmount = null,
+        NcdPercentage = null,
+        NcdVehiclePlate = null,
+        NcdInsurer = null,
+        WindscreenCovered = null,
+        WindscreenCover = null,
+        WarrantyInsurance = null,
+        AgreementSignedAt = null,
+        DecisionBy = null,
+        DecisionAt = null,
+        RejectionReason = null
+    };
+
+    public static LoanApplication PrepareBrokerUpdate(LoanApplication existing, LoanApplication incoming) => existing with
+    {
+        FinalSellingPrice = incoming.FinalSellingPrice,
+        DepositAmount = incoming.DepositAmount,
+        ContraAmount = incoming.ContraAmount,
+        TradeInPlateNumber = string.IsNullOrWhiteSpace(incoming.TradeInPlateNumber) ? null : incoming.TradeInPlateNumber.Trim(),
+        NcdAmount = incoming.NcdAmount,
+        NcdPercentage = incoming.NcdPercentage,
+        NcdVehiclePlate = string.IsNullOrWhiteSpace(incoming.NcdVehiclePlate) ? null : incoming.NcdVehiclePlate.Trim(),
+        NcdInsurer = string.IsNullOrWhiteSpace(incoming.NcdInsurer) ? null : incoming.NcdInsurer.Trim(),
+        WindscreenCovered = incoming.WindscreenCovered,
+        WindscreenCover = incoming.WindscreenCover,
+        WarrantyInsurance = incoming.WarrantyInsurance,
+        WarrantyInsuranceSelected = incoming.WarrantyInsuranceSelected,
+        AgreementSignedAt = incoming.AgreementSignedAt
+    };
+
+    public static ValidationResult ValidateDealFields(LoanApplication loan)
+    {
+        var errors = new List<ValidationError>();
+        if (loan.WarrantyInsurance is < 0) errors.Add(new("loan_warranty_amount_invalid", "Warranty insurance cannot be negative."));
+        if (loan.DepositAmount is < 0) errors.Add(new("loan_deposit_invalid", "Deposit cannot be negative."));
+        if (loan.ContraAmount is < 0) errors.Add(new("loan_contra_invalid", "Contra amount cannot be negative."));
+        if (loan.NcdAmount is < 0 || loan.NcdPercentage is < 0 or > 100) errors.Add(new("loan_ncd_invalid", "NCD amount cannot be negative and NCD percentage must be between 0 and 100."));
+        if (loan.WindscreenCover is < 0) errors.Add(new("loan_windscreen_amount_invalid", "Windscreen cover cannot be negative."));
+        if (loan.WindscreenCovered == true && loan.WindscreenCover is null) errors.Add(new("loan_windscreen_amount_required", "Enter the windscreen amount when windscreen cover is selected."));
+        if (loan.LoanAmount is <= 0 || loan.InterestRate is <= 0 || loan.LoanTenureMonths is <= 0) errors.Add(new("loan_finance_terms_invalid", "Loan amount, interest rate and tenure must be valid positive values."));
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidateBankOption(LoanBankOption option)
+    {
+        var errors = new List<ValidationError>();
+        if (string.IsNullOrWhiteSpace(option.BankName)) errors.Add(new("loan_bank_name_required", "Bank name is required."));
+        if (option.LoanAmount is <= 0) errors.Add(new("loan_bank_amount_invalid", "Loan amount must be greater than zero."));
+        if (option.InterestRate is <= 0) errors.Add(new("loan_bank_interest_invalid", "Interest rate must be greater than zero."));
+        if (option.TenureMonths is <= 0) errors.Add(new("loan_bank_tenure_invalid", "Tenure must be greater than zero."));
+        if (option.IsSelected && option.LoanAmount is null) errors.Add(new("loan_bank_amount_required", "Enter the loan amount before selecting this bank."));
+        if (option.IsSelected && option.InterestRate is null) errors.Add(new("loan_bank_interest_required", "Enter the interest rate before selecting this bank."));
+        if (option.IsSelected && option.TenureMonths is null) errors.Add(new("loan_bank_tenure_required", "Enter the tenure before selecting this bank."));
+        return new ValidationResult(errors);
+    }
 
     public static ValidationResult ValidateCreate(LoanApplication loan)
     {
@@ -2038,24 +2174,30 @@ public static class LoanDecisionRules
         {
             DecisionBy = existing.DecisionBy,
             DecisionAt = existing.DecisionAt,
-            RejectionReason = existing.RejectionReason
+            RejectionReason = existing.RejectionReason,
+            TakenByUserId = existing.TakenByUserId,
+            TakenByName = existing.TakenByName,
+            TakenAt = existing.TakenAt
         };
 
-    public static LoanApplication PrepareForCreate(LoanApplication loan, string actor, DateTime createdAt) =>
-        loan.Status switch
+    public static LoanApplication PrepareForCreate(LoanApplication loan, string actor, DateTime createdAt)
+    {
+        var prepared = loan with { SubmittedAt = loan.SubmittedAt ?? DateOnly.FromDateTime(createdAt), TakenByUserId = null, TakenByName = null, TakenAt = null };
+        return prepared.Status switch
         {
             LoanStatus.Approved => ApplyDecision(
-                loan with { Status = LoanStatus.Pending },
+                prepared with { Status = LoanStatus.Pending },
                 new LoanDecisionRequest(LoanStatus.Approved, null),
                 actor,
                 createdAt),
             LoanStatus.Rejected => ApplyDecision(
-                loan with { Status = LoanStatus.Pending },
-                new LoanDecisionRequest(LoanStatus.Rejected, loan.RejectionReason),
+                prepared with { Status = LoanStatus.Pending },
+                new LoanDecisionRequest(LoanStatus.Rejected, prepared.RejectionReason),
                 actor,
                 createdAt),
-            _ => loan with { DecisionBy = null, DecisionAt = null, RejectionReason = null }
+            _ => prepared with { DecisionBy = null, DecisionAt = null, RejectionReason = null }
         };
+    }
 
     public static LoanApplication ApplyDecision(LoanApplication loan, LoanDecisionRequest request, string actor, DateTime decidedAt) =>
         request.Status == LoanStatus.Approved
@@ -2066,6 +2208,7 @@ public static class LoanDecisionRules
                 LouDone = false,
                 DecisionBy = actor,
                 DecisionAt = decidedAt,
+                LastUpdatedAt = decidedAt,
                 RejectionReason = null
             }
             : loan with
@@ -2075,6 +2218,7 @@ public static class LoanDecisionRules
                 LouDone = false,
                 DecisionBy = actor,
                 DecisionAt = decidedAt,
+                LastUpdatedAt = decidedAt,
                 RejectionReason = request.RejectionReason!.Trim()
             };
 
@@ -2136,7 +2280,7 @@ public static class FinanceClearanceRules
 public static class WorkflowStatusRules
 {
     public static bool IsActiveLoan(LoanApplication loan) =>
-        loan.Status is LoanStatus.Pending or LoanStatus.Approved or LoanStatus.Done;
+        loan.Status is LoanStatus.Pending or LoanStatus.Submitted or LoanStatus.Approved or LoanStatus.Done;
 
     public static Vehicle ApplyLoanStatus(Vehicle vehicle, LoanApplication loan)
     {
@@ -2237,9 +2381,14 @@ public static class AuditTrail
 
 public static class ReminderRules
 {
+    public static DateOnly LoanFollowUpDate(LoanApplication loan) =>
+        loan.LastUpdatedAt is { } updatedAt
+            ? DateOnly.FromDateTime(updatedAt.ToUniversalTime())
+            : loan.SubmittedAt!.Value;
+
     public static bool IsLoanFollowUpDue(LoanApplication loan, DateOnly today) =>
-        loan is { Status: LoanStatus.Pending, SubmittedAt: not null } &&
-        loan.SubmittedAt.Value.AddDays(3) <= today;
+        loan is { Status: LoanStatus.Pending or LoanStatus.Submitted, SubmittedAt: not null } &&
+        LoanFollowUpDate(loan).AddDays(2) <= today;
 
     public static bool IsSettlementDue(SettlementReminder reminder, DateOnly today) =>
         !reminder.IsPaid && SettlementRules.RequiresReminder(reminder) && reminder.Deadline <= today;
@@ -2247,10 +2396,9 @@ public static class ReminderRules
     public static bool IsDailySpendDue(DailySpend spend, DateOnly today) =>
         !spend.IsPaid && spend.DueDate <= today;
 
-    public static bool IsDeliveryPreparationDue(DeliverySchedule delivery, DateOnly today) =>
-        DeliveryWorkboardRules.IsActive(delivery) &&
-        !delivery.TwoDayNoticeSent &&
-        delivery.ScheduledDate.AddDays(-2) <= today;
+    // The former two-day customer notice was removed from the approved Delivery flow.
+    // Keep the compatibility method for existing callers without creating reminders.
+    public static bool IsDeliveryPreparationDue(DeliverySchedule delivery, DateOnly today) => false;
 
     public static bool IsPaymentBankFollowUpDue(PaymentRecord payment, DateOnly today) =>
         payment.Status != PaymentStatus.Reconciled &&
@@ -2302,22 +2450,11 @@ public static class ReminderInbox
         {
             reminders.Add(new ReminderItem(
                 "LoanFollowUp",
-                "3-day loan follow-up",
+                "2-day loan follow-up",
                 PlateFor(vehicleById, loan.VehicleId),
                 loan.VehicleId,
-                loan.SubmittedAt!.Value.AddDays(3),
+                ReminderRules.LoanFollowUpDate(loan).AddDays(2),
                 null, nameof(LoanApplication), loan.Id));
-        }
-
-        foreach (var delivery in deliveries.Where(delivery => ReminderRules.IsDeliveryPreparationDue(delivery, today)))
-        {
-            reminders.Add(new ReminderItem(
-                "DeliveryPreparation",
-                "2-day delivery preparation",
-                PlateFor(vehicleById, delivery.VehicleId),
-                delivery.VehicleId,
-                delivery.ScheduledDate,
-                null, nameof(DeliverySchedule), delivery.Id));
         }
 
         foreach (var settlement in settlements.Where(settlement => ReminderRules.IsSettlementDue(settlement, today)))
@@ -2824,7 +2961,8 @@ public static class PriorityActionQueue
         IEnumerable<Lead> leads,
         IEnumerable<HrLeaveRequest> leaveRequests,
         IEnumerable<Vehicle> vehicles,
-        DateOnly today)
+        DateOnly today,
+        string? currentUserId = null)
     {
         var roleSet = roles.ToHashSet(StringComparer.Ordinal);
         var isBoss = roleSet.Contains("BossAdmin");
@@ -2835,7 +2973,18 @@ public static class PriorityActionQueue
         void AddReminders(IEnumerable<ReminderItem> source, string target) =>
             items.AddRange(source.Select(item => new PriorityActionItem(item.Type, item.Title, target, item.DueDate, item.VehiclePlate, item.Amount, item.SourceType, item.SourceId, item.VehicleId == Guid.Empty ? null : item.VehicleId)));
 
-        if (isBoss || roleSet.Contains("Loan")) AddReminders(reminders.Where(item => item.Type == "LoanFollowUp"), "Loans");
+        if (isBoss || roleSet.Contains("Loan"))
+        {
+            var loanReminders = reminders.Where(item => item.Type == "LoanFollowUp");
+            if (!isBoss && !string.IsNullOrWhiteSpace(currentUserId))
+            {
+                var loanById = loans.ToDictionary(loan => loan.Id);
+                loanReminders = loanReminders.Where(item => item.SourceId is { } sourceId &&
+                    loanById.TryGetValue(sourceId, out var loan) &&
+                    string.Equals(loan.TakenByUserId, currentUserId, StringComparison.Ordinal));
+            }
+            AddReminders(loanReminders, "Loans");
+        }
         if (isBoss || roleSet.Contains("Delivery")) AddReminders(reminders.Where(item => item.Type == "DeliveryPreparation"), "Delivery");
         if (isBoss || roleSet.Contains("Finance")) AddReminders(reminders.Where(item => item.Type is "SettlementDue" or "SettlementCollectionDue" or "PaymentBankFollowUp" or "PaymentStatusFollowUp" or "DailySpendDue" or "DebtRecoveryFollowUp" or "PaymentVoucherFollowUp"), "Finance");
         if (isBoss || roleSet.Contains("Finance"))
@@ -3673,15 +3822,74 @@ public static class PurchaseInvoiceRules
     }
 }
 
+public static class LoanDeliveryEligibilityRules
+{
+    public static ValidationResult ValidateForCreate(Vehicle vehicle, IEnumerable<LoanApplication> loans)
+    {
+        var matching = loans.Where(loan => loan.VehicleId == vehicle.Id && vehicle.CustomerId.HasValue && loan.CustomerId == vehicle.CustomerId).ToList();
+        if (matching.Count == 0 || matching.Any(loan => loan.Status == LoanStatus.Done)) return new ValidationResult([]);
+        if (matching.Any(loan => loan.Status is LoanStatus.Pending or LoanStatus.Submitted or LoanStatus.Approved))
+        {
+            return new ValidationResult([new ValidationError(
+                "delivery_loan_not_done",
+                "A financed buyer must have a completed loan before delivery can be created.")]);
+        }
+        return new ValidationResult([]);
+    }
+}
+
 public static class LoanDocumentRules
 {
-    private static readonly FileCategory[] RequiredCategories =
+    private static readonly FileCategory[] LegacyOriginalCategories =
     [
         FileCategory.StatusReceipt,
         FileCategory.Voc,
-        FileCategory.ApDocument,
-        FileCategory.LoanDocument
+        FileCategory.ApDocument
     ];
+    private static readonly FileCategory[] OriginalCategories = [FileCategory.LoanOriginalDocument];
+    private static readonly FileCategory[] EditedCategories = [FileCategory.LoanEditedDocument];
+    private static readonly FileCategory[] AllowedCategories = [.. LegacyOriginalCategories, .. OriginalCategories, .. EditedCategories, FileCategory.LoanDocument];
+
+    public static bool IsLoanCategory(FileCategory category) => AllowedCategories.Contains(category);
+
+    public static bool RequiresLinkedLoan(FileCategory category) =>
+        category is FileCategory.LoanOriginalDocument or FileCategory.LoanEditedDocument or FileCategory.LoanDocument;
+
+    public static bool CanAccessLinkedLoan(LoanApplication loan, Vehicle vehicle, ClaimsPrincipal user, string currentUserId) =>
+        user.IsInRole("BossAdmin") ||
+        LoanDecisionRules.CanProcess(loan, user, currentUserId) ||
+        LoanDecisionRules.CanBrokerViewLoanDocument(loan, vehicle, user, currentUserId);
+
+    // Legacy VOC/AP/status files may be shared vehicle-intake evidence when they
+    // have no buyer or loan link. Once a legacy file carries buyer/case identity,
+    // apply the same case privacy gate as the new explicit Loan categories.
+    public static bool CanAccessDocument(
+        DocumentBlob document,
+        Vehicle vehicle,
+        IEnumerable<LoanApplication> loans,
+        ClaimsPrincipal user,
+        string currentUserId)
+    {
+        if (!IsLoanCategory(document.Category)) return true;
+        if (user.IsInRole("BossAdmin")) return true;
+        if (document.LoanApplicationId is { } loanId)
+        {
+            var linkedLoan = loans.FirstOrDefault(loan => loan.Id == loanId);
+            return linkedLoan is not null && CanAccessLinkedLoan(linkedLoan, vehicle, user, currentUserId);
+        }
+
+        // Delivery's own buyer-locked VOC remains delivery evidence, even when
+        // the buyer also has a completed loan. Explicit loan links stay private.
+        if (document.Category == FileCategory.Voc && document.DeliveryScheduleId.HasValue &&
+            document.VehicleId == vehicle.Id && document.OwnershipType == DocumentOwnershipType.Buyer &&
+            document.CustomerId.HasValue && document.CustomerId == vehicle.CustomerId && user.IsInRole("Delivery"))
+            return true;
+
+        if (document.CustomerId is null) return !RequiresLinkedLoan(document.Category);
+        return loans
+            .Where(loan => loan.VehicleId == vehicle.Id && loan.CustomerId == document.CustomerId)
+            .Any(loan => CanAccessLinkedLoan(loan, vehicle, user, currentUserId));
+    }
 
     public static ValidationResult ValidateUpload(LoanApplication? loan, Guid vehicleId, Guid? canonicalCustomerId, FileCategory category)
     {
@@ -3695,43 +3903,41 @@ public static class LoanDocumentRules
             if (loan.VehicleId != vehicleId) errors.Add(new("loan_document_vehicle_mismatch", "The selected loan is not linked to this vehicle."));
             if (canonicalCustomerId != loan.CustomerId) errors.Add(new("loan_document_buyer_mismatch", "The selected loan buyer is no longer the vehicle's confirmed buyer."));
         }
-        if (!RequiredCategories.Contains(category)) errors.Add(new("loan_document_category_invalid", "This category is not part of the required loan checklist."));
+        if (!AllowedCategories.Contains(category)) errors.Add(new("loan_document_category_invalid", "This category is not part of the loan document checklist."));
         return new ValidationResult(errors);
     }
 
     public static LoanDocumentCheck CheckCompleteness(LoanApplication loan, IEnumerable<DocumentBlob> documents)
     {
-        var attachedCategories = documents
-            .Where(document => document.VehicleId == loan.VehicleId &&
-                (document.LoanApplicationId == loan.Id || (document.LoanApplicationId == null && document.CustomerId == loan.CustomerId)))
-            .Select(document => document.Category)
-            .ToHashSet();
-        var missing = RequiredCategories.Where(category => !attachedCategories.Contains(category)).ToList();
-        return new LoanDocumentCheck(missing.Count == 0, missing);
+        var matchingDocuments = documents.Where(document => document.VehicleId == loan.VehicleId &&
+            (document.LoanApplicationId == loan.Id || (document.LoanApplicationId == null && document.CustomerId == loan.CustomerId))).ToList();
+        var originalCount = matchingDocuments.Count(document => OriginalCategories.Contains(document.Category) || LegacyOriginalCategories.Contains(document.Category));
+        var editedCount = matchingDocuments.Count(document => EditedCategories.Contains(document.Category));
+        var louCount = matchingDocuments.Count(document => document.Category == FileCategory.LoanDocument);
+        var missing = originalCount > 0 ? [] : OriginalCategories.ToList();
+        return new LoanDocumentCheck(missing.Count == 0, missing, originalCount, editedCount, louCount);
     }
 
     public static ValidationResult ValidateCompletion(LoanApplication loan, IEnumerable<DocumentBlob> documents)
     {
+        if (loan.FinalSellingPrice is not > 0 || loan.DepositAmount is null || loan.ContraAmount is null ||
+            loan.NcdPercentage is null || loan.WindscreenCovered is null || loan.WarrantyInsuranceSelected is null)
+            return new ValidationResult([new ValidationError("loan_deal_fields_required", "Complete the final selling price, deposit, contra, NCD, windscreen and warranty insurance before marking Done.")]);
         var check = CheckCompleteness(loan, documents);
         return check.IsComplete
             ? new ValidationResult([])
             : new ValidationResult([new ValidationError(
                 "loan_documents_incomplete",
-                $"Loan cannot be marked done until these buyer documents are uploaded for this vehicle: {string.Join(", ", check.MissingCategories)}.")]);
+                $"Loan cannot be marked done until at least one original loan document is uploaded for this vehicle: {string.Join(", ", check.MissingCategories)}.")]);
     }
 }
 
 public static class DeliveryRules
 {
     public static bool IsReadyForRelease(DeliverySchedule delivery, DateOnly? releaseDate = null) =>
-        delivery.InspectionDone &&
         delivery.DocumentsPrepared &&
-        delivery.PolishDone &&
-        delivery.TintedDone &&
-        delivery.WashDone &&
         delivery.InsuranceHandled &&
         delivery.RoadTaxHandled &&
-        delivery.TwoDayNoticeSent &&
         delivery.CustomerAcknowledged &&
         delivery.FinalChecklistConfirmed &&
         ExpiredDeliveryDocuments(delivery, releaseDate).Count == 0;
@@ -3836,8 +4042,8 @@ public static class DeliveryRules
         }
     }
 
-    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until inspection, inspection report, documents, car preparation, insurance, road tax, 2-day notice, release evidence, and current expiry dates are complete.";
-    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until inspection, inspection report, documents, car preparation, insurance, road tax, 2-day notice, release evidence, and current expiry dates are complete.";
+    public const string DeliveryNotReadyMessage = "Delivery cannot be marked ready until documents, insurance, road tax, handover acknowledgement, and current expiry dates are complete.";
+    public const string DeliveryReleaseBlockedMessage = "Delivery cannot be released until documents, insurance, road tax, handover acknowledgement, and current expiry dates are complete.";
 }
 
 public static class DeliveryDocumentRules
@@ -3845,7 +4051,6 @@ public static class DeliveryDocumentRules
     private static readonly FileCategory[] RequiredCategories =
     [
         FileCategory.DeliveryDocument,
-        FileCategory.InspectionReport,
         FileCategory.HandoverPhoto,
         FileCategory.SignedHandover,
         FileCategory.Policy,
@@ -3854,18 +4059,20 @@ public static class DeliveryDocumentRules
 
     private static readonly FileCategory[] EvidenceCategories =
     [
+        FileCategory.Voc,
         ..RequiredCategories
     ];
 
     public static DeliveryDocumentCheck CheckCompleteness(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
     {
+        var requiredCategories = RequiredCategoriesFor(delivery);
         var deliveryDocuments = documents
             .Where(document =>
                 document.VehicleId == delivery.VehicleId &&
                 document.DeliveryScheduleId == delivery.Id &&
                 document.CustomerId == delivery.CustomerId)
             .ToList();
-        var evidence = EvidenceCategories
+        var latestEvidence = EvidenceCategories
             .Select(category =>
             {
                 var document = deliveryDocuments
@@ -3883,12 +4090,34 @@ public static class DeliveryDocumentRules
                     document?.UploadedAt);
             })
             .ToList();
-        var missing = evidence
-            .Where(item => RequiredCategories.Contains(item.Category) && !item.IsPresent)
+        var latestDocumentIds = latestEvidence
+            .Where(item => item.DocumentId.HasValue)
+            .Select(item => item.DocumentId!.Value)
+            .ToHashSet();
+        var history = deliveryDocuments
+            .Where(document => EvidenceCategories.Contains(document.Category) && !latestDocumentIds.Contains(document.Id))
+            .OrderByDescending(document => document.UploadedAt)
+            .Select(document => new DeliveryEvidenceItem(
+                document.Category,
+                true,
+                document.Id,
+                document.FileName,
+                document.MimeType,
+                document.Checksum,
+                document.UploadedBy,
+                document.UploadedAt));
+        var evidence = latestEvidence.Concat(history).ToList();
+        var missing = latestEvidence
+            .Where(item => requiredCategories.Contains(item.Category) && !item.IsPresent)
             .Select(item => item.Category)
             .ToList();
         return new DeliveryDocumentCheck(missing.Count == 0, missing, evidence);
     }
+
+    private static IReadOnlyList<FileCategory> RequiredCategoriesFor(DeliverySchedule delivery) =>
+        delivery.RoadTaxPaidViaEAuto == true
+            ? RequiredCategories.Where(category => category != FileCategory.RoadTaxReceipt).ToArray()
+            : RequiredCategories;
 
     public static ValidationResult ValidateReadyDocuments(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
     {
@@ -3900,7 +4129,7 @@ public static class DeliveryDocumentRules
         var check = CheckCompleteness(delivery, documents);
         return check.IsComplete
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, inspection report, handover evidence, insurance policy, and road tax uploaded for this delivery and buyer before release.")]);
+            : new ValidationResult([new ValidationError("delivery_documents_incomplete", "Delivery requires delivery documents, handover evidence, insurance policy, and road tax uploaded for this delivery and buyer before release.")]);
     }
 }
 
@@ -4422,7 +4651,7 @@ public static class DashboardMetrics
         return new DashboardSummary(
             TotalStock: unsoldVehicles.Count,
             PurchaseCost: purchaseCost,
-            PendingLoan: loanList.Count(loan => loan.Status == LoanStatus.Pending),
+            PendingLoan: loanList.Count(loan => loan.Status is LoanStatus.Pending or LoanStatus.Submitted),
             OutstandingPayment: outstandingPayment,
             SettlementDue: settlementDue,
             RepairCost: repairCost,

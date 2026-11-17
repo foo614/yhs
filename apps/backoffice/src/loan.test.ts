@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, markLoanDone, nextLoanDocumentReloadKey } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, isRejectedHiddenAfterMonth, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, markLoanDone, nextLoanDocumentReloadKey } from "./loan";
 import type { Customer, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
 const baseLoan: LoanApplication = {
@@ -36,15 +36,22 @@ describe("loan workflow helpers", () => {
     expect(loanCreateBlockReason({ ...baseLoan, status: "Done", louApproved: true, louDone: true })).toBeUndefined();
   });
 
-  it("blocks active loan submissions without submitted dates", () => {
-    expect(loanCreateBlockReason({ ...baseLoan, status: "Pending", submittedAt: " " })).toBe("Submitted date is required for active loan follow-up.");
-    expect(loanCreateBlockReason({ ...baseLoan, status: "Approved", louApproved: true, submittedAt: undefined })).toBe("Submitted date is required for active loan follow-up.");
-    expect(loanCreateBlockReason({ ...baseLoan, status: "Done", louApproved: true, louDone: true, submittedAt: "" })).toBe("Submitted date is required for active loan follow-up.");
+  it("allows the server-created date to drive active loan follow-up", () => {
+    expect(loanCreateBlockReason({ ...baseLoan, status: "Pending", submittedAt: undefined })).toBeUndefined();
+    expect(loanCreateBlockReason({ ...baseLoan, status: "Approved", louApproved: true, submittedAt: undefined })).toBeUndefined();
+    expect(loanCreateBlockReason({ ...baseLoan, status: "Done", louApproved: true, louDone: true, submittedAt: undefined })).toBeUndefined();
     expect(loanCreateBlockReason({ ...baseLoan, status: "Draft", submittedAt: "" })).toBeUndefined();
   });
 
+  it("keeps rejected records searchable while hiding old records by default", () => {
+    const oldRejected = { ...baseLoan, status: "Rejected" as const, decisionAt: "2026-01-01T00:00:00Z" };
+    expect(isRejectedHiddenAfterMonth(oldRejected, new Date("2026-03-01T00:00:00Z"))).toBe(true);
+    expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, {})).toHaveLength(0);
+    expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, { status: "Rejected" })).toHaveLength(1);
+  });
+
   it("limits loan uploads to loan workflow document categories", () => {
-    expect(loanDocumentCategories).toEqual(["Voc", "ApDocument", "StatusReceipt", "LoanDocument"]);
+    expect(loanDocumentCategories).toEqual(["LoanOriginalDocument", "LoanEditedDocument"]);
   });
 
   it("associates a checklist upload with the selected loan", () => {
@@ -57,23 +64,28 @@ describe("loan workflow helpers", () => {
     expect(loanCreateBlockReason({ ...baseLoan, status: "Rejected", rejectionReason: "Bank declined" })).toBeUndefined();
   });
 
-  it("keeps manual loan creation restricted to Boss/Admin", () => {
+  it("allows Broker and Boss/Admin loan creation but not processing-only staff", () => {
     expect(canCreateManualLoan(["Loan"])).toBe(false);
     expect(canCreateManualLoan(["BossAdmin"])).toBe(true);
+    expect(canCreateManualLoan(["Sales"])).toBe(true);
   });
 
-  it("only offers Loan staff an upload action they are authorized to perform", () => {
+  it("separates Broker original uploads from Loan edited and LOU uploads", () => {
     expect(canUploadLoanChecklistDocument(["Loan"], "LoanDocument")).toBe(true);
+    expect(canUploadLoanChecklistDocument(["Loan"], "LoanEditedDocument")).toBe(true);
+    expect(canUploadLoanChecklistDocument(["Loan"], "LoanOriginalDocument")).toBe(false);
+    expect(canUploadLoanChecklistDocument(["Sales"], "LoanOriginalDocument")).toBe(true);
     expect(canUploadLoanChecklistDocument(["Loan"], "Voc")).toBe(false);
-    expect(canUploadLoanChecklistDocument(["Loan"], "ApDocument")).toBe(false);
-    expect(canUploadLoanChecklistDocument(["Loan"], "StatusReceipt")).toBe(false);
+    expect(canUploadLoanChecklistDocument(["Sales"], "LoanDocument")).toBe(false);
     expect(canUploadLoanChecklistDocument(["BossAdmin"], "Voc")).toBe(true);
   });
 
   it("labels Broker-provided evidence without sending Loan staff to a forbidden upload", () => {
-    expect(loanDocumentChecklistStatus("Voc", true)).toBe("Provided by Broker");
-    expect(loanDocumentChecklistStatus("StatusReceipt", false)).toBe("Missing — request from Broker");
-    expect(loanDocumentChecklistStatus("LoanDocument", false)).toBe("Not uploaded yet");
+    expect(loanDocumentChecklistStatus("Voc", true)).toBe("Legacy document preserved");
+    expect(loanDocumentChecklistStatus("StatusReceipt", false)).toBe("Legacy category — not required");
+    expect(loanDocumentChecklistStatus("LoanOriginalDocument", false)).toBe("Missing — request from Broker");
+    expect(loanDocumentChecklistStatus("LoanEditedDocument", false)).toBe("Optional — upload edited copy if needed");
+    expect(loanDocumentChecklistStatus("LoanDocument", false)).toBe("Optional — upload LOU if available");
   });
 
   it("filters loans by combined user-facing status and document criteria", () => {
@@ -83,7 +95,7 @@ describe("loan workflow helpers", () => {
       { ...baseLoan, id: "loan-3", status: "Done" as const }
     ];
     const documentChecks: Record<string, LoanDocumentCheck> = {
-      "loan-1": { isComplete: false, missingCategories: ["Voc"] },
+      "loan-1": { isComplete: false, missingCategories: ["LoanOriginalDocument"] },
       "loan-2": { isComplete: true, missingCategories: [] }
     };
 

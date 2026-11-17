@@ -1,7 +1,9 @@
 import type { Customer, DocumentCategory, DocumentUploadOwner, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 import { newestRecordsFirst } from "./recordDates";
 
-export const loanDocumentCategories = ["Voc", "ApDocument", "StatusReceipt", "LoanDocument"] as const;
+export const loanDocumentCategories = ["LoanOriginalDocument", "LoanEditedDocument"] as const;
+export const loanHistoryDocumentCategories = [...loanDocumentCategories, "LoanDocument", "Voc", "ApDocument", "StatusReceipt"] as const;
+export const loanRequiredDocumentCategories = ["LoanOriginalDocument"] as const;
 
 export function loanDocumentUploadOwner(loan: Pick<LoanApplication, "id">): DocumentUploadOwner {
   return { loanApplicationId: loan.id };
@@ -12,16 +14,26 @@ export function nextLoanDocumentReloadKey(current: number) {
 }
 
 export function canCreateManualLoan(roles: readonly string[]) {
-  return roles.includes("BossAdmin");
+  return roles.includes("BossAdmin") || roles.includes("Sales");
 }
 
 export function canUploadLoanChecklistDocument(roles: readonly string[], category: DocumentCategory) {
-  return roles.includes("BossAdmin") || (roles.includes("Loan") && category === "LoanDocument");
+  if (roles.includes("BossAdmin")) return true;
+  if (category === "LoanOriginalDocument") return roles.includes("Sales");
+  return category === "LoanEditedDocument" || category === "LoanDocument" ? roles.includes("Loan") : false;
 }
 
 export function loanDocumentChecklistStatus(category: DocumentCategory, isPresent: boolean) {
+  if (category === "LoanEditedDocument") {
+    return isPresent ? "Optional edited document uploaded" : "Optional — upload edited copy if needed";
+  }
+
   if (category === "LoanDocument") {
-    return isPresent ? "Uploaded and ready" : "Not uploaded yet";
+    return isPresent ? "Optional LOU uploaded" : "Optional — upload LOU if available";
+  }
+
+  if (category !== "LoanOriginalDocument") {
+    return isPresent ? "Legacy document preserved" : "Legacy category — not required";
   }
 
   return isPresent ? "Provided by Broker" : "Missing — request from Broker";
@@ -42,8 +54,10 @@ export function filterLoanApplications(
   filters: LoanFilters
 ) {
   const keyword = normalizeFilterValue(filters.keyword);
+  const historyRequested = Boolean(keyword || (filters.status && filters.status !== "All"));
 
   return newestRecordsFirst(loans, loan => loan.submittedAt).filter((loan) => {
+    if (loan.status === "Rejected" && !historyRequested && isRejectedHiddenAfterMonth(loan)) return false;
     const vehicle = vehicles.find((item) => item.id === loan.vehicleId);
     const customer = customers.find((item) => item.id === loan.customerId);
     const check = documentChecks[loan.id];
@@ -63,13 +77,20 @@ export function filterLoanApplications(
   });
 }
 
+export function isRejectedHiddenAfterMonth(loan: Pick<LoanApplication, "status" | "submittedAt" | "decisionAt">, today = new Date()) {
+  if (loan.status !== "Rejected") return false;
+  const reference = loan.decisionAt ?? loan.submittedAt;
+  if (!reference) return false;
+  const rejectedAt = new Date(reference);
+  if (Number.isNaN(rejectedAt.getTime())) return false;
+  const cutoff = new Date(today);
+  cutoff.setMonth(cutoff.getMonth() - 1);
+  return rejectedAt < cutoff;
+}
+
 export function loanCreateBlockReason(loan: LoanApplication) {
   if (loan.status === "Rejected" && !loan.rejectionReason?.trim()) {
     return "Rejection reason is required for a rejected loan.";
-  }
-
-  if ((loan.status === "Pending" || loan.status === "Approved" || loan.status === "Done") && !loan.submittedAt?.trim()) {
-    return "Submitted date is required for active loan follow-up.";
   }
 
   if ((loan.status === "Approved" || loan.status === "Done") && !loan.louApproved) {

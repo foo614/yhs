@@ -3,7 +3,7 @@ export type VehiclePurchaseSource = "Carsome" | "Carro" | "KSA" | "YSHeng";
 export type VehicleStatus = "Available" | "LoanProcessing" | "Sold";
 export type LeadStatus = "New" | "Contacted" | "Closed";
 export type LeadClosureOutcome = "Sold" | "Lost" | "Invalid";
-export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done";
+export type LoanStatus = "Draft" | "Pending" | "Approved" | "Rejected" | "Done" | "Submitted";
 export type LoanDecisionStatus = "Approved" | "Rejected";
 export type DeliveryStatus = "BookingInspection" | "Scheduled" | "Inspection" | "PreparingDocuments" | "CarPreparation" | "ReadyForRelease" | "Released" | "Cancelled";
 export type DeliveryType = "Standard" | "Outstation";
@@ -32,7 +32,7 @@ export type HrLeaveType = "AnnualLeave" | "MedicalLeave" | "EmergencyLeave" | "U
 export type HrLeaveStatus = "Pending" | "Approved" | "Rejected" | "Cancelled";
 export type HrPayslipStatus = "Draft" | "Generated" | "PendingFinance" | "PendingBoss" | "Published";
 export type HrEmploymentType = "Monthly" | "Hourly";
-export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy" | "SettlementEvidence" | "BankSettlementPayment" | "InspectionReceipt" | "InspectionAppointmentConfirmation";
+export type DocumentCategory = "PurchaseInvoice" | "Voc" | "IdentityCard" | "ApDocument" | "StatusReceipt" | "LoanDocument" | "DeliveryDocument" | "HandoverPhoto" | "SignedHandover" | "Policy" | "RoadTaxReceipt" | "RepairInvoice" | "PaymentReceipt" | "PaymentInvoice" | "MedicalCertificate" | "InspectionReport" | "WindscreenPolicy" | "SettlementEvidence" | "BankSettlementPayment" | "InspectionReceipt" | "InspectionAppointmentConfirmation" | "LoanOriginalDocument" | "LoanEditedDocument";
 export type DocumentOwnershipType = "Seller" | "Buyer" | "Vehicle";
 export type OcrJobStatus = "Queued" | "Analyzing" | "NeedsReview" | "Failed" | "Reviewed";
 export type OcrReviewDecision = "Pending" | "Accepted" | "Rejected" | "Reviewed";
@@ -130,6 +130,7 @@ export type DocumentUploadOwner = {
   deliveryScheduleId?: string;
   inspectionId?: string;
   loanApplicationId?: string;
+  loanBankOptionId?: string;
 };
 
 export type InspectionTypeCode = 9001 | 9002 | 9003 | 9004 | 9011;
@@ -208,6 +209,8 @@ export type Vehicle = {
   ucdStatus?: string;
   customerId?: string;
   ownerId?: string;
+  salesAgentUserId?: string;
+  salesAgentName?: string;
   hasSpareKey?: boolean;
   intakeDate?: string;
   intakeAt?: string;
@@ -218,7 +221,7 @@ export type Vehicle = {
 };
 
 export type VehicleLookup = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "stockOwner" | "status" | "customerId"> &
-  Partial<Pick<Vehicle, "year" | "sellingPrice" | "additionalCharges">>;
+  Partial<Pick<Vehicle, "year" | "sellingPrice" | "additionalCharges" | "salesAgentUserId">>;
 
 export type FinanceVehicleOption = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "status" | "customerId" | "sellingPrice" | "additionalCharges">;
 
@@ -623,9 +626,47 @@ export type LoanApplication = {
   louApproved: boolean;
   louDone: boolean;
   submittedAt?: string;
+  takenByUserId?: string;
+  takenByName?: string;
+  takenAt?: string;
+  loanAmount?: number;
+  loanBank?: string;
+  interestRate?: number;
+  loanTenureMonths?: number;
+  loanTerms?: string;
+  finalSellingPrice?: number;
+  depositAmount?: number;
+  contraAmount?: number;
+  tradeInPlateNumber?: string;
+  ncdAmount?: number;
+  ncdPercentage?: number;
+  ncdVehiclePlate?: string;
+  ncdInsurer?: string;
+  windscreenCovered?: boolean;
+  windscreenCover?: number;
+  warrantyInsurance?: number;
+  warrantyInsuranceSelected?: boolean;
+  agreementSignedAt?: string;
   decisionBy?: string;
   decisionAt?: string;
   rejectionReason?: string;
+};
+
+export type LoanBankOption = {
+  id: string;
+  loanApplicationId: string;
+  bankName: string;
+  loanAmount?: number;
+  interestRate?: number;
+  tenureMonths?: number;
+  terms?: string;
+  isSelected: boolean;
+  status: "Pending" | "Submitted" | "Approved" | "Rejected";
+  submittedAt?: string;
+  rejectionReason?: string;
+  louDocumentId?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type DeliverySchedule = {
@@ -652,9 +693,13 @@ export type DeliverySchedule = {
   notificationSent: boolean;
   twoDayNoticeSent: boolean;
   insuranceHandled: boolean;
+  insuranceCompany?: string;
+  insurancePrice?: number;
+  insuranceSumInsured?: number;
   insurancePolicyReference?: string;
   insuranceExpiryDate?: string;
   roadTaxHandled: boolean;
+  roadTaxPaidViaEAuto?: boolean;
   roadTaxReceiptReference?: string;
   roadTaxExpiryDate?: string;
   windscreenInsuranceHandled: boolean;
@@ -673,6 +718,7 @@ export type DeliveryWorkboardItem = {
   vehicleId: string;
   plateNumber: string;
   vehicleLabel: string;
+  finalSellingPrice?: number;
   customerId?: string;
   customerName: string;
   picUserId?: string;
@@ -680,6 +726,7 @@ export type DeliveryWorkboardItem = {
   deliveryType?: DeliveryType;
   scheduledDate: string;
   scheduledTime?: string;
+  releasedAt?: string;
   deliveryAddress?: string;
   transportMethod?: string;
   rescheduleReason?: string;
@@ -704,9 +751,13 @@ export type DeliveryWorkboardItem = {
   notificationSent: boolean;
   twoDayNoticeSent: boolean;
   insuranceHandled: boolean;
+  insuranceCompany?: string;
+  insurancePrice?: number;
+  insuranceSumInsured?: number;
   insurancePolicyReference?: string;
   insuranceExpiryDate?: string;
   roadTaxHandled: boolean;
+  roadTaxPaidViaEAuto?: boolean;
   roadTaxReceiptReference?: string;
   roadTaxExpiryDate?: string;
   windscreenInsuranceHandled: boolean;
@@ -1506,6 +1557,9 @@ export type VehiclePhoto = {
 export type LoanDocumentCheck = {
   isComplete: boolean;
   missingCategories: DocumentCategory[];
+  originalDocumentCount?: number;
+  editedDocumentCount?: number;
+  louDocumentCount?: number;
 };
 
 export type DeliveryReleaseReadiness = {
@@ -1887,11 +1941,11 @@ export type WhatsAppQueueItem = {
   templateVersion: string; language: string; state: string; attempts: number;
   createdAt: number; canRetry: boolean; canSuppress: boolean;
 };
-export type WhatsAppQueue = { captureEnabled: boolean; sendingEnabled: boolean; items: WhatsAppQueueItem[] };
+export type WhatsAppQueue = { captureEnabled: boolean; sendingEnabled: boolean; items: WhatsAppQueueItem[]; totalCount?: number };
 export type WhatsAppConsentInput = { recipient: string; optedIn: boolean; language: "ms" | "en_US"; evidence: string };
 
-export async function getWhatsAppQueue(state = "", page = 1): Promise<WhatsAppQueue> {
-  return request<WhatsAppQueue>(`/api/whatsapp/queue?state=${encodeURIComponent(state)}&page=${page}`);
+export async function getWhatsAppQueue(state = "", page = 1, pageSize = 10): Promise<WhatsAppQueue> {
+  return request<WhatsAppQueue>(`/api/whatsapp/queue?state=${encodeURIComponent(state)}&page=${page}&pageSize=${pageSize}`);
 }
 
 export async function saveWhatsAppConsent(input: WhatsAppConsentInput): Promise<void> {
@@ -2616,9 +2670,10 @@ export async function createSupplierInvoice(invoice: SupplierInvoice): Promise<S
   });
 }
 
-export async function updateSupplierInvoice(invoice: SupplierInvoice): Promise<SupplierInvoice> {
+export async function updateSupplierInvoice(invoice: SupplierInvoice, expected?: SupplierInvoice): Promise<SupplierInvoice> {
   return request<SupplierInvoice>(`/api/supplier-invoices/${invoice.id}`, {
     method: "PUT",
+    headers: expected ? { "X-Expected-Supplier-Invoice": encodeURIComponent(JSON.stringify(expected)) } : undefined,
     body: JSON.stringify(invoice)
   });
 }
@@ -2652,12 +2707,30 @@ export async function createRepairWithReceipt(requestBody: CreateRepairWithRecei
   });
 }
 
-export async function approveRepair(repairId: string, notes?: string): Promise<RepairJob> {
+export async function approveRepair(repairId: string, notes?: string, expectedCost?: number): Promise<RepairJob> {
   return request<RepairJob>(`/api/repairs/${repairId}/approval`, {
     method: "POST",
-    body: JSON.stringify({ notes: notes?.trim() || undefined })
+    body: JSON.stringify({ notes: notes?.trim() || undefined, expectedCost })
   });
 }
+
+export type RepairReviewRow = {
+  needsReview: boolean;
+  id: string;
+  repairId?: string;
+  supplierInvoiceId?: string;
+  vehicleId: string;
+  plateNumber: string;
+  invoiceNumber?: string;
+  supplierName?: string;
+  receiptDate?: string;
+  amount: number;
+  status: "Submitted" | "Approved" | "Paid" | "Rejected";
+};
+
+export const getRepairReview = () => request<RepairReviewRow[]>("/api/repair-review");
+export const rejectRepair = (id: string) => request<RepairJob>(`/api/repairs/${id}/reject`, { method: "POST", body: JSON.stringify({}) });
+export const recordRepairPayment = (id: string, paidAt: string, expectedAmount: number) => request<void>(`/api/repair-review/${id}/paid`, { method: "POST", body: JSON.stringify({ paidAt, expectedAmount }) });
 
 export async function confirmRepairReceipt(repairId: string, receipt: ConfirmRepairReceiptRequest) {
   return request(`/api/repairs/${repairId}/receipts/confirm`, {
@@ -2675,6 +2748,65 @@ export async function createLoan(loan: LoanApplication): Promise<LoanApplication
     method: "POST",
     body: JSON.stringify(loan)
   });
+}
+
+export async function takeLoan(loanId: string): Promise<LoanApplication> {
+  return request<LoanApplication>(`/api/loans/${loanId}/take`, {
+    method: "POST"
+  });
+}
+
+export async function getLoanBankOptions(loanId: string): Promise<LoanBankOption[]> {
+  return request<LoanBankOption[]>(`/api/loans/${loanId}/banks`);
+}
+
+export type LoanBankOptionInput = Omit<LoanBankOption, "id" | "createdAt" | "updatedAt" | "status" | "submittedAt" | "rejectionReason" | "louDocumentId">;
+
+export async function createLoanBankOption(loanId: string, option: LoanBankOptionInput): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${loanId}/banks`, { method: "POST", body: JSON.stringify(option) });
+}
+
+export async function updateLoanBankOption(option: LoanBankOption): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}`, { method: "PUT", body: JSON.stringify(option) });
+}
+
+export async function submitLoanBank(option: LoanBankOption): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/submit`, { method: "POST" });
+}
+
+export async function rejectLoanBank(option: LoanBankOption, rejectionReason: string): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/reject`, { method: "POST", body: JSON.stringify({ rejectionReason }) });
+}
+
+export async function selectFinalLoanBank(option: LoanBankOption): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/select-final`, { method: "POST" });
+}
+
+export type LoanBuyerIntakeInput = {
+  vehicleId: string;
+  cashBuyer: boolean;
+  customerId?: string;
+  name?: string;
+  icNumber?: string;
+  phone?: string;
+  address?: string;
+  email?: string;
+  finalSellingPrice?: number;
+  tradeInPlateNumber?: string;
+  identityCardDocumentId?: string;
+  newLoanId?: string;
+};
+
+export async function createLoanBuyerIntake(input: LoanBuyerIntakeInput, identityCard?: File): Promise<{ customer: Customer; loan?: LoanApplication }> {
+  const body = new FormData();
+  body.append("input", JSON.stringify(input));
+  if (identityCard) body.append("identityCard", identityCard);
+  const response = await fetch(`${apiBaseUrl}/api/loans/intake`, { method: "POST", credentials: "include", body });
+  if (!response.ok) {
+    if (response.status === 401) notifySessionExpired();
+    throw new Error(await responseErrorMessage(response, "Unable to save buyer details."));
+  }
+  return parseOptionalJson<{ customer: Customer; loan?: LoanApplication }>(response);
 }
 
 export async function createDelivery(delivery: DeliverySchedule): Promise<DeliverySchedule> {
@@ -3104,6 +3236,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.deliveryScheduleId) query.set("deliveryScheduleId", owner.deliveryScheduleId);
   if (owner?.inspectionId) query.set("inspectionId", owner.inspectionId);
   if (owner?.loanApplicationId) query.set("loanApplicationId", owner.loanApplicationId);
+  if (owner?.loanBankOptionId) query.set("loanBankOptionId", owner.loanBankOptionId);
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
 
@@ -3780,7 +3913,8 @@ function vehicleLookupFromVehicle(vehicle: Vehicle): VehicleLookup {
     year: vehicle.year,
     stockOwner: vehicle.stockOwner,
     status: vehicle.status,
-    customerId: vehicle.customerId
+    customerId: vehicle.customerId,
+    salesAgentUserId: vehicle.salesAgentUserId
   };
 }
 

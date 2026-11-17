@@ -1292,7 +1292,7 @@ public static class GoogleDocumentAiEntityMapper
         ApplyFirst(entities, fields, fieldConfidence, "supplierTinNumber", "supplier_tax_id", "supplier_tin", "supplier_tax_identification_number");
 
         var amount = FindFirst(entities, "total_amount", "net_amount", "invoice_amount");
-        if (amount is not null)
+        if (amount is not null && extraction.DocumentCategory != FileCategory.LoanDocument)
         {
             foreach (var field in new[] { "amount", "nettPrice", "salesPrice" })
             {
@@ -1549,6 +1549,11 @@ public static class OcrExtractionParser
             fields["salesPrice"] = null;
         }
 
+        if (document.Category == FileCategory.RoadTaxReceipt)
+        {
+            fields["expiryDate"] = FindLabeledDate(text, "expiry", "valid until", "tarikh tamat", "luput") ?? FindDate(text);
+        }
+
         if (document.Category == FileCategory.Voc)
         {
             var jpjVoc = FindJpjVocFields(text);
@@ -1582,6 +1587,31 @@ public static class OcrExtractionParser
         }
 
         var warnings = new List<string>(initialWarnings);
+        if (document.Category == FileCategory.LoanDocument)
+        {
+            // Only labelled LOU values are safe drafts. A vehicle price or an
+            // instalment elsewhere in the document is not the approved loan.
+            string? UniqueValue(string pattern)
+            {
+                var values = Regex.Matches(text, pattern, RegexOptions.IgnoreCase | RegexOptions.Multiline)
+                    .Select(match => match.Groups["value"].Value.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                return values.Length == 1 ? values[0] : null;
+            }
+
+            fields["loanBank"] = UniqueValue(@"^\s*(?:bank|financier)\s*:\s*(?<value>[^\r\n]+)");
+            fields["loanAmount"] = UniqueValue(@"^\s*(?:loan amount|approved amount|financing amount|amount financed)\s*[:\-]?\s*(?:RM|MYR)?\s*(?<value>\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*$")?.Replace(",", "");
+            fields["interestRate"] = UniqueValue(@"^\s*(?:interest rate|profit rate|flat rate)\s*[:\-]?\s*(?<value>\d+(?:\.\d+)?)\s*%(?:\s*(?:p\.?a\.?|per annum))?\s*$");
+            fields["loanTenureMonths"] = UniqueValue(@"^\s*(?:tenure|loan tenure|financing tenure|period)\s*[:\-]?\s*(?<value>\d+)\s*months?\s*$");
+            fields["loanTerms"] = UniqueValue(@"^\s*(?:terms and conditions|terms & conditions|conditions|terms)\s*:?\s*\r?\n(?<value>[\s\S]+)\z");
+            fields["amount"] = fields["loanAmount"];
+            fields["nettPrice"] = null;
+            fields["salesPrice"] = null;
+            foreach (var key in new[] { "loanBank", "loanAmount", "interestRate", "loanTenureMonths", "loanTerms" })
+                if (string.IsNullOrWhiteSpace(fields[key]))
+                    warnings.Add($"LOU {key} was missing or ambiguous. Check the original document and enter it manually.");
+            warnings.Add("Review all extracted LOU values and the original bank terms before applying them.");
+        }
         if (document.Category != FileCategory.IdentityCard && string.IsNullOrWhiteSpace(fields["plateNumber"]))
         {
             warnings.Add("No car plate was detected. Please confirm the linked vehicle before saving.");
@@ -2376,8 +2406,29 @@ public static class OcrExtractionParser
 
     private static string? FindDate(string text)
     {
-        var match = Regex.Match(text, @"\b(?<date>\d{4}-\d{2}-\d{2})\b");
-        return match.Success ? match.Groups["date"].Value : null;
+        var match = Regex.Match(text, @"\b(?<date>\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})\b");
+        return match.Success ? NormalizeDate(match.Groups["date"].Value) : null;
+    }
+
+    private static string? FindLabeledDate(string text, params string[] labels)
+    {
+        foreach (var label in labels)
+        {
+            var match = Regex.Match(text, $@"\b{Regex.Escape(label)}\b\s*[:#-]?\s*(?<date>\d{{4}}-\d{{2}}-\d{{2}}|\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{4}})", RegexOptions.IgnoreCase);
+            if (match.Success) return NormalizeDate(match.Groups["date"].Value);
+        }
+
+        return null;
+    }
+
+    private static string NormalizeDate(string value)
+    {
+        if (DateOnly.TryParseExact(value, ["yyyy-MM-dd", "d/M/yyyy", "dd/MM/yyyy", "d-M-yyyy", "dd-MM-yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            return date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        return value;
     }
 
     private static string? MockReference(DocumentBlob document, string prefix, bool allowMockFallbacks) =>

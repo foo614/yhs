@@ -9,6 +9,7 @@ public static class WhatsAppWorkflowEvents
 {
     public const string NewStock = "CompanyNewStock";
     public const string Intake = "VehicleIntakeSaved";
+    public const string DeliveryBookingCreated = "DeliveryBookingCreated";
     public const string PublicationRequest = "PublicationApprovalRequested";
     public const string DeliveryRelease = "DeliveryReleased";
     public const string InvoiceUpdateRequest = "DeliveryInvoiceUpdateRequested";
@@ -96,6 +97,8 @@ public static class WhatsAppWorkflowEvents
         return item.EventKind switch
         {
             Intake or NewStock => item.SourceId == vehicle.Id,
+            DeliveryBookingCreated => await db.DeliverySchedules.AsNoTracking().AnyAsync(row => row.Id == item.SourceId &&
+                row.VehicleId == vehicle.Id && row.Status != DeliveryStatus.Cancelled, ct),
             PublicationRequest => item.SourceId == vehicle.Id && !vehicle.BossConfirmed && !vehicle.IsPublic &&
                 vehicle.Status == VehicleStatus.Available,
             DeliveryRelease => await db.DeliverySchedules.AsNoTracking().AnyAsync(row => row.Id == item.SourceId &&
@@ -144,6 +147,7 @@ public static class WhatsAppWorkflowEvents
     private static readonly IReadOnlyDictionary<string, string> MalayCopy = new Dictionary<string, string>
     {
         [Intake] = "rekod kemasukan baharu disimpan; semak kenderaan dalam portal.",
+        [DeliveryBookingCreated] = "tempahan penyerahan baharu dibuat; semak jadual dalam portal.",
         [PublicationRequest] = "kelulusan penyenaraian laman web diminta; semak dalam portal.",
         [DeliveryRelease] = "penyerahan kenderaan telah dilepaskan selepas serahan selesai.",
         [InvoiceUpdateRequest] = "kemas kini invois penyerahan diminta; semak dalam portal.",
@@ -159,6 +163,7 @@ public static class WhatsAppWorkflowEvents
         {
             [NewStock] = ("CompanyNews", "AllStaff", "new stock available"),
             [Intake] = ("VehicleEvent", "BossAdmin", "new intake saved; review the vehicle in the portal."),
+            [DeliveryBookingCreated] = ("CompanyNews", "AllStaff", "new delivery booking created; review the schedule in the portal."),
             [PublicationRequest] = ("VehicleEvent", "BossAdmin", "website listing approval requested; review in the portal."),
             [DeliveryRelease] = ("DeliveryEvent", "BossAdmin", "delivery released after completed handover."),
             [InvoiceUpdateRequest] = ("DeliveryEvent", "BossAdmin", "delivery invoice update requested; review in the portal."),

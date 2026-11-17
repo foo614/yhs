@@ -1903,7 +1903,7 @@ export function FinancePage({
             </article>
             );
           })}
-          <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={financePageSize} total={filteredPayments.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
+          <Pagination className="mobileRecordPagination" current={paymentPage} pageSize={financePageSize} total={filteredPayments.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 1120 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
@@ -2255,7 +2255,7 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={financePageSize} total={filteredBrokerCommissions.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
+            <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={financePageSize} total={filteredBrokerCommissions.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 1040 }} locale={{ emptyText: brokerCommissionEmptyText }} />
           <Modal
@@ -2376,7 +2376,7 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={financePageSize} total={filteredDebtRecoveries.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
+            <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={financePageSize} total={filteredDebtRecoveries.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
           <Modal
@@ -2498,7 +2498,7 @@ export function FinancePage({
                 {purchaseInvoiceConfirmationError?.invoiceId === invoice.id && <PurchaseInvoiceConfirmationError error={purchaseInvoiceConfirmationError.message} onClose={() => setPurchaseInvoiceConfirmationError(undefined)} />}
               </article>;
             })}
-            <Pagination className="mobileRecordPagination" current={purchaseInvoicePageNumber} pageSize={financePageSize} total={filteredPurchaseInvoices.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setPurchaseInvoicePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
+            <Pagination className="mobileRecordPagination" current={purchaseInvoicePageNumber} pageSize={financePageSize} total={filteredPurchaseInvoices.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setPurchaseInvoicePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable<PurchaseInvoice>
             className="desktopDataTable nativeSearchDesktopOnly"
@@ -2520,7 +2520,7 @@ export function FinancePage({
           scroll={{ x: 900 }}
           locale={{ emptyText: deliveryAccountingLoad.error ? "Records unavailable. Retry to load this list." : deliveryAccountingLoad.loading ? "Loading records…" : "No delivery accounting records yet." }}
           dataSource={deliveryAccountingCharges}
-          pagination={false}
+          pagination={{ defaultPageSize: 10, showSizeChanger: true }}
           columns={[
             { title: "Car Plate", render: (_, charge) => plateFor(vehicles, charge.vehicleId) },
             { title: "Type", dataIndex: "chargeType" },
@@ -2564,7 +2564,7 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={financePageSize} total={filteredPaymentVouchers.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
+            <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={financePageSize} total={filteredPaymentVouchers.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
           <Modal
@@ -2706,7 +2706,7 @@ export function FinancePage({
                 </div>
               </article>
             ))}
-            <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={financePageSize} total={filteredDailySpends.length} showSizeChanger pageSizeOptions={[10, 20, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
+            <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={financePageSize} total={filteredDailySpends.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
           <Modal
@@ -2932,7 +2932,7 @@ function tablePagination(total: number, current: number, onChange: (page: number
     pageSize,
     total,
     showSizeChanger: true,
-    pageSizeOptions: [10, 20, 50, 100],
+    pageSizeOptions: [10, 20, 30, 50, 100],
     onChange: (page, size) => { onChange(size === pageSize ? page : 1); onPageSizeChange(size); },
     showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
   };

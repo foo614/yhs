@@ -13,7 +13,7 @@ import {
   type VehicleCatalogModelInput
 } from "../../api";
 
-const mobileCatalogPageSize = 8;
+
 const addNewMakeValue = "__add_new_make__";
 type VehicleCatalogFormValues = Omit<VehicleCatalogModelInput, "make"> & { makeChoice: string; newMake?: string };
 
@@ -49,6 +49,7 @@ export function VehicleCatalogSettings() {
   const [catalogModels, setCatalogModels] = useState<VehicleCatalogModel[]>([]);
   const [catalogFilters, setCatalogFilters] = useState<VehicleCatalogFilters>({});
   const [mobileCatalogPage, setMobileCatalogPage] = useState(1);
+  const [mobileCatalogPageSize, setMobileCatalogPageSize] = useState(10);
   const [catalogFormOpen, setCatalogFormOpen] = useState(false);
   const [catalogSaving, setCatalogSaving] = useState(false);
   const [catalogSaveError, setCatalogSaveError] = useState<string | null>(null);
@@ -254,13 +255,13 @@ export function VehicleCatalogSettings() {
             <div className="mobileRecordFooter">{renderCatalogActions(item)}</div>
           </article>
         ))}
-        {filteredCatalogModels.length > mobileCatalogPageSize && (
+        {filteredCatalogModels.length > 0 && (
           <Pagination
             current={clampedMobileCatalogPage}
             pageSize={mobileCatalogPageSize}
             total={filteredCatalogModels.length}
-            showSizeChanger={false}
-            onChange={setMobileCatalogPage}
+            showSizeChanger pageSizeOptions={[10, 20, 30]}
+            onChange={(page, size) => { setMobileCatalogPage(page); setMobileCatalogPageSize(size); }}
           />
         )}
       </div>
@@ -292,7 +293,7 @@ export function VehicleCatalogSettings() {
             setMobileCatalogPage(1);
           }
         }}
-        pagination={{ pageSize: 8, showSizeChanger: false, current: clampedMobileCatalogPage, onChange: setMobileCatalogPage }}
+        pagination={{ pageSize: mobileCatalogPageSize, showSizeChanger: true, current: clampedMobileCatalogPage, onChange: (page, size) => { setMobileCatalogPage(page); setMobileCatalogPageSize(size); } }}
         scroll={{ x: 640 }}
         locale={{ emptyText: catalogEmptyText }}
       />

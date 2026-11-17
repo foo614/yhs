@@ -760,6 +760,36 @@ public sealed class WhatsAppOutboxTests
         Assert.DoesNotContain("Rejected", row.Body);
     }
 
+    [Fact]
+    public async Task Loan_follow_up_is_queued_for_the_assigned_loan_processor_only()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddLoanStaffBinding(db, assistant);
+        var vehicle = new Vehicle { PlateNumber = "LOAN123", IntakeDate = WhatsAppStaffNotifications.LocalDate(Now) };
+        var loan = new LoanApplication
+        {
+            VehicleId = vehicle.Id,
+            CustomerId = Guid.NewGuid(),
+            Status = LoanStatus.Pending,
+            SubmittedAt = WhatsAppStaffNotifications.LocalDate(Now).AddDays(-3),
+            TakenByUserId = "staff-notification"
+        };
+        db.Vehicles.Add(vehicle);
+        db.LoanApplications.Add(loan);
+        db.WhatsAppStaffNotificationPolicies.Add(new WhatsAppStaffNotificationPolicy { Category = WhatsAppLoanFollowUps.Category, Enabled = true });
+        await db.SaveChangesAsync();
+
+        Assert.Equal(1, await WhatsAppLoanFollowUps.EnqueueForVerifiedBindingsAsync(db, assistant, Now, "scheduler"));
+        await db.SaveChangesAsync();
+        var row = await db.WhatsAppOutbox.SingleAsync();
+        Assert.Equal(WhatsAppLoanFollowUps.Category, row.MessageKind);
+        Assert.Equal("Loan", row.RequiredStaffRole);
+        Assert.Contains("LOAN123", row.Body);
+        Assert.DoesNotContain("RM", row.Body);
+    }
+
     [Theory]
     [InlineData(false, true, 0)]
     [InlineData(true, false, 0)]
@@ -1782,6 +1812,18 @@ public sealed class WhatsAppOutboxTests
         var issued = await WhatsAppStaffBindings.IssueAsync(db, assistant, "staff-notification",
             new(Recipient, "ms", true), "synthetic actor", Now);
         Assert.True(await WhatsAppStaffBindings.VerifyAsync(db, assistant, Recipient, issued.Command[5..], "notification-link", Now));
+    }
+
+    private static async Task AddLoanStaffBinding(AppDbContext db, WhatsAppAssistantOptions assistant)
+    {
+        db.Users.Add(new AppUser { Id = "staff-notification", UserName = "staff-notification", DisplayName = "Synthetic loan staff",
+            SecurityStamp = "synthetic-stamp" });
+        db.Roles.Add(new IdentityRole("Loan") { Id = "notification-loan", NormalizedName = "LOAN" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "staff-notification", RoleId = "notification-loan" });
+        await db.SaveChangesAsync();
+        var issued = await WhatsAppStaffBindings.IssueAsync(db, assistant, "staff-notification",
+            new(Recipient, "ms", true), "synthetic actor", Now);
+        Assert.True(await WhatsAppStaffBindings.VerifyAsync(db, assistant, Recipient, issued.Command[5..], "loan-notification-link", Now));
     }
 
     private sealed class Fixture(SqliteConnection anchor, DbContextOptions<AppDbContext> options) : IAsyncDisposable

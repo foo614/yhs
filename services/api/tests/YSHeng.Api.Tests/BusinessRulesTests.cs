@@ -22,6 +22,67 @@ namespace YSHeng.Api.Tests;
 public sealed class BusinessRulesTests
 {
     [Fact]
+    public void RepairReview_DoesNotCountLinkedReceiptAndRepairTwice()
+    {
+        var vehicle = new Vehicle { PlateNumber = "TEST123" };
+        var repair = new RepairJob { VehicleId = vehicle.Id, Cost = 120m, ApprovalStatus = RepairApprovalStatus.Approved };
+        var invoice = new SupplierInvoice { VehicleId = vehicle.Id, SupplierName = "Test supplier", InvoiceNumber = "R1", Amount = 120m, InvoiceDate = new DateOnly(2026, 11, 1) };
+        var receipt = new RepairReceipt { RepairJobId = repair.Id, SupplierName = "Test supplier", InvoiceNumber = "R1", TotalAmount = 120m };
+        var rows = RepairReviewRules.Build([repair], [invoice], [receipt], [vehicle]);
+        var row = Assert.Single(rows);
+        Assert.Equal(120m, rows.Sum(item => item.Amount));
+        Assert.Equal(repair.Id, row.RepairId);
+        Assert.Equal("Approved", row.Status);
+        Assert.Equal(invoice.InvoiceDate, row.ReceiptDate);
+        var second = invoice with { Id = Guid.NewGuid(), InvoiceNumber = "R2", Amount = 80m };
+        var secondReceipt = receipt with { Id = Guid.NewGuid(), InvoiceNumber = "R2", TotalAmount = 80m };
+        var split = RepairReviewRules.Build([repair with { Cost = 200m }], [invoice, second], [receipt, secondReceipt], [vehicle]);
+        Assert.Equal(200m, split.Sum(item => item.Amount));
+        Assert.All(split, item => Assert.False(item.NeedsReview));
+    }
+
+    [Fact]
+    public void RepairReview_DoesNotAttachAnAmbiguousReceiptToAnApprovedRepair()
+    {
+        var vehicle = new Vehicle { PlateNumber = "TEST123" };
+        var repairs = new[] { new RepairJob { VehicleId = vehicle.Id }, new RepairJob { VehicleId = vehicle.Id } };
+        var invoice = new SupplierInvoice { VehicleId = vehicle.Id, SupplierName = "Test supplier", InvoiceNumber = "R1", Amount = 120m };
+        var receipts = repairs.Select(repair => new RepairReceipt { RepairJobId = repair.Id, SupplierName = "Test supplier", InvoiceNumber = "R1" }).ToArray();
+        var rows = RepairReviewRules.Build(repairs, [invoice], receipts, [vehicle]);
+        var row = rows.Single(item => item.SupplierInvoiceId == invoice.Id);
+        Assert.All(rows, item => Assert.True(item.NeedsReview));
+        Assert.Null(row.RepairId);
+        Assert.Equal("Submitted", row.Status);
+    }
+
+    [Fact]
+    public void RepairReview_UnlinkedRepairNeedsReviewBeforeApproval()
+    {
+        var vehicle = new Vehicle { PlateNumber = "TEST123" };
+        var repair = new RepairJob { VehicleId = vehicle.Id, Cost = 120m, ApprovalStatus = RepairApprovalStatus.Pending };
+
+        var row = Assert.Single(RepairReviewRules.Build([repair], [], [], [vehicle]));
+
+        Assert.Equal(repair.Id, row.RepairId);
+        Assert.Null(row.SupplierInvoiceId);
+        Assert.True(row.NeedsReview);
+    }
+
+    [Fact]
+    public void RepairReview_MismatchedAmountOrDuplicateInvoiceCannotBePaidAsApproved()
+    {
+        var vehicle = new Vehicle { PlateNumber = "TEST123" };
+        var repair = new RepairJob { VehicleId = vehicle.Id, Cost = 120m, ApprovalStatus = RepairApprovalStatus.Approved };
+        var invoice = new SupplierInvoice { VehicleId = vehicle.Id, SupplierName = "Test supplier", InvoiceNumber = "R1", Amount = 150m };
+        var receipt = new RepairReceipt { RepairJobId = repair.Id, SupplierName = "Test supplier", InvoiceNumber = "R1", TotalAmount = 120m };
+        Assert.True(RepairReviewRules.Build([repair], [invoice], [receipt], [vehicle]).Single().NeedsReview);
+        var duplicate = invoice with { Id = Guid.NewGuid(), Amount = 120m };
+        var rows = RepairReviewRules.Build([repair], [invoice, duplicate], [receipt], [vehicle]);
+        Assert.All(rows.Where(row => row.SupplierInvoiceId.HasValue), row => { Assert.True(row.NeedsReview); Assert.Null(row.RepairId); });
+        Assert.True(RepairReviewRules.HasPaidReceipt(repair, [invoice with { PaidAt = new DateOnly(2026, 11, 17) }], [receipt]));
+    }
+
+    [Fact]
     public void Dashboard_updates_keep_personal_reminders_and_loan_documents_scoped()
     {
         var today = new DateOnly(2026, 11, 14);
@@ -396,7 +457,6 @@ public sealed class BusinessRulesTests
         await db.SaveChangesAsync();
         var reply = await WhatsAppStaffProgressQueries.ReplyLoanAsync(db, vehicle.Id, language, default);
         Assert.Contains(language == "ms" ? "Diluluskan" : "Approved", reply);
-        Assert.Contains("VOC", reply);
         Assert.DoesNotContain("PRIVATE", reply);
         Assert.DoesNotContain(buyer.ToString(), reply);
         db.LoanApplications.Add(new LoanApplication { VehicleId = vehicle.Id, CustomerId = buyer, Status = LoanStatus.Pending });
@@ -449,12 +509,12 @@ public sealed class BusinessRulesTests
         Assert.Contains(language == "ms" ? "tidak meluluskan" : "does not approve release", reply);
         Assert.DoesNotContain("PRIVATE", reply);
         db.Entry(delivery).CurrentValues.SetValues(delivery with { InsuranceExpiryDate = today.AddDays(-1) });
-        var document = await db.DocumentBlobs.FirstAsync(item => item.Category == FileCategory.InspectionReport);
+        var document = await db.DocumentBlobs.FirstAsync(item => item.Category == FileCategory.DeliveryDocument);
         db.Entry(document).CurrentValues.SetValues(document with { DeliveryScheduleId = Guid.NewGuid() });
         await db.SaveChangesAsync();
         reply = await WhatsAppStaffProgressQueries.ReplyDeliveryAsync(db, vehicle.Id, language, now, default);
         Assert.Contains(language == "ms" ? "Persediaan belum lengkap" : "Preparation incomplete", reply);
-        Assert.Contains(language == "ms" ? "laporan pemeriksaan" : "inspection report", reply);
+        Assert.Contains(language == "ms" ? "dokumen penyerahan" : "delivery document", reply);
         Assert.Contains(language == "ms" ? "kesahan" : "validity", reply);
         db.Entry(vehicle).CurrentValues.SetValues(vehicle with { CustomerId = Guid.NewGuid() });
         await db.SaveChangesAsync();
@@ -2323,6 +2383,102 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Loan_processing_requires_the_persisted_take_owner_and_preserves_it_on_update()
+    {
+        var loan = new LoanApplication { Status = LoanStatus.Pending, TakenByUserId = "loan-1", TakenByName = "Loan One" };
+        var owner = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Loan")]));
+        var other = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Loan")]));
+        var boss = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "BossAdmin")]));
+
+        Assert.True(LoanDecisionRules.CanProcess(loan, owner, "loan-1"));
+        Assert.False(LoanDecisionRules.CanProcess(loan, other, "loan-2"));
+        Assert.True(LoanDecisionRules.CanProcess(loan, boss, "admin-1"));
+
+        var preserved = LoanDecisionRules.PreserveDecisionMetadata(loan, loan with { TakenByUserId = "forged" });
+        Assert.Equal("loan-1", preserved.TakenByUserId);
+        Assert.Equal("Loan One", preserved.TakenByName);
+    }
+
+    [Fact]
+    public void Broker_can_edit_only_the_owned_active_loan_and_cannot_approve_it()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { SalesAgentUserId = "broker-1", CustomerId = Guid.NewGuid() };
+        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = vehicle.CustomerId!.Value, Status = LoanStatus.Pending };
+        var broker = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Sales")]));
+        var otherBroker = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, "Sales")]));
+
+        Assert.True(LoanDecisionRules.CanBrokerEdit(loan, vehicle, broker, "broker-1"));
+        Assert.False(LoanDecisionRules.CanBrokerEdit(loan, vehicle, otherBroker, "broker-2"));
+        Assert.False(LoanDecisionRules.CanProcess(loan, broker, "broker-1"));
+    }
+
+    [Fact]
+    public void Broker_create_ignores_privileged_workflow_fields_and_sets_server_pending_state()
+    {
+        var supplied = new LoanApplication
+        {
+            Status = LoanStatus.Done,
+            SubmittedAt = new DateOnly(2000, 1, 1),
+            TakenByUserId = "forged-loan-user",
+            TakenByName = "Forged owner",
+            TakenAt = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            LouApproved = true,
+            LouDone = true,
+            LoanAmount = 88_000m,
+            FinalSellingPrice = 99_000m,
+            DecisionBy = "forged-admin",
+            DecisionAt = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            RejectionReason = "forged"
+        };
+
+        var prepared = LoanDecisionRules.PrepareBrokerCreate(supplied, new DateOnly(2026, 11, 17));
+
+        Assert.Equal(LoanStatus.Pending, prepared.Status);
+        Assert.Equal(new DateOnly(2026, 11, 17), prepared.SubmittedAt);
+        Assert.Null(prepared.TakenByUserId);
+        Assert.Null(prepared.TakenByName);
+        Assert.Null(prepared.TakenAt);
+        Assert.False(prepared.LouApproved);
+        Assert.False(prepared.LouDone);
+        Assert.Null(prepared.LoanAmount);
+        Assert.Null(prepared.FinalSellingPrice);
+        Assert.Null(prepared.DecisionBy);
+        Assert.Null(prepared.DecisionAt);
+        Assert.Null(prepared.RejectionReason);
+    }
+
+    [Fact]
+    public void Loan_approval_requires_a_selected_bank_and_canonical_lou_terms()
+    {
+        var loan = new LoanApplication { Status = LoanStatus.Pending };
+        var missing = LoanDecisionRules.ValidateApprovalEvidence(loan, []);
+        var complete = LoanDecisionRules.ValidateApprovalEvidence(loan with
+        {
+            LoanAmount = 50000m,
+            LoanBank = "Maybank",
+            InterestRate = 3.2m,
+            LoanTenureMonths = 84
+        }, [new LoanBankOption { LoanApplicationId = loan.Id, BankName = "Maybank", LoanAmount = 50000m, InterestRate = 3.2m, TenureMonths = 84, IsSelected = true }]);
+
+        Assert.Contains(missing.Errors, error => error.Code == "loan_selected_bank_required");
+        Assert.False(missing.IsValid);
+        Assert.True(complete.IsValid);
+    }
+
+    [Fact]
+    public void Delivery_requires_done_loan_for_financed_buyer_but_allows_cash_buyer()
+    {
+        var customerId = Guid.NewGuid();
+        var vehicle = VehicleSeed.Available(publicVisible: false) with { CustomerId = customerId };
+        var pending = new LoanApplication { VehicleId = vehicle.Id, CustomerId = customerId, Status = LoanStatus.Pending };
+
+        Assert.Contains(LoanDeliveryEligibilityRules.ValidateForCreate(vehicle, [pending]).Errors,
+            error => error.Code == "delivery_loan_not_done");
+        Assert.True(LoanDeliveryEligibilityRules.ValidateForCreate(vehicle, [pending with { Status = LoanStatus.Done }]).IsValid);
+        Assert.True(LoanDeliveryEligibilityRules.ValidateForCreate(vehicle, []).IsValid);
+    }
+
+    [Fact]
     public void Manual_rejected_loan_requires_a_reason_and_uses_server_decision_metadata()
     {
         var decidedAt = new DateTime(2026, 8, 31, 9, 30, 0, DateTimeKind.Utc);
@@ -2343,6 +2499,7 @@ public sealed class BusinessRulesTests
         Assert.Equal("Bank policy", prepared.RejectionReason);
         Assert.Equal("admin@ysheng.local", prepared.DecisionBy);
         Assert.Equal(decidedAt, prepared.DecisionAt);
+        Assert.Equal(DateOnly.FromDateTime(decidedAt), prepared.SubmittedAt);
         Assert.False(prepared.LouApproved);
         Assert.False(prepared.LouDone);
     }
@@ -2952,7 +3109,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Loan_follow_up_is_due_after_three_days_in_pending_status()
+    public void Loan_follow_up_is_due_after_two_days_in_pending_status()
     {
         var loan = new LoanApplication
         {
@@ -2963,8 +3120,9 @@ public sealed class BusinessRulesTests
             SubmittedAt = new DateOnly(2026, 5, 20)
         };
 
-        Assert.True(ReminderRules.IsLoanFollowUpDue(loan, new DateOnly(2026, 5, 23)));
-        Assert.False(ReminderRules.IsLoanFollowUpDue(loan, new DateOnly(2026, 5, 22)));
+        Assert.True(ReminderRules.IsLoanFollowUpDue(loan, new DateOnly(2026, 5, 22)));
+        Assert.True(ReminderRules.IsLoanFollowUpDue(loan with { Status = LoanStatus.Submitted }, new DateOnly(2026, 5, 22)));
+        Assert.False(ReminderRules.IsLoanFollowUpDue(loan, new DateOnly(2026, 5, 21)));
     }
 
     [Fact]
@@ -3202,11 +3360,10 @@ public sealed class BusinessRulesTests
             [VehicleSeed.Available(publicVisible: true) with { Id = vehicleId, PlateNumber = "VPK1234" }],
             today);
 
-        Assert.Equal(8, reminders.Count);
+        Assert.Equal(7, reminders.Count);
         var expectedSources = new Dictionary<string, (string Type, Guid Id)>
         {
             ["LoanFollowUp"] = (nameof(LoanApplication), sourceIds[0]),
-            ["DeliveryPreparation"] = (nameof(DeliverySchedule), sourceIds[1]),
             ["SettlementDue"] = (nameof(SettlementReminder), sourceIds[2]),
             ["PaymentBankFollowUp"] = (nameof(PaymentRecord), sourceIds[3]),
             ["PaymentStatusFollowUp"] = (nameof(PaymentRecord), sourceIds[3]),
@@ -3220,7 +3377,6 @@ public sealed class BusinessRulesTests
             Assert.Equal(expectedSources[reminder.Type].Id, reminder.SourceId);
         });
         Assert.Contains(reminders, reminder => reminder.Type == "LoanFollowUp" && reminder.VehiclePlate == "VPK1234");
-        Assert.Contains(reminders, reminder => reminder.Type == "DeliveryPreparation" && reminder.DueDate == today.AddDays(2));
         Assert.Contains(reminders, reminder => reminder.Type == "SettlementDue" && reminder.Amount == 25000m);
         Assert.Contains(reminders, reminder => reminder.Type == "PaymentBankFollowUp" && reminder.DueDate == today && reminder.Amount == 58000m);
         Assert.Contains(reminders, reminder => reminder.Type == "PaymentStatusFollowUp" && reminder.DueDate == today && reminder.Amount == 58000m);
@@ -3326,6 +3482,26 @@ public sealed class BusinessRulesTests
             Assert.Null(action.VehicleId);
         });
         Assert.Empty(PriorityActionQueue.Create([], loans, [], [], [], [], [], [], [], [], leaves, [vehicle], today));
+    }
+
+    [Fact]
+    public void Loan_priority_actions_are_scoped_to_the_taken_processor()
+    {
+        var today = new DateOnly(2026, 6, 1);
+        var vehicle = new Vehicle { Id = Guid.NewGuid(), PlateNumber = "TAKER1" };
+        var assigned = new LoanApplication
+        {
+            Id = Guid.NewGuid(), VehicleId = vehicle.Id, CustomerId = Guid.NewGuid(),
+            Status = LoanStatus.Pending, SubmittedAt = today.AddDays(-3), TakenByUserId = "loan-1"
+        };
+        var other = assigned with { Id = Guid.NewGuid(), TakenByUserId = "loan-2" };
+
+        var actions = PriorityActionQueue.Create(
+            ["Loan"], [assigned, other], [], [], [], [], [], [], [], [], [], [vehicle], today, "loan-1");
+
+        var loanActions = actions.Where(action => action.Type == "LoanFollowUp").ToList();
+        Assert.Single(loanActions);
+        Assert.Equal(assigned.Id, loanActions[0].SourceId);
     }
 
     [Fact]
@@ -4106,10 +4282,10 @@ public sealed class BusinessRulesTests
         Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Open Debt Recovery" && item.Amount == 3200m);
         Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Unpaid Daily Spend" && item.Amount == 480m);
         Assert.Contains(summary.MoneyRiskBreakdown, item => item.Label == "Open Payment Voucher" && item.Amount == 180m);
-        Assert.Contains(summary.WorkflowBlockers.ByType, item => item.Label == "DeliveryPreparation" && item.Count == 1);
+        Assert.DoesNotContain(summary.WorkflowBlockers.ByType, item => item.Label == "DeliveryPreparation");
         Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "Overdue" && item.Count == 2);
         Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "DueToday" && item.Count == 5);
-        Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "Upcoming" && item.Count == 1);
+        Assert.Contains(summary.WorkflowBlockers.DueBuckets, item => item.Label == "Upcoming" && item.Count == 0);
         Assert.Contains(summary.SalesFunnel.Stages, item => item.Label == "Closed" && item.Count == 1);
         Assert.Equal(20m, summary.SalesFunnel.ConversionRate);
         Assert.Equal(2, summary.TopEnquiredVehicles[0].Count);
@@ -4708,6 +4884,82 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Pending_linked_repair_allows_metadata_correction_without_changing_receipt_amounts()
+    {
+        var vehicleId = Guid.NewGuid();
+        var repairId = Guid.NewGuid();
+        var invoice = new SupplierInvoice { Id = Guid.NewGuid(), VehicleId = vehicleId, SupplierName = "Old supplier", InvoiceNumber = "MISKEY", Amount = 600m };
+        var repair = new RepairJob { Id = repairId, VehicleId = vehicleId, ApprovalStatus = RepairApprovalStatus.Pending, Cost = 600m };
+        var receipt = new RepairReceipt { RepairJobId = repairId, SupplierName = invoice.SupplierName, InvoiceNumber = invoice.InvoiceNumber, TotalAmount = 600m };
+        var corrected = invoice with { SupplierName = "Correct supplier", InvoiceNumber = "CORRECT" };
+
+        var result = RepairReviewRules.ValidatePendingInvoiceCorrection(
+            repair,
+            invoice,
+            corrected,
+            receipt,
+            [new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = "Paint", Amount = 600m }],
+            [invoice]);
+
+        Assert.True(result.IsValid);
+        Assert.False(result.AmountChangeAllowed);
+    }
+
+    [Fact]
+    public void Pending_linked_repair_allows_amount_correction_only_when_saved_receipt_and_repair_total_match()
+    {
+        var vehicleId = Guid.NewGuid();
+        var repairId = Guid.NewGuid();
+        var invoice = new SupplierInvoice { Id = Guid.NewGuid(), VehicleId = vehicleId, SupplierName = "Supplier", InvoiceNumber = "MISKEY", Amount = 500m };
+        var repair = new RepairJob { Id = repairId, VehicleId = vehicleId, ApprovalStatus = RepairApprovalStatus.Pending, Cost = 600m };
+        var receipt = new RepairReceipt { RepairJobId = repairId, SupplierName = invoice.SupplierName, InvoiceNumber = invoice.InvoiceNumber, TotalAmount = 600m };
+        var corrected = invoice with { Amount = 600m };
+
+        var result = RepairReviewRules.ValidatePendingInvoiceCorrection(
+            repair,
+            invoice,
+            corrected,
+            receipt,
+            [new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = "Paint", Amount = 600m }],
+            [invoice]);
+
+        Assert.True(result.IsValid);
+        Assert.True(result.AmountChangeAllowed);
+
+        var unsafeCorrection = corrected with { Amount = 700m };
+        var blocked = RepairReviewRules.ValidatePendingInvoiceCorrection(
+            repair,
+            invoice,
+            unsafeCorrection,
+            receipt,
+            [new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = "Paint", Amount = 600m }],
+            [invoice]);
+        Assert.False(blocked.IsValid);
+        Assert.Contains(blocked.Errors, error => error.Code == "repair_correction_amount_review");
+    }
+
+    [Fact]
+    public void Approved_paid_or_rejected_repair_corrections_are_blocked()
+    {
+        var vehicleId = Guid.NewGuid();
+        var repairId = Guid.NewGuid();
+        var invoice = new SupplierInvoice { Id = Guid.NewGuid(), VehicleId = vehicleId, SupplierName = "Supplier", InvoiceNumber = "INV-1", Amount = 600m };
+        var receipt = new RepairReceipt { RepairJobId = repairId, SupplierName = invoice.SupplierName, InvoiceNumber = invoice.InvoiceNumber, TotalAmount = 600m };
+        foreach (var status in new[] { RepairApprovalStatus.Approved, RepairApprovalStatus.Rejected })
+        {
+            var result = RepairReviewRules.ValidatePendingInvoiceCorrection(
+                new RepairJob { Id = repairId, VehicleId = vehicleId, ApprovalStatus = status, Cost = 600m },
+                invoice,
+                invoice with { InvoiceNumber = "CORRECT" },
+                receipt,
+                [new RepairReceiptItem { RepairReceiptId = receipt.Id, Description = "Paint", Amount = 600m }],
+                [invoice]);
+            Assert.False(result.IsValid);
+            Assert.Contains(result.Errors, error => error.Code == "repair_correction_pending_only");
+        }
+    }
+
+    [Fact]
     public void Purchase_invoice_validation_requires_vehicle_invoice_number_and_positive_amount()
     {
         var incoming = new PurchaseInvoice
@@ -4755,7 +5007,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Loan_document_check_requires_ic_voc_and_loan_document()
+    public void Loan_document_check_requires_an_original_loan_document()
     {
         var loan = new LoanApplication
         {
@@ -4767,14 +5019,13 @@ public sealed class BusinessRulesTests
         };
         var documents = new[]
         {
-            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.Voc },
             new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument }
         };
 
         var result = LoanDocumentRules.CheckCompleteness(loan, documents);
 
         Assert.False(result.IsComplete);
-        Assert.Contains(FileCategory.StatusReceipt, result.MissingCategories);
+        Assert.Contains(FileCategory.LoanOriginalDocument, result.MissingCategories);
     }
 
     [Fact]
@@ -4807,6 +5058,27 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Loan_document_check_accepts_multiple_originals_and_keeps_edited_and_lou_optional()
+    {
+        var loan = new LoanApplication { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid() };
+        var documents = new[]
+        {
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanOriginalDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanOriginalDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanEditedDocument },
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument }
+        };
+
+        var result = LoanDocumentRules.CheckCompleteness(loan, documents);
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(2, result.OriginalDocumentCount);
+        Assert.Equal(1, result.EditedDocumentCount);
+        Assert.Equal(1, result.LouDocumentCount);
+        Assert.Empty(result.MissingCategories);
+    }
+
+    [Fact]
     public void Loan_completion_requires_documents_for_the_current_vehicle_and_buyer()
     {
         var loan = new LoanApplication
@@ -4816,7 +5088,8 @@ public sealed class BusinessRulesTests
             Status = LoanStatus.Done,
             SubmittedAt = new DateOnly(2026, 5, 30),
             LouApproved = true,
-            LouDone = true
+            LouDone = true,
+            FinalSellingPrice = 50000m, DepositAmount = 0, ContraAmount = 0, NcdPercentage = 0, WindscreenCovered = false, WarrantyInsuranceSelected = false, AgreementSignedAt = null
         };
         var documents = new[]
         {
@@ -4829,8 +5102,9 @@ public sealed class BusinessRulesTests
         var check = LoanDocumentRules.CheckCompleteness(loan, documents);
         var completion = LoanDocumentRules.ValidateCompletion(loan, documents);
 
-        Assert.Contains(FileCategory.LoanDocument, check.MissingCategories);
-        Assert.Contains(completion.Errors, error => error.Code == "loan_documents_incomplete" && error.Message.Contains("LoanDocument", StringComparison.Ordinal));
+        Assert.DoesNotContain(FileCategory.LoanDocument, check.MissingCategories);
+        Assert.True(completion.IsValid);
+        Assert.False(LoanDocumentRules.ValidateCompletion(loan with { FinalSellingPrice = null }, documents).IsValid);
     }
 
     [Fact]
@@ -4848,11 +5122,11 @@ public sealed class BusinessRulesTests
         var result = LoanDocumentRules.CheckCompleteness(loan, legacyDocuments);
 
         Assert.False(result.IsComplete);
-        Assert.Equal(4, result.MissingCategories.Count);
+        Assert.Equal([FileCategory.LoanOriginalDocument], result.MissingCategories);
     }
 
     [Fact]
-    public void Loan_document_check_requires_ap_document()
+    public void Loan_document_check_does_not_require_each_legacy_category()
     {
         var loan = new LoanApplication
         {
@@ -4865,14 +5139,13 @@ public sealed class BusinessRulesTests
         var documents = new[]
         {
             new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.Voc },
-            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.StatusReceipt },
             new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument }
         };
 
         var result = LoanDocumentRules.CheckCompleteness(loan, documents);
 
-        Assert.False(result.IsComplete);
-        Assert.Contains(FileCategory.ApDocument, result.MissingCategories);
+        Assert.True(result.IsComplete);
+        Assert.Empty(result.MissingCategories);
     }
 
     [Fact]
@@ -4889,15 +5162,13 @@ public sealed class BusinessRulesTests
         var documents = new[]
         {
             new DocumentBlob { VehicleId = Guid.NewGuid(), CustomerId = customerId, Category = FileCategory.Voc },
-            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.StatusReceipt },
-            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.ApDocument },
             new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.LoanDocument }
         };
 
         var result = LoanDocumentRules.CheckCompleteness(loan, documents);
 
         Assert.False(result.IsComplete);
-        Assert.Contains(FileCategory.Voc, result.MissingCategories);
+        Assert.Contains(FileCategory.LoanOriginalDocument, result.MissingCategories);
     }
 
     [Fact]
@@ -4982,7 +5253,7 @@ public sealed class BusinessRulesTests
         };
 
         Assert.True(DeliveryRules.IsReadyForRelease(delivery));
-        Assert.False(DeliveryRules.IsReadyForRelease(delivery with { WashDone = false }));
+        Assert.True(DeliveryRules.IsReadyForRelease(delivery with { WashDone = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { InsuranceHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { RoadTaxHandled = false }));
         Assert.False(DeliveryRules.IsReadyForRelease(delivery with { FinalChecklistConfirmed = false }));
@@ -5115,6 +5386,9 @@ public sealed class BusinessRulesTests
         Assert.Equal("latest-policy.pdf", policyEvidence.FileName);
         Assert.Equal("policy-checksum", policyEvidence.Checksum);
         Assert.Equal("delivery@ysheng.local", policyEvidence.UploadedBy);
+        var policyHistory = result.Evidence.Where(item => item.Category == FileCategory.Policy).ToList();
+        Assert.Equal(2, policyHistory.Count);
+        Assert.Contains(policyHistory, item => item.DocumentId == oldPolicy.Id && item.FileName == "old-policy.pdf");
         var roadTaxEvidence = result.Evidence.First(item => item.Category == FileCategory.RoadTaxReceipt);
         Assert.False(roadTaxEvidence.IsPresent);
         Assert.Null(roadTaxEvidence.DocumentId);
@@ -5144,6 +5418,21 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Delivery_document_check_skips_jpj_receipt_when_road_tax_was_paid_by_eauto()
+    {
+        var delivery = DeliveryWorkboardSeed.Ready() with { RoadTaxPaidViaEAuto = true };
+        var documents = DeliveryWorkboardSeed.EvidenceFor(delivery)
+            .Where(document => document.Category != FileCategory.RoadTaxReceipt)
+            .ToList();
+
+        var check = DeliveryDocumentRules.CheckCompleteness(delivery, documents);
+
+        Assert.True(check.IsComplete);
+        Assert.DoesNotContain(FileCategory.RoadTaxReceipt, check.MissingCategories);
+        Assert.Contains(check.Evidence, item => item.Category == FileCategory.RoadTaxReceipt && !item.IsPresent);
+    }
+
+    [Fact]
     public void Delivery_validation_requires_pic_and_schedule_date()
     {
         var delivery = new DeliverySchedule
@@ -5163,7 +5452,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Inspection_report_is_verified_from_exact_uploaded_evidence_not_a_typed_reference()
+    public void Delivery_evidence_does_not_require_inspection_report_from_the_Inspection_module()
     {
         var delivery = new DeliverySchedule
         {
@@ -5180,7 +5469,7 @@ public sealed class BusinessRulesTests
         var documentCheck = DeliveryDocumentRules.CheckCompleteness(delivery, []);
 
         Assert.True(validation.IsValid);
-        Assert.Contains(FileCategory.InspectionReport, documentCheck.MissingCategories);
+        Assert.DoesNotContain(FileCategory.InspectionReport, documentCheck.MissingCategories);
     }
 
     [Fact]
@@ -5329,9 +5618,7 @@ public sealed class BusinessRulesTests
             FinalChecklistConfirmed = true
         };
 
-        Assert.Equal(
-            "Updated inspection, polish, tint, customer notice, customer acknowledgement, final checklist",
-            DeliveryMutationRules.ActivitySummary(before, after));
+        Assert.Equal("Updated customer acknowledgement, final handover confirmation", DeliveryMutationRules.ActivitySummary(before, after));
     }
 
     [Fact]
@@ -5347,9 +5634,9 @@ public sealed class BusinessRulesTests
 
         Assert.Equal(DeliveryStatus.ReadyForRelease, reopened.Status);
         Assert.True(DeliveryRules.ValidateTransition(before, reopened).IsValid);
-        Assert.Equal(DeliveryStage.PrepareCar, DeliveryWorkboardRules.StageFor(reopened, true, reopenedDocuments));
-        Assert.False(DeliveryWorkboardRules.CanRelease(reopened, true, reopenedDocuments, new DateOnly(2026, 8, 27)));
-        Assert.Equal("Updated car wash", DeliveryMutationRules.ActivitySummary(before, reopened));
+        Assert.Equal(DeliveryStage.Handover, DeliveryWorkboardRules.StageFor(reopened, true, reopenedDocuments));
+        Assert.True(DeliveryWorkboardRules.CanRelease(reopened, true, reopenedDocuments, new DateOnly(2026, 8, 27)));
+        Assert.Equal("Delivery details updated", DeliveryMutationRules.ActivitySummary(before, reopened));
 
         var rescheduled = DeliveryMutationRules.PrepareUpdate(
             before,
@@ -5393,9 +5680,9 @@ public sealed class BusinessRulesTests
 
         Assert.True(DeliveryMutationRules.ValidateReschedule(before, rescheduled).IsValid);
         Assert.False(rescheduled.NotificationSent);
-        Assert.False(rescheduled.TwoDayNoticeSent);
+        Assert.True(rescheduled.TwoDayNoticeSent);
         Assert.Equal("Delivery rescheduled: Customer requested a new handover time", DeliveryMutationRules.ActivitySummary(before, rescheduled));
-        Assert.False(DeliveryWorkboardRules.CanRelease(rescheduled, true, rescheduledDocuments, new DateOnly(2026, 8, 28)));
+        Assert.True(DeliveryWorkboardRules.CanRelease(rescheduled, true, rescheduledDocuments, new DateOnly(2026, 8, 28)));
 
         var reconfirmed = DeliveryMutationRules.PrepareUpdate(
             rescheduled,
@@ -5443,7 +5730,7 @@ public sealed class BusinessRulesTests
 
         Assert.True(policy.IsPresent);
         Assert.Equal(correct.Id, policy.DocumentId);
-        Assert.Equal(5, check.MissingCategories.Count);
+        Assert.Equal(4, check.MissingCategories.Count);
     }
 
     [Fact]
@@ -5506,10 +5793,10 @@ public sealed class BusinessRulesTests
     [Fact]
     public void Workboard_stage_returns_one_next_action_and_blocks_open_invoice_request()
     {
-        var planning = DeliveryWorkboardSeed.Ready() with { InspectionBookingReference = null };
+        var planning = DeliveryWorkboardSeed.Ready() with { ScheduledTime = null };
         var planningDocuments = DeliveryDocumentRules.CheckCompleteness(planning, DeliveryWorkboardSeed.EvidenceFor(planning));
         Assert.Equal(DeliveryStage.PlanDelivery, DeliveryWorkboardRules.StageFor(planning, true, planningDocuments));
-        Assert.Equal("Add inspection booking", DeliveryWorkboardRules.NextAction(planning, true, planningDocuments));
+        Assert.Equal("Set delivery time", DeliveryWorkboardRules.NextAction(planning, true, planningDocuments));
         Assert.Null(DeliveryWorkboardRules.Blocker(planning, true, planningDocuments));
 
         var buyerNotLocked = DeliveryWorkboardSeed.Ready() with { CustomerId = null };
@@ -5561,6 +5848,25 @@ public sealed class BusinessRulesTests
         Assert.Contains(DeliveryMutationRules.ValidateActiveSchedule(legacy).Errors, error => error.Code == "delivery_schedule_time_required");
         Assert.Equal(DeliveryStage.PlanDelivery, DeliveryWorkboardRules.StageFor(legacy, true, documents));
         Assert.Equal("Set delivery time", DeliveryWorkboardRules.NextAction(legacy, true, documents));
+    }
+
+    [Fact]
+    public void Released_delivery_stays_visible_for_seven_days_then_leaves_default_workboard()
+    {
+        var today = new DateOnly(2026, 8, 27);
+        var recent = DeliveryWorkboardSeed.Ready() with
+        {
+            Status = DeliveryStatus.Released,
+            ReleasedAt = new DateTime(2026, 8, 20, 1, 0, 0, DateTimeKind.Utc)
+        };
+        var old = recent with
+        {
+            Id = Guid.NewGuid(),
+            ReleasedAt = new DateTime(2026, 8, 19, 23, 59, 0, DateTimeKind.Utc)
+        };
+
+        Assert.True(DeliveryWorkboardRules.IsVisibleOnWorkboard(recent, today));
+        Assert.False(DeliveryWorkboardRules.IsVisibleOnWorkboard(old, today));
     }
 
     [Fact]
@@ -5920,7 +6226,12 @@ public sealed class BusinessRulesTests
     public void Department_access_allows_document_uploads_by_workflow_category()
     {
         Assert.True(DepartmentAccess.CanUploadDocument(["Sales"], FileCategory.Voc));
+        Assert.True(DepartmentAccess.CanUploadDocument(["Sales"], FileCategory.LoanOriginalDocument));
+        Assert.False(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.LoanOriginalDocument));
+        Assert.True(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.LoanEditedDocument));
         Assert.True(DepartmentAccess.CanUploadDocument(["Loan"], FileCategory.LoanDocument));
+        Assert.True(DepartmentAccess.CanViewDocument(["Loan"], FileCategory.LoanOriginalDocument));
+        Assert.False(DepartmentAccess.CanViewDocument(["Sales"], FileCategory.LoanDocument));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.Policy));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.HandoverPhoto));
         Assert.True(DepartmentAccess.CanUploadDocument(["Delivery"], FileCategory.SignedHandover));
@@ -6100,6 +6411,16 @@ public sealed class BusinessRulesTests
         Assert.Equal("12 Jalan Demo", result.Fields["address"]);
         Assert.Null(result.Fields["invoiceNumber"]);
         Assert.Null(result.Fields["amount"]);
+    }
+
+    [Fact]
+    public void Ocr_parser_extracts_road_tax_expiry_for_manual_review()
+    {
+        var document = new DocumentBlob { Category = FileCategory.RoadTaxReceipt, MimeType = "image/jpeg" };
+
+        var result = OcrExtractionParser.Analyze(document, [], "JPJ ROAD TAX\nExpiry: 31/12/2026", 0.9m, []);
+
+        Assert.Equal("2026-12-31", result.Fields["expiryDate"]);
     }
 
     [Fact]
@@ -7755,6 +8076,47 @@ public sealed class BusinessRulesTests
         Assert.Equal("012-3456789", result.Fields["supplierPhone"]);
         Assert.Equal("202601012345", result.Fields["supplierRegistrationNumber"]);
         Assert.Equal("C1234567890", result.Fields["supplierTinNumber"]);
+    }
+
+    [Fact]
+    public void Loan_document_ocr_maps_labelled_lou_fields_without_using_invoice_total()
+    {
+        var extraction = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.LoanDocument },
+            [],
+            "Bank: Maybank\nApproved Amount: RM 80,000.00\nInterest Rate: 3.20% p.a.\nTenure: 84 months\nTerms and Conditions:\nSubject to bank approval and insurance requirements.",
+            0.9m,
+            []);
+
+        Assert.Equal("80000.00", extraction.Fields["amount"]);
+        var result = GoogleDocumentAiEntityMapper.Apply(extraction, [
+            new GoogleDocumentAiEntity("total_amount", "5656565", 0.99m)
+        ]);
+
+        Assert.Equal(FileCategory.LoanDocument, extraction.DocumentCategory);
+        Assert.Equal("Maybank", result.Fields["loanBank"]);
+        Assert.Equal("80000.00", result.Fields["loanAmount"]);
+        Assert.Equal("80000.00", result.Fields["amount"]);
+        Assert.Equal("3.20", result.Fields["interestRate"]);
+        Assert.Equal("84", result.Fields["loanTenureMonths"]);
+        Assert.Equal("Subject to bank approval and insurance requirements.", result.Fields["loanTerms"]);
+        Assert.Null(result.Fields["nettPrice"]);
+        Assert.Null(result.Fields["salesPrice"]);
+    }
+
+    [Fact]
+    public void Loan_document_ocr_leaves_conflicting_labelled_amount_blank()
+    {
+        var result = OcrExtractionParser.Analyze(
+            new DocumentBlob { Category = FileCategory.LoanDocument },
+            [],
+            "Bank: Maybank\nApproved Amount: RM 80,000\nLoan Amount: RM 81,000\nInterest Rate: 3.20%\nTenure: 84 months\nTerms: Confirmed subject to bank terms.",
+            0.9m,
+            []);
+
+        Assert.Null(result.Fields["loanAmount"]);
+        Assert.Null(result.Fields["amount"]);
+        Assert.Contains(result.Warnings, warning => warning.Contains("loanAmount", StringComparison.Ordinal));
     }
 
     [Fact]

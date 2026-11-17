@@ -35,6 +35,7 @@ public static class SeedData
         await EnsureSupplierOperationalStatusSchemaAsync(db);
         await EnsureOwnerPurchaseInvoiceSchemaAsync(db);
         await EnsureLoanDecisionSchemaAsync(db);
+        await EnsureLoanWorkflowSchemaAsync(db);
 
         if (!await db.AiServiceLimits.AnyAsync(limit => limit.Service == AiService.Ocr))
         {
@@ -987,7 +988,7 @@ public static class SeedData
         """);
     }
 
-    private static async Task EnsureFinanceRepairEnhancementSchemaAsync(AppDbContext db)
+    public static async Task EnsureFinanceRepairEnhancementSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "PaymentRecords" ADD COLUMN IF NOT EXISTS "ReceiptNumber" text NULL;
@@ -1042,8 +1043,12 @@ public static class SeedData
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "NotificationSent" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "TwoDayNoticeSent" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsurancePolicyReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceCompany" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsurancePrice" numeric NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceSumInsured" numeric NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "InsuranceHandled" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxReceiptReference" text NULL;
+            ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxPaidViaEAuto" boolean NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "RoadTaxHandled" boolean NOT NULL DEFAULT false;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "WindscreenPolicyReference" text NULL;
             ALTER TABLE "DeliverySchedules" ADD COLUMN IF NOT EXISTS "WindscreenInsuranceHandled" boolean NOT NULL DEFAULT false;
@@ -1485,7 +1490,69 @@ public static class SeedData
         await db.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "DecisionBy" text NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "DecisionAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "FinalSellingPrice" numeric NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "RejectionReason" text NULL;
+        """);
+    }
+
+    public static async Task EnsureLoanWorkflowSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        await EnsureLoanWorkflowSchemaAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
+    public static Task EnsureLoanWorkflowSchemaAsync(AppDbContext db) => EnsureLoanWorkflowSchemaCoreAsync(db);
+
+    private static async Task EnsureLoanWorkflowSchemaCoreAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TakenByUserId" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TakenByName" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TakenAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LastUpdatedAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "BankSubmittedAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LoanAmount" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LoanBank" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "InterestRate" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LoanTenureMonths" integer NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LoanTerms" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "FinalSellingPrice" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "DepositAmount" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "ContraAmount" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TradeInPlateNumber" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "NcdAmount" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "NcdPercentage" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "NcdVehiclePlate" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "NcdInsurer" text NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "WindscreenCovered" boolean NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "WindscreenCover" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "WarrantyInsurance" numeric NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "WarrantyInsuranceSelected" boolean NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "AgreementSignedAt" date NULL;
+            CREATE INDEX IF NOT EXISTS "IX_LoanApplications_TakenByUserId" ON "LoanApplications" ("TakenByUserId");
+
+            CREATE TABLE IF NOT EXISTS "LoanBankOptions" (
+                "Id" uuid NOT NULL,
+                "LoanApplicationId" uuid NOT NULL,
+                "BankName" text NOT NULL,
+                "LoanAmount" numeric NULL,
+                "InterestRate" numeric NULL,
+                "TenureMonths" integer NULL,
+                "Terms" text NULL,
+                "IsSelected" boolean NOT NULL DEFAULT FALSE,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_LoanBankOptions" PRIMARY KEY ("Id"),
+                CONSTRAINT "FK_LoanBankOptions_LoanApplications_LoanApplicationId" FOREIGN KEY ("LoanApplicationId") REFERENCES "LoanApplications" ("Id") ON DELETE CASCADE
+            );
+            ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "Status" integer NOT NULL DEFAULT 0;
+            ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "SubmittedAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "RejectionReason" text NULL;
+            ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "LouDocumentId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_LoanBankOptions_LoanApplicationId_BankName"
+                ON "LoanBankOptions" ("LoanApplicationId", "BankName");
+            CREATE INDEX IF NOT EXISTS "IX_LoanBankOptions_LouDocumentId"
+                ON "LoanBankOptions" ("LouDocumentId");
         """);
     }
 }

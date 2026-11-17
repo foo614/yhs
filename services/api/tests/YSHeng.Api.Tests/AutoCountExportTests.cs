@@ -568,6 +568,17 @@ public sealed class AutoCountExportTests
         Assert.Equal(Read(first, "xl/worksheets/sheet4.xml"), Read(second, "xl/worksheets/sheet4.xml"));
     }
 
+    [Fact]
+    public void Rejected_repair_never_exports_a_payable_purchase_even_with_ambiguous_receipts()
+    {
+        var input = RepairInput();
+        input = input with { Repairs = [input.Repairs[0] with { ApprovalStatus = RepairApprovalStatus.Rejected }], RepairReceipts = [input.RepairReceipts![0], input.RepairReceipts[0] with { Id = Guid.NewGuid() }] };
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.Export(input)), ZipArchiveMode.Read);
+        Assert.Empty(Rows(archive, "Purchases"));
+        Assert.Empty(Rows(archive, "Expenses"));
+        Assert.Empty(Rows(archive, "PurchaseInvoices"));
+    }
+
     private static AutoCountExportInput RepairInput()
     {
         var vehicle = new Vehicle { PlateNumber = "TEST500", IntakeDate = new DateOnly(2026, 7, 1) };

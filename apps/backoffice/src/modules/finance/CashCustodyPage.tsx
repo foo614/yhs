@@ -96,6 +96,7 @@ export function CashCustodyPage({
   const [keyword, setKeyword] = useState("");
   const [status, setStatus] = useState<CashCustodyStatusFilter>();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [createForm] = Form.useForm<{ paymentRecordId: string; amount: number; notes?: string }>();
   const [rejectForm] = Form.useForm<{ reason: string }>();
   const selectedPaymentId = Form.useWatch("paymentRecordId", createForm);
@@ -108,8 +109,8 @@ export function CashCustodyPage({
   const overdueCount = handovers.filter(isOverdue).length;
   const mismatchCount = handovers.filter((handover) => !handover.transactionMatches).length;
   const filteredHandovers = useMemo(() => newestRecordsFirst(filterCashHandovers(handovers, paymentLookup, keyword, status ?? "All"), record => record.collectedAt), [handovers, keyword, paymentLookup, status]);
-  const custodyPage = financePageFor(filteredHandovers.length, page);
-  const visibleHandovers = pageFinanceRows(filteredHandovers, custodyPage);
+  const custodyPage = financePageFor(filteredHandovers.length, page, pageSize);
+  const visibleHandovers = pageFinanceRows(filteredHandovers, custodyPage, pageSize);
   const custodyFiltersActive = Boolean(keyword.trim() || status);
   const custodyEmptyText = loadError ? "Records unavailable. Retry to load this list." : loading ? "Loading records…" : financeEmptyText(handovers.length, filteredHandovers.length, "cash handovers");
 
@@ -301,11 +302,10 @@ export function CashCustodyPage({
             <Pagination
               className="mobileRecordPagination"
               current={custodyPage}
-              pageSize={FINANCE_LIST_PAGE_SIZE}
+              pageSize={pageSize}
               total={filteredHandovers.length}
-              showSizeChanger={false}
-              hideOnSinglePage
-              onChange={setPage}
+              showSizeChanger pageSizeOptions={[10, 20, 30]}
+              onChange={(next, size) => { setPage(next); setPageSize(size); }}
             />
           </div>
           <OperationsProTable
@@ -315,10 +315,10 @@ export function CashCustodyPage({
             dataSource={filteredHandovers}
             pagination={{
               current: custodyPage,
-              pageSize: FINANCE_LIST_PAGE_SIZE,
+              pageSize,
               total: filteredHandovers.length,
-              showSizeChanger: false,
-              onChange: setPage,
+              showSizeChanger: true,
+              onChange: (next, size) => { setPage(next); setPageSize(size); },
               showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`
             }}
             nativeSearch={{

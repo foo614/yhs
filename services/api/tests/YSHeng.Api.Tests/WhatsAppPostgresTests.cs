@@ -23,6 +23,59 @@ namespace YSHeng.Api.Tests;
 public sealed class WhatsAppPostgresTests
 {
     [PostgresFact]
+    public async Task Delivery_workboard_columns_are_additive_defaulted_and_idempotent_on_postgres()
+    {
+        var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("WHATSAPP_TEST_POSTGRES"));
+        Assert.Contains(config.Host, new[] { "127.0.0.1", "localhost" });
+        Assert.Equal("whatsapp_ci", config.Database);
+        var database = "delivery_schema_check_" + Guid.NewGuid().ToString("N");
+        config.Pooling = false;
+        await using var admin = new NpgsqlConnection(config.ConnectionString);
+        await admin.OpenAsync();
+        await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", admin)) await create.ExecuteNonQueryAsync();
+        config.Database = database;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(config.ConnectionString).Options;
+        try
+        {
+            await using (var db = new AppDbContext(options))
+            {
+                await db.Database.EnsureCreatedAsync();
+                var vehicle = new Vehicle { PlateNumber = "PGDEL1", Make = "Synthetic", Model = "Delivery", Year = 2026 };
+                db.Vehicles.Add(vehicle);
+                db.DeliverySchedules.Add(new DeliverySchedule { VehicleId = vehicle.Id, Pic = "Legacy Delivery", ScheduledDate = new DateOnly(2026, 11, 17) });
+                await db.SaveChangesAsync();
+                await db.Database.ExecuteSqlRawAsync("""
+                    ALTER TABLE "DeliverySchedules" DROP COLUMN IF EXISTS "InsuranceCompany";
+                    ALTER TABLE "DeliverySchedules" DROP COLUMN IF EXISTS "InsurancePrice";
+                    ALTER TABLE "DeliverySchedules" DROP COLUMN IF EXISTS "InsuranceSumInsured";
+                    ALTER TABLE "DeliverySchedules" DROP COLUMN IF EXISTS "RoadTaxPaidViaEAuto";
+                    """);
+                await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(db);
+                await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(db);
+
+                var columns = await db.Database.SqlQueryRaw<string>("""
+                    SELECT column_name AS "Value"
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'DeliverySchedules'
+                      AND column_name IN ('InsuranceCompany', 'InsurancePrice', 'InsuranceSumInsured', 'RoadTaxPaidViaEAuto')
+                    ORDER BY column_name
+                    """).ToListAsync();
+                Assert.Equal(["InsuranceCompany", "InsurancePrice", "InsuranceSumInsured", "RoadTaxPaidViaEAuto"], columns);
+                var legacy = await db.DeliverySchedules.AsNoTracking().SingleAsync();
+                Assert.Null(legacy.InsuranceCompany);
+                Assert.Null(legacy.InsurancePrice);
+                Assert.Null(legacy.InsuranceSumInsured);
+                Assert.Null(legacy.RoadTaxPaidViaEAuto);
+            }
+        }
+        finally
+        {
+            await using var drop = new NpgsqlCommand($"DROP DATABASE \"{database}\" WITH (FORCE)", admin);
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [PostgresFact]
     public async Task Owner_purchase_invoice_schema_upgrade_is_idempotent_and_hydrates_legacy_revision_lines_on_postgres()
     {
         var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("WHATSAPP_TEST_POSTGRES"));
@@ -438,13 +491,17 @@ public sealed class WhatsAppPostgresTests
             using var sales = factory.CreateClient();
             Assert.True((await sales.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "sales@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
             await VerifyInspectionInvoiceApplicationAsync(factory, admin, sales, anonymous);
+            await VerifyDeliveryBuyerPriceAsync(factory, admin);
+            await VerifyRepairPaymentApplicationAsync(factory, admin, sales, anonymous);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/assistant/connection?staffUserId=assistant-ci")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/connections")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/whatsapp/staff/limits")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.PutAsJsonAsync("/api/whatsapp/staff/limits", new { dailyAttemptLimit = 50 })).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.PostAsJsonAsync("/api/whatsapp/assistant/connection", new { recipient = "60177777777", language = "en_US", consentConfirmed = true, staffUserId = "assistant-ci" })).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.PostAsJsonAsync("/api/whatsapp/assistant/disconnect", new { staffUserId = "assistant-ci" })).StatusCode);
-            Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/loans")).StatusCode);
+            // Sales can read the loan list so the assigned Broker can open an owned case;
+            // sensitive fields and cross-owner mutations remain server-redacted/forbidden.
+            Assert.Equal(HttpStatusCode.OK, (await sales.GetAsync("/api/loans")).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await sales.GetAsync("/api/deliveries")).StatusCode);
             async Task Callback(string text, string id)
             {
@@ -632,6 +689,146 @@ public sealed class WhatsAppPostgresTests
         Assert.True((await finance.PostAsJsonAsync("/api/auth/login?useCookies=true", new { email = "ageing-finance@example.test", password = "Synthetic-CI-123!" })).IsSuccessStatusCode);
         Assert.Equal(HttpStatusCode.OK, (await finance.GetAsync(recordsPath)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await finance.GetAsync(summaryPath)).StatusCode);
+    }
+
+    private static async Task VerifyRepairPaymentApplicationAsync(StaffApplicationFactory factory, HttpClient admin, HttpClient sales, HttpClient anonymous)
+    {
+        var vehicle = new Vehicle { PlateNumber = "PGREPAIR1", Make = "Synthetic", Model = "Repair", Year = 2022 };
+        var repair = new RepairJob { VehicleId = vehicle.Id, Cost = 120m, RepairPart = "Synthetic part", WhatToDo = "Synthetic repair", ApprovalStatus = RepairApprovalStatus.Approved };
+        var invoice = new SupplierInvoice { VehicleId = vehicle.Id, SupplierName = "Synthetic supplier", InvoiceNumber = "PG-REPAIR-1", Amount = 120m, InvoiceDate = new DateOnly(2026, 11, 1) };
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Vehicles.Add(vehicle);
+            db.RepairJobs.Add(repair);
+            db.SupplierInvoices.Add(invoice);
+            db.RepairReceipts.Add(new RepairReceipt { RepairJobId = repair.Id, DocumentId = Guid.NewGuid(), SupplierName = invoice.SupplierName, InvoiceNumber = invoice.InvoiceNumber, TotalAmount = 120m });
+            await db.SaveChangesAsync();
+        }
+        var endpoint = $"/api/repair-review/{invoice.Id}/paid";
+        var request = new RepairPaymentRequest(new DateOnly(2026, 11, 17), 120m);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/repair-review")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await sales.PostAsJsonAsync(endpoint, request)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync(endpoint, request with { ExpectedAmount = 119m })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/repairs/{repair.Id}/reject", new { notes = "Already approved" })).StatusCode);
+        var responses = await Task.WhenAll(admin.PostAsJsonAsync(endpoint, request), admin.PostAsJsonAsync(endpoint, request));
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        foreach (var response in responses) response.Dispose();
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/repairs/{repair.Id}/reject", new { notes = "Cannot reject paid" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PutAsJsonAsync($"/api/repairs/{repair.Id}", repair with { Cost = 130m })).StatusCode);
+
+        var correctionVehicle = new Vehicle { PlateNumber = "PGREPAIR2", Make = "Synthetic", Model = "Correction", Year = 2022 };
+        var correctionRepair = new RepairJob { VehicleId = correctionVehicle.Id, Cost = 600m, RepairPart = "Synthetic part", WhatToDo = "Correct receipt", ApprovalStatus = RepairApprovalStatus.Pending };
+        var correctionSupplier = new Supplier { CompanyName = "维修供应商", Address = "Johor", Phone = "0123456789", Status = SupplierStatus.Active };
+        var correctionInvoice = new SupplierInvoice
+        {
+            VehicleId = correctionVehicle.Id,
+            SupplierId = correctionSupplier.Id,
+            SupplierName = correctionSupplier.CompanyName,
+            InvoiceNumber = "PG-REPAIR-MISKEY",
+            Amount = 500m,
+            InvoiceDate = new DateOnly(2026, 11, 1)
+        };
+        var correctionReceipt = new RepairReceipt
+        {
+            RepairJobId = correctionRepair.Id,
+            DocumentId = Guid.NewGuid(),
+            SupplierName = correctionInvoice.SupplierName,
+            InvoiceNumber = correctionInvoice.InvoiceNumber,
+            TotalAmount = 600m
+        };
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.AddRange(correctionVehicle, correctionRepair, correctionSupplier, correctionInvoice, correctionReceipt);
+            db.RepairReceiptItems.Add(new RepairReceiptItem { RepairReceiptId = correctionReceipt.Id, Description = "Corrected line", Amount = 600m, SortOrder = 1 });
+            await db.SaveChangesAsync();
+        }
+
+        var correctedInvoice = correctionInvoice with { InvoiceNumber = "PG-REPAIR-CORRECTED", Amount = 600m };
+        using var correctionRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/supplier-invoices/{correctionInvoice.Id}")
+        {
+            Content = JsonContent.Create(correctedInvoice)
+        };
+        correctionRequest.Headers.Add("X-Expected-Supplier-Invoice", Uri.EscapeDataString(JsonSerializer.Serialize(correctionInvoice, new JsonSerializerOptions(JsonSerializerDefaults.Web))));
+        using var correctionResponse = await admin.SendAsync(correctionRequest);
+        var correctionBody = await correctionResponse.Content.ReadAsStringAsync();
+        Assert.True(correctionResponse.IsSuccessStatusCode, $"{correctionResponse.StatusCode}: {correctionBody}");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var savedInvoice = await db.SupplierInvoices.SingleAsync(item => item.Id == correctionInvoice.Id);
+            var savedReceipt = await db.RepairReceipts.SingleAsync(item => item.Id == correctionReceipt.Id);
+            Assert.Equal("PG-REPAIR-CORRECTED", savedInvoice.InvoiceNumber);
+            Assert.Equal(600m, savedInvoice.Amount);
+            Assert.Equal("PG-REPAIR-CORRECTED", savedReceipt.InvoiceNumber);
+            Assert.Equal(600m, savedReceipt.TotalAmount);
+            Assert.Equal(600m, await db.RepairJobs.Where(item => item.Id == correctionRepair.Id).Select(item => item.Cost).SingleAsync());
+        }
+
+        using var staleRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/supplier-invoices/{correctionInvoice.Id}")
+        {
+            Content = JsonContent.Create(correctedInvoice with { InvoiceNumber = "STALE" })
+        };
+        staleRequest.Headers.Add("X-Expected-Supplier-Invoice", Uri.EscapeDataString(JsonSerializer.Serialize(correctionInvoice, new JsonSerializerOptions(JsonSerializerDefaults.Web))));
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.SendAsync(staleRequest)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/repairs/{correctionRepair.Id}/approval", new { expectedCost = 600m })).StatusCode);
+        using var approvedRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/supplier-invoices/{correctedInvoice.Id}")
+        {
+            Content = JsonContent.Create(correctedInvoice with { InvoiceNumber = "APPROVED-MUTATION" })
+        };
+        approvedRequest.Headers.Add("X-Expected-Supplier-Invoice", Uri.EscapeDataString(JsonSerializer.Serialize(correctedInvoice, new JsonSerializerOptions(JsonSerializerDefaults.Web))));
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.SendAsync(approvedRequest)).StatusCode);
+
+        using var paidRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/supplier-invoices/{invoice.Id}")
+        {
+            Content = JsonContent.Create(invoice with { PaidAt = new DateOnly(2026, 11, 17), Amount = 121m })
+        };
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.SendAsync(paidRequest)).StatusCode);
+
+        var rejectedVehicle = new Vehicle { PlateNumber = "PGREPAIR3", Make = "Synthetic", Model = "Rejected", Year = 2022 };
+        var rejectedRepair = new RepairJob { VehicleId = rejectedVehicle.Id, Cost = 50m, RepairPart = "Synthetic part", WhatToDo = "Rejected repair", ApprovalStatus = RepairApprovalStatus.Rejected };
+        var rejectedInvoice = new SupplierInvoice { VehicleId = rejectedVehicle.Id, SupplierId = correctionSupplier.Id, SupplierName = correctionSupplier.CompanyName, InvoiceNumber = "PG-REPAIR-REJECTED", Amount = 50m };
+        var rejectedReceipt = new RepairReceipt { RepairJobId = rejectedRepair.Id, DocumentId = Guid.NewGuid(), SupplierName = rejectedInvoice.SupplierName, InvoiceNumber = rejectedInvoice.InvoiceNumber, TotalAmount = 50m };
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.AddRange(rejectedVehicle, rejectedRepair, rejectedInvoice, rejectedReceipt);
+            db.RepairReceiptItems.Add(new RepairReceiptItem { RepairReceiptId = rejectedReceipt.Id, Description = "Rejected line", Amount = 50m, SortOrder = 1 });
+            await db.SaveChangesAsync();
+        }
+        using var rejectedRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/supplier-invoices/{rejectedInvoice.Id}")
+        {
+            Content = JsonContent.Create(rejectedInvoice with { InvoiceNumber = "REJECTED-MUTATION" })
+        };
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.SendAsync(rejectedRequest)).StatusCode);
+    }
+
+    private static async Task VerifyDeliveryBuyerPriceAsync(StaffApplicationFactory factory, HttpClient admin)
+    {
+        var buyer = new Customer { Name = "Synthetic delivery buyer", Phone = "0000000001" };
+        var other = new Customer { Name = "Synthetic other buyer", Phone = "0000000002" };
+        var vehicle = new Vehicle { PlateNumber = "PGDELPRICE", Make = "Synthetic", Model = "Delivery", Year = 2026, CustomerId = buyer.Id };
+        var delivery = new DeliverySchedule { VehicleId = vehicle.Id, CustomerId = buyer.Id, Pic = "Synthetic", ScheduledDate = new DateOnly(2026, 1, 1), Status = DeliveryStatus.Released, ReleasedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc) };
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Customers.AddRange(buyer, other);
+            db.Vehicles.Add(vehicle);
+            db.DeliverySchedules.Add(delivery);
+            db.LoanApplications.AddRange(
+                new LoanApplication { VehicleId = vehicle.Id, CustomerId = buyer.Id, Status = LoanStatus.Done, FinalSellingPrice = 50000m, SubmittedAt = new DateOnly(2026, 1, 1) },
+                new LoanApplication { VehicleId = vehicle.Id, CustomerId = other.Id, Status = LoanStatus.Done, FinalSellingPrice = 90000m, SubmittedAt = new DateOnly(2026, 2, 1) });
+            await db.SaveChangesAsync();
+        }
+        var response = await admin.GetAsync("/api/deliveries/workboard");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var rows = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var row = rows.EnumerateArray().Single(item => item.GetProperty("id").GetGuid() == delivery.Id);
+        Assert.Equal(50000m, row.GetProperty("finalSellingPrice").GetDecimal());
+        Assert.NotEqual(JsonValueKind.Null, row.GetProperty("releasedAt").ValueKind);
     }
 
     private static async Task VerifyInspectionInvoiceApplicationAsync(

@@ -964,11 +964,16 @@ describe("backoffice api client", () => {
 
     expect(await getSupplierInvoices()).toEqual([invoice]);
     await createSupplierInvoice(invoice);
-    await updateSupplierInvoice({ ...invoice, amount: 700 });
+    await updateSupplierInvoice({ ...invoice, amount: 700 }, invoice);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:5000/api/supplier-invoices", { credentials: "include" });
     expect(fetchMock).toHaveBeenNthCalledWith(2, "http://localhost:5000/api/supplier-invoices", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(invoice) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/supplier-invoices/${invoice.id}`, expect.objectContaining({ method: "PUT", credentials: "include", body: JSON.stringify({ ...invoice, amount: 700 }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, `http://localhost:5000/api/supplier-invoices/${invoice.id}`, expect.objectContaining({
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", "X-Expected-Supplier-Invoice": encodeURIComponent(JSON.stringify(invoice)) },
+      body: JSON.stringify({ ...invoice, amount: 700 })
+    }));
   });
 
   it("creates suppliers as active records and updates their operational status through the master PUT route", async () => {

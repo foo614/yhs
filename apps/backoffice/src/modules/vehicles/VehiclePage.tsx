@@ -319,7 +319,7 @@ export function PurchaseInvoiceHistory({
 }) {
   const [mobilePage, setMobilePage] = useState(1);
   const generatedOwnerInvoice = invoices.find((invoice) => invoice.sourceType === "OwnerAcquisition");
-  const pageSize = typeof pagination === "object" && pagination.pageSize ? pagination.pageSize : Math.max(invoices.length, 1);
+  const [pageSize, setPageSize] = useState(10);
   const currentPage = Math.min(pagination.current ?? mobilePage, Math.max(1, Math.ceil(invoices.length / pageSize)));
   const visibleInvoices = invoices.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
@@ -355,13 +355,13 @@ export function PurchaseInvoiceHistory({
             </div>
           </article>
         ))}
-        {invoices.length > pageSize && <Pagination
+        {invoices.length > 0 && <Pagination
           className="mobileRecordPagination"
           current={currentPage}
           pageSize={pageSize}
           total={invoices.length}
-          showSizeChanger={false}
-          onChange={(page) => { setMobilePage(page); pagination.onChange?.(page, pageSize); }}
+          showSizeChanger pageSizeOptions={[10, 20, 30]}
+          onChange={(page, size) => { setMobilePage(page); setPageSize(size); pagination.onChange?.(page, size); }}
         />}
       </div>
       <OperationsProTable
@@ -369,7 +369,7 @@ export function PurchaseInvoiceHistory({
         rowKey="id"
         columns={columns}
         dataSource={invoices}
-        pagination={pagination}
+        pagination={{ ...pagination, current: currentPage, pageSize, showSizeChanger: true, onChange: (page, size) => { setMobilePage(page); setPageSize(size); pagination.onChange?.(page, size); } }}
         search={false}
         size="small"
         scroll={{ x: 980 }}
@@ -1115,7 +1115,7 @@ export function VehiclePage({
       return tokens.every((token) => text.includes(token) || compactText.includes(token.replace(/[^\p{L}\p{N}]/gu, "")));
     });
   }, [selectedVehicleLeads, vehicleLeadKeyword, vehicleLeadStatus]);
-  const mobileVehicleLeadPageSize = 5;
+  const [mobileVehicleLeadPageSize, setMobileVehicleLeadPageSize] = useState(10);
   const mobileVehicleLeadPageCount = Math.max(1, Math.ceil(filteredVehicleLeads.length / mobileVehicleLeadPageSize));
   const clampedMobileVehicleLeadPage = Math.min(mobileVehicleLeadPage, mobileVehicleLeadPageCount);
   const mobileVehicleLeads = filteredVehicleLeads.slice(
@@ -2477,13 +2477,13 @@ export function VehiclePage({
               <div className="mobileRecordFooter">{renderVehicleActions(vehicle)}</div>
             </article>
           ))}
-          {filteredVehicles.length > mobileVehiclePageSize && (
+          {filteredVehicles.length > 0 && (
             <Pagination
               current={clampedMobileVehiclePage}
               pageSize={mobileVehiclePageSize}
               total={filteredVehicles.length}
               showSizeChanger
-              pageSizeOptions={[10, 20, 50, 100]}
+              pageSizeOptions={[10, 20, 30, 50, 100]}
               onChange={(page, size) => { setMobileVehiclePage(page); setMobileVehiclePageSize(size); }}
             />
           )}
@@ -2545,7 +2545,7 @@ export function VehiclePage({
               setMobileVehiclePage(1);
             }
           }}
-          pagination={{ pageSize: mobileVehiclePageSize, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], current: clampedMobileVehiclePage, onChange: (page, size) => { setMobileVehiclePage(page); setMobileVehiclePageSize(size); } }}
+          pagination={{ pageSize: mobileVehiclePageSize, showSizeChanger: true, pageSizeOptions: [10, 20, 30, 50, 100], current: clampedMobileVehiclePage, onChange: (page, size) => { setMobileVehiclePage(page); setMobileVehiclePageSize(size); } }}
           scroll={{ x: 900 }}
           rowClassName={(row) => row.id === selectedVehicle?.id ? "selectedVehicleRow" : ""}
           onRow={(row) => ({
@@ -2970,13 +2970,13 @@ export function VehiclePage({
                   </div>
                 </article>
               ))}
-              {filteredVehicleLeads.length > mobileVehicleLeadPageSize && <Pagination
+              {filteredVehicleLeads.length > 0 && <Pagination
                 className="mobileRecordPagination"
                 current={clampedMobileVehicleLeadPage}
                 pageSize={mobileVehicleLeadPageSize}
                 total={filteredVehicleLeads.length}
-                showSizeChanger={false}
-                onChange={setMobileVehicleLeadPage}
+                showSizeChanger pageSizeOptions={[10, 20, 30]}
+                onChange={(page, size) => { setMobileVehicleLeadPage(page); setMobileVehicleLeadPageSize(size); }}
               />}
             </div>
             <OperationsProTable
@@ -3008,7 +3008,7 @@ export function VehiclePage({
                 { title: "Message", dataIndex: "message", render: (value) => value || "-" }
               ]}
               dataSource={filteredVehicleLeads}
-              pagination={tablePagination(5)}
+              pagination={{ ...tablePagination(), current: clampedMobileVehicleLeadPage, pageSize: mobileVehicleLeadPageSize, onChange: (page, size) => { setMobileVehicleLeadPage(page); setMobileVehicleLeadPageSize(size); } }}
               scroll={{ x: 720 }}
               locale={{ emptyText: vehicleLeadKeyword.trim() || vehicleLeadStatus ? "No leads match these filters." : "No leads yet for this vehicle" }}
             />
@@ -4314,7 +4314,7 @@ function ocrOptionalText(value: string | number | undefined, fallback: string | 
 }
 
 function tablePagination(pageSize = 8): TablePaginationConfig {
-  return { pageSize, showSizeChanger: false };
+  return { defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 30] };
 }
 
 export function formatDocumentTimestamp(value: unknown) {

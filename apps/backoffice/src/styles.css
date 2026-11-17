@@ -5272,7 +5272,8 @@ body {
   }
 
   .ant-pagination .ant-pagination-options {
-    display: none;
+    display: inline-block;
+    margin-inline-start: 0;
   }
 
   .tableToolbar,

@@ -53,7 +53,8 @@ describe("operational table UI contract", () => {
 
   it("uses ProTable native multi-field search when a page owns filtering", () => {
     const pageOwnedSearchTables = [
-      { file: "App.tsx", dataSources: ["filteredSupplierMaster", "refurbishmentRecords", "filteredLoans", "groupedLeadRows", "auditLog", "filteredStaffUsers"] },
+      { file: "App.tsx", dataSources: ["filteredSupplierMaster", "filteredLoans", "groupedLeadRows", "auditLog", "filteredStaffUsers"] },
+      { file: "modules/repairs/RepairReviewPanel.tsx", dataSources: ["filtered"] },
       { file: "modules/delivery/DeliveryWorkboardPage.tsx", dataSources: ["filteredItems"] },
       { file: "modules/vehicles/VehiclePage.tsx", dataSources: ["filteredVehicles"] },
       { file: "modules/settings/VehicleCatalogSettings.tsx", dataSources: ["filteredCatalogModels"] },

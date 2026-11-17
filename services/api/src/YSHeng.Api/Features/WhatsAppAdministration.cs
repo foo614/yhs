@@ -17,14 +17,14 @@ public static class WhatsAppAdministration
         catch (ArgumentException) { return null; }
     }
 
-    public static async Task<IReadOnlyList<WhatsAppQueueItem>> ListAsync(AppDbContext db, string? state, int page, string? testRecipient, CancellationToken ct = default, WhatsAppDispatchOptions? options = null)
+    public static async Task<IReadOnlyList<WhatsAppQueueItem>> ListAsync(AppDbContext db, string? state, int page, string? testRecipient, CancellationToken ct = default, WhatsAppDispatchOptions? options = null, int pageSize = 25)
     {
         testRecipient = ConfiguredTestRecipient(testRecipient);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var query = db.WhatsAppOutbox.AsNoTracking().Where(row => row.Audience == "Customer");
         if (!string.IsNullOrWhiteSpace(state)) query = query.Where(row => row.State == state);
         var rows = await query.OrderByDescending(row => row.CreatedAt).ThenBy(row => row.Id)
-            .Skip((Math.Clamp(page, 1, 10000) - 1) * 25).Take(25)
+            .Skip((Math.Clamp(page, 1, 10000) - 1) * Math.Clamp(pageSize, 1, 100)).Take(Math.Clamp(pageSize, 1, 100))
             .Select(row => new { Row = row, Consented = db.WhatsAppConsents.Any(consent => consent.Recipient == row.Recipient && consent.OptedIn),
                 BusinessConsented = db.WhatsAppConsents.Any(consent => consent.Recipient == row.Recipient && consent.OptedIn && consent.Language == row.Language) }).ToListAsync(ct);
         return rows.Select(item => new WhatsAppQueueItem(item.Row.Id, "***" + item.Row.Recipient[^4..], item.Row.EventKind,

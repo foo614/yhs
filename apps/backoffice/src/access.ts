@@ -53,7 +53,7 @@ export const routeAccess: RouteAccess[] = [
   { path: "/dashboard", roles: assignableStaffRoles },
   { path: "/vehicles", roles: ["BossAdmin", "Sales"] },
   { path: "/repairs", roles: ["BossAdmin", "Repair"] },
-  { path: "/loans", roles: ["BossAdmin", "Loan"] },
+  { path: "/loans", roles: ["BossAdmin", "Loan", "Sales"] },
   { path: "/delivery", roles: ["BossAdmin", "Delivery"] },
   { path: "/inspection", roles: ["BossAdmin", "Delivery"] },
   { path: "/finance", roles: ["BossAdmin", "Sales", "Finance"] },
@@ -133,7 +133,7 @@ const hrManagementDataKeys: BackOfficeDataKey[] = [
 
 export const roleDataKeys: Record<StaffRole, BackOfficeDataKey[]> = {
   BossAdmin: allDataKeys,
-  Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", ...hrSelfServiceDataKeys],
+  Sales: ["vehicles", "vehicleLookup", "customers", "owners", "purchaseInvoices", "cashHandovers", "cashHandoverPaymentLookup", "leads", "loans", ...hrSelfServiceDataKeys],
   Loan: ["vehicleLookup", "customers", "loans", ...hrSelfServiceDataKeys],
   Delivery: ["vehicleLookup", "deliveries", ...hrSelfServiceDataKeys],
   Finance: ["vehicleLookup", "financeVehicleOptions", "customers", "owners", "payments", "cashHandovers", "cashHandoverPaymentLookup", "dailySpends", "brokerCommissions", "debtRecoveries", "paymentVouchers", ...hrSelfServiceDataKeys],

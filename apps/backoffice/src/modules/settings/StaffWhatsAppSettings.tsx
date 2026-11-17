@@ -229,7 +229,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       </div>
       {historyError && <Alert type="error" showIcon message={historyError} />}
       {screens.md ? <OperationsProTable<StaffWhatsAppHistoryItem> search={false} columnFilters={false}
-        rowKey="id" loading={historyLoading} dataSource={historyRows} pagination={false} scroll={{ x: 880 }}
+        rowKey="id" loading={historyLoading} dataSource={historyRows} pagination={{ defaultPageSize: 10, showSizeChanger: true }} scroll={{ x: 880 }}
         columns={[
           { title: "Staff / recipient", render: (_, row) => <><div>{row.staffName || staffUsers.find(user => user.id === row.staffUserId)?.displayName || "Staff member"}</div><Typography.Text type="secondary">{row.maskedNumber || "Number unavailable"}</Typography.Text></> },
           { title: "Category", render: (_, row) => historyCategoryTitle(row.category) },

@@ -50,6 +50,11 @@
 .options button:hover { border-color: var(--primary); color: var(--primary); }
 .textButton { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 0; border: 0; background: transparent; color: var(--primary); font-size: 13px; font-weight: 700; cursor: pointer; }
 .answer h3 { margin: 18px 0 10px; font-size: 18px; line-height: 1.5; }
+.salaryRecommendation { display: grid; gap: 8px; margin: 16px 0 4px; padding: 14px; border: 1px solid var(--outline); border-radius: 14px; background: var(--surface); }
+.salaryRecommendation label { font-size: 13px; font-weight: 700; }
+.salaryRecommendation input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--outline); border-radius: 10px; background: var(--surface-lowest); color: var(--text); font: inherit; }
+.salaryRecommendation p { margin: 4px 0 0; }
+.salaryRecommendation small { color: var(--muted); font-size: 12px; line-height: 1.5; }
 .guideLink { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--primary); font-size: 13px; font-weight: 700; }
 .guideLink svg { flex-shrink: 0; }
 .actions { display: grid; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--outline); }

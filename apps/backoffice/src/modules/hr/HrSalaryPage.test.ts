@@ -42,11 +42,11 @@ describe("HR record list helpers", () => {
       .toEqual([records[1]]);
   });
 
-  it("clamps an out-of-range page and returns eight records per page by default", () => {
-    const page = paginateHrRecords(Array.from({ length: 10 }, (_, index) => index + 1), 9);
+  it("clamps an out-of-range page and returns ten records per page by default", () => {
+    const page = paginateHrRecords(Array.from({ length: 12 }, (_, index) => index + 1), 9);
 
     expect(page.current).toBe(2);
-    expect(page.items).toEqual([9, 10]);
+    expect(page.items).toEqual([11, 12]);
     expect(paginateHrRecords(records, 0).current).toBe(1);
   });
 

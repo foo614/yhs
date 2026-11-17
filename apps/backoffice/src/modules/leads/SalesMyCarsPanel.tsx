@@ -48,7 +48,7 @@ export function SalesMyCarsPanel({
   const [priceSavingFor, setPriceSavingFor] = useState<string | null>(null);
   const [priceSaveError, setPriceSaveError] = useState<string | null>(null);
   const isBoss = currentUser?.roles.includes("BossAdmin") ?? false;
-  const mobilePageSize = 6;
+  const [mobilePageSize, setMobilePageSize] = useState(10);
   const filteredItems = filterSalesMyCars(data?.items ?? [], keyword);
   const mobilePageCount = Math.max(1, Math.ceil(filteredItems.length / mobilePageSize));
   const clampedMobilePage = Math.min(mobilePage, mobilePageCount);
@@ -182,12 +182,12 @@ export function SalesMyCarsPanel({
               {showAgentColumn && <Typography.Text type="secondary">Broker: {item.salesAgentName || "Unassigned"}</Typography.Text>}
             </article>
           ))}
-          {filteredItems.length > mobilePageSize && <Pagination
+          {filteredItems.length > 0 && <Pagination
             current={clampedMobilePage}
             pageSize={mobilePageSize}
             total={filteredItems.length}
-            showSizeChanger={false}
-            onChange={setMobilePage}
+            showSizeChanger pageSizeOptions={[10, 20, 30]}
+            onChange={(page, size) => { setMobilePage(page); setMobilePageSize(size); }}
           />}
         </div>
         <OperationsProTable
@@ -197,7 +197,7 @@ export function SalesMyCarsPanel({
           columns={columns}
           dataSource={filteredItems}
           search={false}
-          pagination={{ pageSize: 10, showSizeChanger: false }}
+          pagination={{ current: clampedMobilePage, pageSize: mobilePageSize, showSizeChanger: true, onChange: (page, size) => { setMobilePage(page); setMobilePageSize(size); } }}
           scroll={{ x: showAgentColumn ? 880 : 700 }}
           locale={{ emptyText: keyword.trim() ? "No cars match this search." : "No cars are assigned to your Cars I’m Handling view yet." }}
         />

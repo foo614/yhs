@@ -265,7 +265,7 @@ Vehicle photos and documents are stored in PostgreSQL blobs with metadata, check
 | `GET` | `/api/vehicles/{id}/photos` | `BackOffice` | List photo metadata. |
 | `PUT` | `/api/vehicles/{id}/photos/order` | `Vehicles` | Save the complete display order for the vehicle's website photos. |
 | `GET` | `/api/vehicles/{id}/photos/{photoId}/content` | `BackOffice` | Download original photo content. |
-| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&collectionTransactionId={id}&deliveryScheduleId={id}&inspectionId={id}` | Category-specific role | Upload document, max 10 MB. Repair, delivery and inspection workflow links are exclusive. Collection evidence requires both `paymentRecordId` and `collectionTransactionId`; delivery categories require `deliveryScheduleId`; inspection receipt, appointment-confirmation and report categories require `inspectionId`. The server verifies each linked record and route vehicle before storing the evidence. |
+| `POST` | `/api/vehicles/{id}/documents?category={FileCategory}&repairJobId={id}&paymentRecordId={id}&collectionTransactionId={id}&deliveryScheduleId={id}&inspectionId={id}` | Category-specific role | Upload document, max 10 MB. Repair, delivery and inspection workflow links are exclusive. Collection evidence requires both `paymentRecordId` and `collectionTransactionId`; delivery categories require `deliveryScheduleId`; a new VOC may be linked to a delivery schedule for Delivery-role upload/view; inspection receipt, appointment-confirmation and report categories require `inspectionId`. The server verifies each linked record and route vehicle before storing the evidence. |
 | `GET` | `/api/vehicles/{id}/documents` | Category-specific role | List document metadata visible to the signed-in department. |
 | `DELETE` | `/api/vehicles/{id}/loan-documents/{documentId}` | Category-specific role | Remove a document from the selected vehicle's Loan checklist. The server rejects cross-vehicle and non-Loan categories, removes linked OCR jobs, and records an audit entry. |
 | `GET` | `/api/vehicles/{id}/documents/{documentId}/content` | Category-specific role | Download document content visible to the signed-in department. |
@@ -292,7 +292,8 @@ Document upload ownership:
 | --- | --- |
 | `PurchaseInvoice` | `BossAdmin` |
 | `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt` | `BossAdmin`, `Sales` |
-| `LoanDocument` | `BossAdmin`, `Loan` |
+| `LoanOriginalDocument` | `BossAdmin`, `Sales` (multiple original application/customer documents; linked to the Broker's Loan case) |
+| `LoanEditedDocument`, `LoanDocument` (LOU) | `BossAdmin`, `Loan` (multiple edited/LOU files; optional and never a substitute for an original document) |
 | `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `InspectionReceipt`, `InspectionAppointmentConfirmation`, `InspectionReport`, `WindscreenPolicy` | `BossAdmin`, `Delivery` |
 | `RepairInvoice` | `BossAdmin`, `Repair` |
 | `PaymentReceipt`, `PaymentInvoice` | `BossAdmin`, `Finance` |
@@ -307,11 +308,19 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/loans` | `Loans` | List loan applications. |
-| `POST` | `/api/loans` | `BossAdmin` | Create an exceptional/manual loan workflow record. An active loan establishes or verifies the vehicle's canonical customer. Manual `Rejected` records require a rejection reason; decision actor/time are server-owned. |
-| `POST` | `/api/loans/{id}/decision` | `Loans` | Record `Approved` or `Rejected` for a `Pending` loan. Rejection requires a reason. The server sets decision actor/time and normalizes LOU flags. |
-| `PUT` | `/api/loans/{id}` | `Loans` | Update non-decision loan workflow fields. Approval/rejection must use the decision action, terminal `Rejected`/`Done` records are review-only, and `Done` requires the current buyer's full vehicle-scoped document set. General updates and decisions lock the loan row so a stale update cannot overwrite a recorded decision. |
-| `GET` | `/api/loans/{id}/document-check` | `Loans` | Check VOC/AP/status receipt/loan document completeness. |
+| `GET` | `/api/loans` | `LoanRead` (`BossAdmin`, `Loan`, `Sales`) | List loan applications; LOU/deal amounts and terms are returned only for the taken case owner, assigned Broker, or Boss/Admin. |
+| `POST` | `/api/loans` | `LoanCreate` (`BossAdmin`, `Loan`, `Sales`) | Create a loan workflow record from a Broker/Loan intake. The server assigns the created date when omitted, verifies the vehicle's canonical customer, and keeps decision actor/time server-owned. Manual `Rejected` records require a rejection reason. |
+| `POST` | `/api/loans/{id}/take` | `Loans` | Take a pending loan case for the signed-in Loan processor; ownership actor/time are persisted and another processor cannot take it. |
+| `POST` | `/api/loans/intake` | `LoanCreate` | Multipart `input` JSON plus `identityCard` image/PDF, or an existing buyer-owned `identityCardDocumentId`. Boss/Admin or the vehicle's assigned Broker may atomically register/select a buyer, verify IC evidence, and confirm the canonical vehicle buyer. Financed buyers require a positive final selling price and create one Pending loan; cash buyers create no loan. Returns `{customer, loan}` with `loan: null` for cash. A stable `newLoanId` makes equivalent financed retries safe; conflicting or duplicate active cases return 409. |
+| `GET` | `/api/loans/{id}/banks` | `LoanRead` | List bank options for the taken Loan processor, assigned canonical-buyer Broker, or Boss/Admin. |
+| `POST` | `/api/loans/{id}/banks` | `Loans` | The taken processor or Boss/Admin adds a Pending bank option; selection and submission fields are server-owned. |
+| `PUT` | `/api/loans/{id}/banks/{bankId}` | `Loans` | The taken processor or Boss/Admin updates an unselected bank's terms. A linked LOU plus complete positive terms makes that bank Approved; selected terms and terminal loan cases are locked. |
+| `POST` | `/api/loans/{id}/banks/{bankId}/submit` | `Loans` | The taken processor or Boss/Admin records a Pending bank as Submitted with a server timestamp. |
+| `POST` | `/api/loans/{id}/banks/{bankId}/reject` | `Loans` | The taken processor or Boss/Admin rejects a Submitted bank with `rejectionReason` of 1 to 500 characters. Other bank options remain available. |
+| `POST` | `/api/loans/{id}/banks/{bankId}/select-final` | `LoanRead` | The taken processor, assigned canonical-buyer Broker, or Boss/Admin selects one Approved bank with complete terms and linked LOU. Prior selection clears atomically and the selected bank's terms become the loan's canonical terms. |
+| `POST` | `/api/loans/{id}/decision` | `Loans` | Record `Approved` or `Rejected` for a `Pending` loan. Approval requires a selected bank and canonical LOU terms; rejection requires a reason. The server sets decision actor/time and normalizes LOU flags. |
+| `PUT` | `/api/loans/{id}` | `LoanRead` (`BossAdmin`, `Loan`, `Sales`) | Update non-decision loan fields. Brokers may update only their owned deal fields; terminal `Rejected`/`Done` records are review-only. `Done` requires the selected Approved bank LOU, complete handoff fields and original buyer documents. Edited copies are optional. Vehicle locks serialize updates and preserve server-owned decisions and canonical bank terms. |
+| `GET` | `/api/loans/{id}/document-check` | `LoanRead` | Check that at least one original Loan application/customer document is present. Legacy VOC/AP/status-receipt files remain visible but are not individual gates; multiple original, edited, and LOU files are preserved separately. |
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
 | `GET` | `/api/deliveries/workboard` | `Deliveries` | Return delivery rows with their server-derived stage, next action, blocker, Finance clearance, locked customer/PIC, and delivery-owned evidence. |
 | `GET` | `/api/inspections` | `Deliveries` | List standalone inspection bookings, their four-month report expiry, stable supplier-invoice allocation reference and linked receipt, appointment-confirmation and completion-report metadata. |
@@ -320,7 +329,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `POST` | `/api/inspections` | `Deliveries` | Create an inspection booking with one of the supported types `9001`, `9002`, `9003`, `9004` or `9011`. The server stores the source receipt and allocates a stable `source-1`, `source-2`, ... supplier reference without renumbering existing vehicle allocations. |
 | `PUT` | `/api/inspections/{id}` | `Deliveries` | Update booking details or mark an inspection completed/cancelled. The completion report must already be linked before `Completed` is accepted; completed records retain the uploaded evidence and audit actor. |
 | `GET` | `/api/deliveries/pic-options` | `Deliveries` | Return active Delivery or Boss/Admin staff choices for PIC assignment. |
-| `POST` | `/api/deliveries` | `Deliveries` | Create one active delivery plan for a vehicle with an existing canonical buyer and a valid staff PIC. The server locks the buyer and starts the internal status at `BookingInspection`. |
+| `POST` | `/api/deliveries` | `Deliveries` | Create one active delivery plan for a vehicle with an existing canonical buyer and a valid staff PIC. A matching financed buyer must have a `Done` loan; a cash buyer with no matching loan remains allowed. The server locks the buyer and starts the internal status at `BookingInspection`. |
 | `PUT` | `/api/deliveries/{id}` | `Deliveries` | Update an active delivery plan. Vehicle, buyer, and internal status are server-owned; schedule changes require a reschedule reason. |
 | `POST` | `/api/deliveries/{id}/correct-buyer` | `BossAdmin` | Correct the vehicle and active delivery buyer with a required reason. Once a Finance V2 receivable exists, only a safe repair to that receivable customer is allowed; the server also rejects evidence already owned by someone else. |
 | `GET` | `/api/deliveries/{id}/activity` | `Deliveries` | List append-only delivery activity with the staff actor and server timestamp. |
@@ -329,11 +338,14 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `GET` | `/api/deliveries/invoice-update-requests` | `Finance` | List open Delivery invoice-update requests with the vehicle, locked customer, reason, and request time for Finance follow-up. |
 | `POST` | `/api/deliveries/{id}/release` | `Deliveries` | Release a ready vehicle after exact evidence and reconciled Finance clearance pass server validation. In the same transaction, one open canonical-buyer lead closes Sold, preferring the vehicle's existing sales attribution and then the latest assigned enquiry; every other open lead for that vehicle closes Lost. Already-closed and unrelated leads remain unchanged, and Delivery PIC remains separate from sales ownership. |
 | `POST` | `/api/deliveries/{id}/cancel` | `Deliveries` | Cancel an active delivery plan with a required reason. |
+| `GET` | `/api/repair-review` | `Repairs` | Receipt review rows with invoice date, amount, plate and Submitted/Approved/Paid/Rejected state. Unambiguous existing receipt links avoid counting repair cost twice. `needsReview` blocks payment when links or totals cannot be reconciled. |
+| `POST` | `/api/repairs/{id}/reject` | `BossAdmin` | Retain a repair and its files in terminal Rejected state. Paid repairs cannot be rejected. Record authenticated actor and time. |
+| `POST` | `/api/repair-review/{id}/paid` | `BossAdmin` | Record a completed payment against the supplier invoice using `paidAt` and `expectedAmount`. Requires an approved, unambiguously linked repair and reconciled receipt total. Vehicle locking and existing paid date prevent duplicate confirmation. This does not initiate a bank transfer. |
 | `GET` | `/api/repairs` | `Repairs` | List repair jobs. |
 | `POST` | `/api/repairs` | `Repairs` | Create repair job. |
 | `POST` | `/api/repairs/from-receipt` | `Repairs` | Accept nested `repair`, `invoice` and `receipt` commands after OCR review. Atomically create a repair job, supplier invoice, linked repair receipt and its confirmed receipt items from an unlinked vehicle repair-invoice upload. Vehicle/document locks serialize creation. An equivalent retry returns the existing records (200); changed confirmed details conflict (409). A new command returns 201. High-cost approval remains server-owned. |
-| `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. |
-| `POST` | `/api/repairs/{id}/approval` | `BossAdmin` | Approve a repair with the authenticated Boss/Admin actor and server timestamp. Repair CRUD cannot supply an approval; material repair changes reset it. |
+| `PUT` | `/api/repairs/{id}` | `Repairs` | Update repair job. Rejected and paid repairs cannot be edited. |
+| `POST` | `/api/repairs/{id}/approval` | `BossAdmin` | Approve a repair with the authenticated Boss/Admin actor and server timestamp. Optional `expectedCost` rejects a stale amount. Rejected repairs cannot be approved. Repair CRUD cannot supply an approval; material repair changes reset it. |
 | `GET` | `/api/repairs/{id}/receipts` | `Repairs` | List confirmed repair receipts and their child items. |
 | `POST` | `/api/repairs/{id}/receipts/confirm` | `Repairs` | Confirm one uploaded repair receipt and its reviewed child items for an existing repair job. Equivalent retries return the saved receipt/items without repeated writes or audits; changed confirmed values conflict. |
 | `GET` | `/api/suppliers` | `Repairs` | Derived supplier master summary from supplier invoices. |
@@ -349,7 +361,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 
 Lead ownership: the first staff member who moves a lead out of `New` is recorded as the taker. After that, only the same staff member may mutate the lead; Boss/Admin retains the management override.
 
-The delivery workboard presents four active stages: `Plan delivery`, `Prepare car`, `Clear documents`, and `Handover`. `Completed` and `Cancelled` are terminal views. The stage, one next action, and blocker are derived by the server from the saved checklist, exact delivery evidence, expiry dates, customer-notice state, and Finance clearance. Clients do not set the workboard stage directly.
+The delivery workboard presents three active stages: `Plan delivery`, `Clear documents`, and `Handover`. `Prepare car` remains a legacy stage label for historical rows only; current Inspection and vehicle-preparation work is managed by the Inspection module. `Completed` and `Cancelled` are terminal views. The stage, one next action, and blocker are derived by the server from the saved checklist, exact delivery evidence, expiry dates, and Finance clearance. Clients do not set the workboard stage directly.
 
 Delivery release-readiness responses include:
 
@@ -358,7 +370,7 @@ Delivery release-readiness responses include:
 - `missingCategories`: required release document categories still missing.
 - `missingEvidence`: required handover-photo or signed-handover uploads still missing.
 - `expiredDocuments`: delivery-critical expiry blockers for insurance and road tax. Windscreen expiry is not release-critical.
-- `evidence`: one item for each required release document category (`DeliveryDocument`, `InspectionReport`, `HandoverPhoto`, `SignedHandover`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and latest uploaded document metadata when present: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`. `WindscreenPolicy` is retained in storage for compatibility and is excluded from Delivery evidence and release requirements.
+- `evidence`: the latest item plus preserved history for each Delivery document category (`Voc`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, and `RoadTaxReceipt`), with `category`, `isPresent`, and uploaded document metadata: `documentId`, `fileName`, `mimeType`, `checksum`, `uploadedBy`, and `uploadedAt`. Inspection evidence remains in the Inspection module; `WindscreenPolicy` is retained in storage for compatibility and is excluded from Delivery evidence and release requirements.
 
 For delivery release, upload every required file against the exact delivery schedule. Evidence linked only to the vehicle, another buyer, or an older delivery does not satisfy readiness. The files retain checksum, uploader, detected MIME type, timestamp, and protected download behavior; vehicle inventory photos remain separate media.
 
@@ -367,8 +379,10 @@ Only one active delivery plan is allowed per vehicle. A delivery locks the vehic
 Workflow integrity:
 
 - Vehicle intake create/update cannot set `LoanProcessing` or `Sold`; loan and payment workflow updates derive those states on the server.
-- Loan approval and rejection are explicit server-audited decisions available only from `Pending`. Rejection requires a reason, preserves the linked customer and documents, and returns the vehicle to `Available` while keeping it private when no other workflow owns its state.
-- A loan can become `Done` only when `StatusReceipt`, `Voc`, `ApDocument`, and `LoanDocument` all belong to its exact vehicle and canonical buyer. The validation response uses `loan_documents_incomplete` and names the missing categories.
+- Bank submission records `Submitted` and `bankSubmittedAt`. A bank with linked LOU and complete positive amount, interest and tenure becomes `Approved`; the loan is Approved when any bank qualifies. Rejecting every bank makes the loan Rejected. Other banks, their terms, rejection reasons and documents remain preserved. Rejection preserves the buyer and evidence and returns the vehicle to private `Available` when no other workflow owns its state.
+- Upload bank LOU through the vehicle document endpoint with `category=LoanDocument`, `loanApplicationId` and `loanBankOptionId`. The bank must belong to the same case and be Submitted or Approved, unselected, and part of an active loan. Only the taken processor or Boss/Admin may upload; bank-linked LOU cannot be deleted while linked. A final selection copies bank name, amount, interest, tenure and exact terms into canonical loan fields; general loan updates cannot replace them.
+- Loan deal fields include `finalSellingPrice`, `depositAmount`, `contraAmount`, `tradeInPlateNumber`, NCD amount/percentage/vehicle/insurer, `windscreenCovered`, `windscreenCover`, `warrantyInsuranceSelected` and `agreementSignedAt`. Warranty selection is a Yes/No value; agreementSignedAt is optional and does not block completion. `lastUpdatedAt` is server-owned; `submittedAt` is the created date and `bankSubmittedAt` is the bank submission timestamp.
+- A loan can become `Done` only with its selected Approved bank and linked LOU, complete handoff deal fields, and at least one `LoanOriginalDocument` for its exact vehicle and canonical buyer. Legacy `StatusReceipt`, `Voc`, and `ApDocument` rows remain preserved original evidence for compatibility, but no longer form three separate gates. Multiple edited and LOU files remain separate and cannot satisfy the original-document requirement. Missing originals return `loan_documents_incomplete`.
 - Legacy documents uploaded before buyer ownership was recorded remain available for reference but intentionally do not satisfy loan completion. Staff must re-upload the required documents from the loan checklist after the canonical buyer is linked; the system does not guess or backfill document ownership.
 - Delivery creation/update and payment reconciliation require that the vehicle has a `CustomerId` pointing to an existing canonical customer. Cash sales remain supported and do not require a loan.
 - Vehicle `Sold` state requires both Finance clearance and a released delivery. V2 clearance requires an invoice, approved NCD/price adjustments, and fully reconciled collections; legacy records retain their reconciled-status rule. Reconciliation alone leaves the car in its private in-progress state; a later Finance correction that removes clearance recalculates that state on the server. A physically released car remains assigned to Finance in Cars I’m Handling until clearance is restored, even when its stored vehicle status still says `Sold`.
@@ -571,7 +585,8 @@ Reminder and priority-action items include additive `sourceType` and `sourceId` 
 - `VehicleStatus`: `Available`, `LoanProcessing`, `Sold`
 - `LeadStatus`: `New`, `Contacted`, `Closed`
 - `LeadClosureOutcome`: `Sold`, `Lost`, `Invalid`
-- `LoanStatus`: `Draft`, `Pending`, `Approved`, `Rejected`, `Done`
+- `LoanStatus`: `Draft`, `Pending`, `Approved`, `Rejected`, `Done`, `Submitted`
+- `LoanBankOptionStatus`: `Pending`, `Submitted`, `Approved`, `Rejected`
 - `DeliveryStatus`: `BookingInspection`, `Scheduled`, `Inspection`, `PreparingDocuments`, `CarPreparation`, `ReadyForRelease`, `Released`, `Cancelled`
 - `DeliveryType`: `Standard`, `Outstation`
 - `DeliveryStage`: `PlanDelivery`, `PrepareCar`, `ClearDocuments`, `Handover`, `Completed`, `Cancelled`
@@ -593,7 +608,7 @@ Reminder and priority-action items include additive `sourceType` and `sourceId` 
 - `HrPayslipStatus`: `Draft`, `Generated` (legacy), `PendingFinance`, `PendingBoss`, `Published`
 - `HrEmploymentType`: `Monthly`, `Hourly`
 - `HrAttendanceVerificationMethod`: `Manual`, `OfficeQr`, `Outstation`, `ManualException`, `OfficeIp`
-- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument`, `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`, `InspectionReport`, `WindscreenPolicy`, `SettlementEvidence`, `BankSettlementPayment`, `InspectionReceipt`, `InspectionAppointmentConfirmation`
+- `FileCategory`: `VehiclePhoto`, `PurchaseInvoice`, `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt`, `LoanDocument` (LOU), `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `RepairInvoice`, `PaymentReceipt`, `PaymentInvoice`, `MedicalCertificate`, `InspectionReport`, `WindscreenPolicy`, `SettlementEvidence`, `BankSettlementPayment`, `InspectionReceipt`, `InspectionAppointmentConfirmation`, `LoanOriginalDocument`, `LoanEditedDocument`
 - `OcrJobStatus`: `Queued`, `Analyzing`, `NeedsReview`, `Failed`, `Reviewed`
 - `OcrReviewDecision`: `Pending`, `Accepted`, `Rejected`, `Reviewed`
 - `AiService`: `Ocr`
