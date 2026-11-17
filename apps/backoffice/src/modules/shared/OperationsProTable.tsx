@@ -454,6 +454,7 @@ export function OperationsProTable<RecordType extends object, Params extends Rec
   const configuredPagination = pagination === false ? false : {
     ...pagination,
     defaultPageSize: 10,
+    size: "middle" as const,
     pageSize: pagination?.showSizeChanger ? pagination.pageSize ?? selectedPageSize : selectedPageSize,
     showSizeChanger: true,
     pageSizeOptions: [10, 20, 30],
