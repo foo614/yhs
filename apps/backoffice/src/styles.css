@@ -7859,6 +7859,7 @@ body {
 /* Keep table footers inset even when ProTable removes card body padding. */
 .operationsProTable .ant-table-pagination.ant-pagination {
   margin: 0;
+  /* Leave the fixed floating menu clear of the page-size selector. */
   padding: 16px 72px 16px 24px;
   gap: 8px;
   flex-wrap: wrap;
