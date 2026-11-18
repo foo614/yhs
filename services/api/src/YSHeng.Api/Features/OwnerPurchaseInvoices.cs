@@ -268,7 +268,7 @@ public static class OwnerPurchaseInvoiceRules
         if (invoice.SourceType == PurchaseInvoiceSourceType.OwnerAcquisition && request.ExpectedRevision != invoice.CurrentRevisionNumber)
             errors.Add(new ValidationError("purchase_invoice_revision_stale", "This formal invoice changed after it was reviewed. Refresh before recording the AutoCount number."));
         if (invoice.AccountingStatus != AccountingConfirmationStatus.FinanceConfirmed)
-            errors.Add(new ValidationError("purchase_invoice_accounting_confirmation_required", "Boss/Admin must confirm the purchase invoice before recording its AutoCount number."));
+            errors.Add(new ValidationError("purchase_invoice_accounting_confirmation_required", "Admin must confirm the purchase invoice before recording its AutoCount number."));
         if (string.IsNullOrWhiteSpace(request.AutoCountInvoiceNumber) || request.AutoCountInvoiceNumber.Trim().Length > 100)
             errors.Add(new ValidationError("purchase_invoice_autocount_number_required", "Enter the AutoCount purchase invoice number (maximum 100 characters)."));
         return new ValidationResult(errors);

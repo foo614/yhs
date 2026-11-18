@@ -1304,7 +1304,7 @@ export function HrSalaryPage({
                   {isHrManager && <Button type="primary" style={{ minHeight: 44 }} disabled={!selectedPayslipPeriodId || previewBusy || preparingPayslips} onClick={() => void loadPayrollPreview()}>Prepare new payslips / 准备新薪资单</Button>}
                 </Space>
                 {isHrManager && <Typography.Paragraph type="secondary">Select staff, review the amounts, then confirm. Existing payslips are only changed through their separate Recalculate action. / 选择员工、核对金额后再确认；现有薪资单须另行点击重新计算。</Typography.Paragraph>}
-                {isHrManager || currentUser?.roles.includes("Finance") ? <Alert type="info" showIcon message="HR prepares → Finance approves → Boss approves & publishes" description="Enter employee and employer statutory amounts from the applicable assessment. Published and finalized historical payslips are locked. / 法定金额须按适用计算另行填写；已发布及已结算的旧薪资单已锁定。" /> : null}
+                {isHrManager || currentUser?.roles.includes("Finance") ? <Alert type="info" showIcon message="HR prepares → Finance approves → Admin approves & publishes" description="Enter employee and employer statutory amounts from the applicable assessment. Published and finalized historical payslips are locked. / 法定金额须按适用计算另行填写；已发布及已结算的旧薪资单已锁定。" /> : null}
                 {payrollNotice && <Alert type="error" showIcon message={payrollNotice} />}
                 {!payPeriods.length && <Empty description={isHrManager ? "Create a pay period in Payroll setup first. / 请先在薪资设置新增月份。" : "No pay periods available. / 暂无薪资月份。"} />}
                 <HrRecordFilterControls
@@ -1449,7 +1449,7 @@ export function HrSalaryPage({
               }))} />
             </div>;
           })}
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Boss for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及老板审批。</Typography.Paragraph>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Admin for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及管理员审批。</Typography.Paragraph>
         </>}
       </Modal>
     </Space>
@@ -1799,7 +1799,7 @@ function calendarMonthRange(value: dayjs.Dayjs): [string, string] {
 }
 
 function payslipStatusLabel(status: HrPayslip["status"]) {
-  return ({ Draft: "Draft / 草稿", Generated: "Legacy / 旧薪资单", PendingFinance: "Finance review / 财务审核", PendingBoss: "Boss review / 老板审核", Published: "Published / 已发布" })[status];
+  return ({ Draft: "Draft / 草稿", Generated: "Legacy / 旧薪资单", PendingFinance: "Finance review / 财务审核", PendingBoss: "Admin review / 管理员审核", Published: "Published / 已发布" })[status];
 }
 
 function leaveAdjustmentTypeLabel(type: HrLeaveAdjustment["type"]) {

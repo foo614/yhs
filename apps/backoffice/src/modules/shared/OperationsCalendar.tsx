@@ -4,6 +4,7 @@ import { ClockCircleOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
 import { createCalendarTask, getOperationsCalendar, type OperationsCalendarEvent, type StaffUser } from "../../api";
+import { displayRoleLabel } from "../../roleLabels";
 import { DataFreshness } from "./DataFreshness";
 import "./operationsCalendar.css";
 
@@ -230,7 +231,7 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
           ]}><TimePicker className="fullWidth" format="HH:mm" needConfirm={false} /></Form.Item>
         </div>
         <Form.Item name="assignedToUserId" label="Assign to / 负责员工" rules={[{ required: true, message: "Select a staff member." }]}>
-          <Select showSearch optionFilterProp="label" options={staffUsers.filter(user => user.isActive).map(user => ({ value: user.id, label: `${user.displayName} / ${user.roles.join(", ")}` }))} placeholder="Select staff / 选择员工" />
+          <Select showSearch optionFilterProp="label" options={staffUsers.filter(user => user.isActive).map(user => ({ value: user.id, label: `${user.displayName} / ${user.roles.map(displayRoleLabel).join(", ")}` }))} placeholder="Select staff / 选择员工" />
         </Form.Item>
       </Form>
     </Modal>

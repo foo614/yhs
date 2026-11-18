@@ -214,7 +214,7 @@ export function CashCustodyPage({
           {loadError && <Alert type="error" showIcon message="Cash custody data is unavailable" description={`${loadError} Creating or changing custody is disabled until the register reloads successfully.`} action={<Button loading={retrying} onClick={async () => { setRetrying(true); try { await onRetry(); } finally { setRetrying(false); } }}>Retry</Button>} />}
           <FinanceListNotice label="Cash custody records" loading={loading} />
           {prefillPaymentId && !isSales && <Alert type="info" showIcon message="The assigned Broker must record this physical cash" description="Your payment context is retained below. Finance can review an existing custody record, but only the assigned Broker can start a new cash custody record." />}
-          <Alert type="warning" showIcon message="Broker records physical cash. Finance confirms receipt, and a different Finance or Boss/Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance." />
+          <Alert type="warning" showIcon message="Broker records physical cash. Finance confirms receipt, and a different Finance or Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance." />
           <div className="metricGrid">
             <Metric label="Open custody" value={summaryUnavailable ?? handovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length} />
             <Metric label="Overdue handovers" value={summaryUnavailable ?? overdueCount} danger={overdueCount > 0} />
@@ -525,7 +525,7 @@ function custodyDecisionBlockReason(handover: CashHandover, actorUserId?: string
   if (!actorUserId) return "Sign in again before deciding custody.";
   if (handover.collectedByUserId === actorUserId) return "The collector cannot decide their own cash custody.";
   if (!handover.handedOverToUserId) return "The Finance receiver is missing. Refresh and escalate this record.";
-  if (handover.handedOverToUserId === actorUserId) return "A different Finance or Boss/Admin checker must decide custody.";
+  if (handover.handedOverToUserId === actorUserId) return "A different Finance or Admin checker must decide custody.";
   return undefined;
 }
 
