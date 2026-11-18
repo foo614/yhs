@@ -1566,6 +1566,7 @@ export type LoanDocumentCheck = {
   isComplete: boolean;
   missingCategories: DocumentCategory[];
   originalDocumentCount?: number;
+  hasExplicitOriginal?: boolean;
   editedDocumentCount?: number;
   louDocumentCount?: number;
 };

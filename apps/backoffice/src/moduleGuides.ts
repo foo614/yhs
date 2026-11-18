@@ -466,7 +466,7 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan uploads Loan Document; Broker supplies shared vehicle files; Admin may upload all",
       purpose: "Complete the original-document requirement for the current vehicle and buyer while keeping edited copies and the LOU separate.",
-      actions: ["Review missing items.", "Choose the correct category and preview the file before confirming upload.", "Request or review Broker-provided original Loan documents.", "Upload optional edited Loan documents or the LOU when available.", "Preview or download uploaded evidence when checking it.", "Mark Done only when at least one original Loan document is present."],
+      actions: ["Review missing items.", "Preview the file and its assigned version before confirming upload.", "Request or review Broker-provided original Loan documents.", "Upload optional edited Loan documents or the LOU when available.", "Preview or download uploaded evidence when checking it.", "Mark Done only when at least one original Loan document is present."],
       requiredItems: ["At least one original Loan document", "Optional edited Loan documents", "Optional LOU", "Every file linked to the same vehicle and current buyer"],
       completeWhen: "The API reports the loan document checklist Complete.",
       handoff: "Status Done, then Delivery and Finance.",

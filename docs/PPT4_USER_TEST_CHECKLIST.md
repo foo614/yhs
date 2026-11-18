@@ -15,7 +15,7 @@ Release scope: slides 23-32 and 41-42, plus table page size. Production release 
 Use designated test records and test staff. Do not enter a real payment just to test a button.
 
 1. Broker: create a financed buyer with IC image/PDF; confirm buyer and Pending loan save correctly. Try cash buyer: customer saves without creating a loan. Cancel and reopen: previous IC must not be reused invisibly.
-2. Loan staff: Take case, open details, upload multiple original documents and optional edited copies. Another processor must not access the taken case's private documents.
+2. Broker uploads the original. Loan staff take the case, open details, and upload optional edited copies. Another processor must not access the taken case's private documents.
 3. Banks: add two banks, record submission, upload the correct LOU and check amount/rate/tenure/terms. Broker selects the final approved LOU. Confirm selected terms agree with deal details; rejected bank option cannot be revived by editing.
 4. Loan completion: enter required deal fields and original documents; leave agreement date blank and confirm it does not block completion. Check missing required fields are explained. Rejected historical cases can be found by search/filter.
 5. Delivery: check selling price belongs to this buyer and is read-only. Edit permitted delivery fields, upload/view files and VOC, review road-tax expiry, and verify manual insurance/JPJ details. Confirm Inspection upload is not duplicated. Check old completed delivery can be searched.

@@ -297,7 +297,7 @@ Document upload ownership:
 | --- | --- |
 | `PurchaseInvoice` | `BossAdmin` |
 | `Voc`, `IdentityCard`, `ApDocument`, `StatusReceipt` | `BossAdmin`, `Sales` |
-| `LoanOriginalDocument` | `BossAdmin`, `Sales` (multiple original application/customer documents; linked to the Broker's Loan case) |
+| `LoanOriginalDocument` | `BossAdmin`, `Sales` (first or replacement original when the case has no original evidence) |
 | `LoanEditedDocument`, `LoanDocument` (LOU) | `BossAdmin`, `Loan` (multiple edited/LOU files; optional and never a substitute for an original document) |
 | `DeliveryDocument`, `HandoverPhoto`, `SignedHandover`, `Policy`, `RoadTaxReceipt`, `InspectionReceipt`, `InspectionAppointmentConfirmation`, `InspectionReport`, `WindscreenPolicy` | `BossAdmin`, `Delivery` |
 | `RepairInvoice` | `BossAdmin`, `Repair` |
@@ -325,7 +325,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `POST` | `/api/loans/{id}/banks/{bankId}/select-final` | `LoanRead` | The taken processor, assigned canonical-buyer Broker, or Boss/Admin selects one Approved bank with complete terms and linked LOU. Prior selection clears atomically and the selected bank's terms become the loan's canonical terms. |
 | `POST` | `/api/loans/{id}/decision` | `Loans` | Record `Approved` or `Rejected` for a `Pending` loan. Approval requires a selected bank and canonical LOU terms; rejection requires a reason. The server sets decision actor/time and normalizes LOU flags. |
 | `PUT` | `/api/loans/{id}` | `LoanRead` (`BossAdmin`, `Loan`, `Sales`) | Update non-decision loan fields. Brokers may update only their owned deal fields; terminal `Rejected`/`Done` records are review-only. `Done` requires the selected Approved bank LOU, complete handoff fields and original buyer documents. Edited copies are optional. Vehicle locks serialize updates and preserve server-owned decisions and canonical bank terms. |
-| `GET` | `/api/loans/{id}/document-check` | `LoanRead` | Check that at least one original Loan application/customer document is present. Legacy VOC/AP/status-receipt files remain visible but are not individual gates; multiple original, edited, and LOU files are preserved separately. |
+| `GET` | `/api/loans/{id}/document-check` | `LoanRead` | Check that at least one original Loan application/customer document is present. Legacy VOC/AP/status-receipt files remain visible but are not individual gates; subsequent uploads are edited copies while original evidence exists. LOU remains separate. |
 | `GET` | `/api/deliveries` | `Deliveries` | List delivery schedules. |
 | `GET` | `/api/deliveries/workboard` | `Deliveries` | Return delivery rows with their server-derived stage, next action, blocker, Finance clearance, locked customer/PIC, and delivery-owned evidence. |
 | `GET` | `/api/inspections` | `Deliveries` | List standalone inspection bookings, their four-month report expiry, stable supplier-invoice allocation reference and linked receipt, appointment-confirmation and completion-report metadata. |

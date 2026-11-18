@@ -5150,6 +5150,11 @@ public sealed class BusinessRulesTests
 
         Assert.True(result.IsComplete);
         Assert.Empty(result.MissingCategories);
+        Assert.False(result.HasExplicitOriginal);
+        var restored = new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, Category = FileCategory.LoanOriginalDocument };
+        var afterRemoval = loan with { RequiresExplicitOriginal = true };
+        Assert.False(LoanDocumentRules.CheckCompleteness(afterRemoval, documents).IsComplete);
+        Assert.True(LoanDocumentRules.CheckCompleteness(afterRemoval, documents.Append(restored)).HasExplicitOriginal);
     }
 
     [Fact]

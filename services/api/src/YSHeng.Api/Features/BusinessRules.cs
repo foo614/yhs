@@ -299,7 +299,7 @@ public sealed record ValidationResult(IReadOnlyList<ValidationError> Errors)
     public bool IsValid => Errors.Count == 0;
 }
 public sealed record LoanDocumentCheck(bool IsComplete, IReadOnlyList<FileCategory> MissingCategories,
-    int OriginalDocumentCount = 0, int EditedDocumentCount = 0, int LouDocumentCount = 0);
+    int OriginalDocumentCount = 0, int EditedDocumentCount = 0, int LouDocumentCount = 0, bool HasExplicitOriginal = false);
 public sealed record DeliveryEvidenceItem(
     FileCategory Category,
     bool IsPresent,
@@ -3918,11 +3918,12 @@ public static class LoanDocumentRules
     {
         var matchingDocuments = documents.Where(document => document.VehicleId == loan.VehicleId &&
             (document.LoanApplicationId == loan.Id || (document.LoanApplicationId == null && document.CustomerId == loan.CustomerId))).ToList();
-        var originalCount = matchingDocuments.Count(document => OriginalCategories.Contains(document.Category) || LegacyOriginalCategories.Contains(document.Category));
+        var explicitCount = matchingDocuments.Count(document => OriginalCategories.Contains(document.Category));
+        var originalCount = explicitCount + (loan.RequiresExplicitOriginal ? 0 : matchingDocuments.Count(document => LegacyOriginalCategories.Contains(document.Category)));
         var editedCount = matchingDocuments.Count(document => EditedCategories.Contains(document.Category));
         var louCount = matchingDocuments.Count(document => document.Category == FileCategory.LoanDocument);
         var missing = originalCount > 0 ? [] : OriginalCategories.ToList();
-        return new LoanDocumentCheck(missing.Count == 0, missing, originalCount, editedCount, louCount);
+        return new LoanDocumentCheck(missing.Count == 0, missing, originalCount, editedCount, louCount, explicitCount > 0);
     }
 
     public static ValidationResult ValidateCompletion(LoanApplication loan, IEnumerable<DocumentBlob> documents)

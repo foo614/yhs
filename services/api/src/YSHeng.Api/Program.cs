@@ -1241,6 +1241,19 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     await using var loanUploadTransaction = linkedLoan is not null
         ? await DeliveryConcurrencyLock.BeginLoanAsync(db, id, linkedLoan.Id)
         : null;
+    if (linkedLoan is not null && category is (FileCategory.LoanOriginalDocument or FileCategory.LoanEditedDocument))
+    {
+        var evidence = await db.DocumentBlobs.AsNoTracking()
+            .Where(row => row.VehicleId == id && (row.LoanApplicationId == linkedLoan.Id ||
+                (row.LoanApplicationId == null && row.CustomerId == linkedLoan.CustomerId)))
+            .Select(row => new DocumentBlob { VehicleId = row.VehicleId, LoanApplicationId = row.LoanApplicationId,
+                CustomerId = row.CustomerId, Category = row.Category })
+            .ToListAsync();
+        var hasOriginal = LoanDocumentRules.CheckCompleteness(linkedLoan, evidence).HasExplicitOriginal;
+        var expectedCategory = hasOriginal ? FileCategory.LoanEditedDocument : FileCategory.LoanOriginalDocument;
+        if (category != expectedCategory)
+            return Results.Conflict(new ApiError("Loan evidence has changed. Refresh the loan before uploading the document."));
+    }
     LoanBankOption? louBank = null;
     if (loanBankOptionId.HasValue || category == FileCategory.LoanDocument)
     {
@@ -1361,6 +1374,9 @@ backOffice.MapDelete("/vehicles/{id:guid}/loan-documents/{documentId:guid}", asy
 
     await using var deletionTransaction = document.LoanApplicationId is { } deletingLoanId
         ? await DeliveryConcurrencyLock.BeginLoanAsync(db, id, deletingLoanId) : null;
+    if (document.Category == FileCategory.LoanOriginalDocument && document.LoanApplicationId is { } originalLoanId)
+        await db.LoanApplications.Where(row => row.Id == originalLoanId)
+            .ExecuteUpdateAsync(update => update.SetProperty(row => row.RequiresExplicitOriginal, true));
     if (await db.LoanBankOptions.AnyAsync(bank => bank.LouDocumentId == document.Id))
         return Results.BadRequest(new ApiError("Bank LOU evidence cannot be removed while linked to a bank option. Upload a replacement first."));
     var ocrJobs = await db.OcrJobs.Where(job => job.DocumentId == document.Id).ToListAsync();
@@ -2147,7 +2163,7 @@ backOffice.MapPut("/loans/{id:guid}", async (Guid id, LoanApplication loan, AppD
         if (!transitionValidation.IsValid) return Results.BadRequest(transitionValidation);
         loan = LoanDecisionRules.PreserveDecisionMetadata(existingLoan, loan);
     }
-    loan = loan with { LoanAmount = existingLoan.LoanAmount, LoanBank = existingLoan.LoanBank, InterestRate = existingLoan.InterestRate, LoanTenureMonths = existingLoan.LoanTenureMonths, LoanTerms = existingLoan.LoanTerms, BankSubmittedAt = existingLoan.BankSubmittedAt, LouApproved = existingLoan.LouApproved, LastUpdatedAt = DateTime.UtcNow };
+    loan = loan with { RequiresExplicitOriginal = existingLoan.RequiresExplicitOriginal, LoanAmount = existingLoan.LoanAmount, LoanBank = existingLoan.LoanBank, InterestRate = existingLoan.InterestRate, LoanTenureMonths = existingLoan.LoanTenureMonths, LoanTerms = existingLoan.LoanTerms, BankSubmittedAt = existingLoan.BankSubmittedAt, LouApproved = existingLoan.LouApproved, LastUpdatedAt = DateTime.UtcNow };
     var dealValidation = LoanDecisionRules.ValidateDealFields(loan);
     if (!dealValidation.IsValid) return Results.BadRequest(dealValidation);
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
