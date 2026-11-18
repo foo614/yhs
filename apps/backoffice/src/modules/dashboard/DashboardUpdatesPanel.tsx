@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Col, List, Row, Space, Spin, Tag, Typography } from "antd";
+import { Alert, Button, Col, Empty, List, Row, Space, Spin, Tag, Typography } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import { canAccessRoute } from "../../access";
 import { getDashboardUpdates, getVehicleDocumentContent, humanizeApiError, vehicleDocumentContentUrl, type DashboardUpdate, type DashboardUpdatesResponse } from "../../api";
@@ -67,7 +67,7 @@ export function DashboardUpdatesPanel({ roles, onNavigate }: { roles: string[]; 
         <Col xs={24} lg={hasReminders && hasNews ? 10 : 24}>
           <Typography.Title level={5}>News / 公司动态</Typography.Title>
           <Typography.Text type="secondary">Recent 30 days · latest 60 updates / 近30天，最新60项</Typography.Text>
-          <List dataSource={data?.news ?? []} renderItem={renderItem} pagination={hasNews ? { pageSize: 5, size: "small", showSizeChanger: false } : false} locale={{ emptyText: <Typography.Text type="secondary">No news / 暂无动态</Typography.Text> }} />
+          <List dataSource={data?.news ?? []} renderItem={renderItem} pagination={hasNews ? { pageSize: 5, size: "small", showSizeChanger: false } : false} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No news / 暂无动态" style={{ marginBlock: 8 }} styles={{ image: { height: 32, marginBottom: 4 } }} /> }} />
         </Col>
       </Row>
     </Spin>}
