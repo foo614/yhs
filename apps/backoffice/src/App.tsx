@@ -2255,6 +2255,7 @@ export function ModuleDocumentList({
     {
       title: "Type / 类型",
       dataIndex: "category",
+      render: (category: DocumentCategory) => loanApplicationId ? documentCategoryLabel(category) : category,
       ...(repairJobId ? {} : {
         filters: tableTextFilters(documents.map((document) => document.category)),
         onFilter: (value: any, row: VehicleDocument) => row.category === value
