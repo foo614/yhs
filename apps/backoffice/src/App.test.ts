@@ -611,7 +611,8 @@ describe("lead search controls", () => {
       customers: [],
       leads,
       onCreateCustomer: async () => {},
-      onUpdate: () => {}
+      onUpdate: () => {},
+      onLinkVehicle: async () => leads[0]
     }));
 
     expect(markup).toContain("Search leads by customer, phone, plate, or message");

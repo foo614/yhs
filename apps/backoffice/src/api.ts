@@ -239,6 +239,12 @@ export type StockMovement = {
 export type VehicleIntakeValues = Omit<Vehicle, "id">;
 
 export type DashboardSummary = {
+  budgetSearchAnalytics?: {
+    searches: number;
+    noMatches: number;
+    enquiries: number;
+    bands: Array<{ minimum: number; noMatches: number }>;
+  };
   totalStock: number;
   purchaseCost?: number;
   pendingLoan: number;
@@ -1476,6 +1482,8 @@ export type HrPayrollCandidate = {
 };
 
 export type Lead = {
+  vehicleBudget?: number | null;
+  budgetSearchDate?: string | null;
   id: string;
   vehicleId: string;
   customerId?: string;
@@ -2884,6 +2892,10 @@ export async function updateLead(lead: Lead): Promise<Lead> {
     method: "PUT",
     body: JSON.stringify(lead)
   });
+}
+
+export async function linkLeadVehicle(id: string, vehicleId: string): Promise<Lead> {
+  return request<Lead>(`/api/leads/${id}/vehicle/${vehicleId}`, { method: "POST" });
 }
 
 export async function updateDelivery(delivery: DeliverySchedule): Promise<DeliverySchedule> {

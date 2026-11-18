@@ -94,6 +94,7 @@ export const expandLeadGroupsByDefault = false;
 
 
 export function leadSourceSummary(lead: Lead, vehicles: LeadVehicleInfo[] = []) {
+  if (lead.budgetSearchDate) return "FAQ calculator · No match";
   if (!lead.sourcePage && !lead.sourceCampaign && !lead.sourceReferrer) return "No public source captured";
 
   let sourcePath = lead.sourcePage?.trim() ?? "";

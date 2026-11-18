@@ -11,6 +11,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Owner> Owners => Set<Owner>();
     public DbSet<Lead> Leads => Set<Lead>();
+    public DbSet<BudgetSearch> BudgetSearches => Set<BudgetSearch>();
     public DbSet<CalendarTask> CalendarTasks => Set<CalendarTask>();
     public DbSet<BrokerDealPrice> BrokerDealPrices => Set<BrokerDealPrice>();
     public DbSet<VehiclePhoto> VehiclePhotos => Set<VehiclePhoto>();

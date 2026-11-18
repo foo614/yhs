@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { budgetSearchCopy, type BudgetEnquiry } from "./budget-search";
+import { searchPublicVehicleBudget } from "./vehicles/service";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Languages, MessageCircle, X } from "lucide-react";
 import { whatsappNumber } from "./business";
@@ -8,7 +11,16 @@ import { buyerFaq, faqLanguages, recommendedVehiclePriceFromSalary, type FaqLang
 import { hrefWithLanguage } from "./i18n";
 import styles from "./BuyerFaq.module.css";
 
-const BuyerHelpContext = createContext<{ open: boolean; show: (trigger: HTMLButtonElement) => void } | null>(null);
+const BuyerHelpContext = createContext<{
+  open: boolean;
+  show: (trigger: HTMLButtonElement) => void;
+  budgetEnquiry: BudgetEnquiry | null;
+  clearBudgetEnquiry: () => void;
+} | null>(null);
+
+export function useFaqBudgetEnquiry() {
+  return useContext(BuyerHelpContext);
+}
 
 export function BuyerHelpButton({ label }: { label: string }) {
   const help = useContext(BuyerHelpContext);
@@ -16,6 +28,10 @@ export function BuyerHelpButton({ label }: { label: string }) {
 }
 
 export function BuyerFaq({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const [budgetEnquiry, setBudgetEnquiry] = useState<BudgetEnquiry | null>(null);
+  const [searchPending, setSearchPending] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -67,13 +83,37 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
     launcher.current?.focus();
   }
 
+  async function findCars(searchLanguage: FaqLanguage) {
+    setSearchPending(true);
+    setSearchError(false);
+    const pageLanguage = searchLanguage === "zh" ? "zh" : "en";
+    try {
+      const result = await searchPublicVehicleBudget(suggestedMaxPrice);
+      if (!dialog.current?.open) return;
+      if (result.hasMatch) {
+        router.push(hrefWithLanguage(`/vehicles?maxPrice=${suggestedMaxPrice}`, pageLanguage));
+      } else if (result.searchId) {
+        setBudgetEnquiry({ searchId: result.searchId, vehicleBudget: suggestedMaxPrice, language: searchLanguage });
+        router.push(`${hrefWithLanguage("/contact?from=faq-budget", pageLanguage)}#enquiry`);
+      } else {
+        setSearchError(true);
+        return;
+      }
+      close();
+    } catch {
+      setSearchError(true);
+    } finally {
+      setSearchPending(false);
+    }
+  }
+
   function show(trigger: HTMLButtonElement) {
     launcher.current = trigger;
     setOpen(true);
   }
 
   return (
-    <BuyerHelpContext.Provider value={{ open, show }}>
+    <BuyerHelpContext.Provider value={{ open, show, budgetEnquiry, clearBudgetEnquiry: () => setBudgetEnquiry(null) }}>
       {children}
       <button type="button" className={styles.launcher} aria-haspopup="dialog" aria-expanded={open} aria-controls="buyer-faq" onClick={(event) => show(event.currentTarget)}>
         <MessageCircle size={20} aria-hidden="true" />
@@ -81,7 +121,7 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
       </button>
       <dialog ref={dialog} id="buyer-faq" className={styles.dialog} lang={language ?? undefined} aria-labelledby="buyer-faq-heading" onCancel={(event) => { event.preventDefault(); close(); }} onClose={() => setOpen(false)} onKeyDown={(event) => {
         if (event.key !== "Tab") return;
-        const controls = event.currentTarget.querySelectorAll<HTMLElement>("button, a[href]");
+        const controls = event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], input");
         const first = controls[0];
         const last = controls[controls.length - 1];
         if (!event.shiftKey && document.activeElement === last) {
@@ -130,7 +170,8 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
                       {suggestedMaxPrice > 0 && (
                         <>
                           <p>{t.salaryResult.replace("{amount}", suggestedMaxPrice.toLocaleString("en-MY"))}</p>
-                          <Link className={styles.guideLink} href={hrefWithLanguage(`/vehicles?maxPrice=${suggestedMaxPrice}`, language === "zh" ? "zh" : "en")} onClick={close}>{t.salaryBrowse}<ArrowRight size={16} aria-hidden="true" /></Link>
+                          <button type="button" className={styles.guideLink} disabled={searchPending} onClick={() => void findCars(language)}>{searchPending ? budgetSearchCopy[language].searching : t.salaryBrowse}<ArrowRight size={16} aria-hidden="true" /></button>
+                          {searchError && <small role="alert">{budgetSearchCopy[language].failure}</small>}
                           <small>{t.salaryDisclaimer}</small>
                         </>
                       )}

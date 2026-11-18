@@ -1793,9 +1793,11 @@ public sealed class BusinessRulesTests
             CreatedAt = createdAt,
             SourcePage = "/vehicles/vehicle-1",
             SourceReferrer = "https://example.test/",
-            SourceCampaign = "utm_source=facebook"
+            SourceCampaign = "utm_source=facebook",
+            VehicleBudget = 48000,
+            BudgetSearchDate = new DateOnly(2026, 11, 18)
         };
-        var incoming = existing with { Status = LeadStatus.Contacted };
+        var incoming = existing with { Status = LeadStatus.Contacted, VehicleBudget = null, BudgetSearchDate = null };
         var takenAt = DateTime.UtcNow;
 
         var result = LeadRules.ApplyBackOfficeUpdate(existing, incoming, "staff-1", "Jason Tan", takenAt);
@@ -1805,6 +1807,8 @@ public sealed class BusinessRulesTests
         Assert.Equal("/vehicles/vehicle-1", result.SourcePage);
         Assert.Equal("https://example.test/", result.SourceReferrer);
         Assert.Equal("utm_source=facebook", result.SourceCampaign);
+        Assert.Equal(48000, result.VehicleBudget);
+        Assert.Equal(new DateOnly(2026, 11, 18), result.BudgetSearchDate);
         Assert.Equal("staff-1", result.TakenByUserId);
         Assert.Equal("Jason Tan", result.TakenByName);
         Assert.Equal(takenAt, result.TakenAt);

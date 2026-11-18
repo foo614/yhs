@@ -234,6 +234,7 @@ import {
   updateDailySpend,
   updateDebtRecovery,
   updateLead,
+  linkLeadVehicle,
   updateLoan,
   updateOwner,
   updateOcrUsageLimit,
@@ -1539,6 +1540,8 @@ export default function App() {
           )}
           {pathname === "/leads" && (
             <LeadsPage
+              key={routeUrl}
+              budgetSearchQuery={routeUrl.split("?")[1]}
               initialMyCarsPlate={new URLSearchParams(routeUrl.split("?")[1] ?? "").get("myCarsPlate") ?? undefined}
               currentUser={currentUser}
               vehicles={vehicles}
@@ -1559,6 +1562,7 @@ export default function App() {
                 );
               }}
               onUpdate={(lead) => runUpdate(() => updateLead(lead), (record) => setLeads((items) => replaceById(items, record)), "Lead updated")}
+              onLinkVehicle={(id, vehicleId) => runUpdateWithResult(() => linkLeadVehicle(id, vehicleId), (record) => setLeads((items) => replaceById(items, record)), "Vehicle linked to lead")}
             />
           )}
           {pathname === "/hr-salary" && (
@@ -2637,6 +2641,14 @@ export function DashboardPage({
             <div className="dashboardLeadFollowUp"><h3>Lead follow-up / 询问跟进</h3><Typography.Paragraph type="secondary">Current case status of {leadCount} enquiries created in {analyticsPeriodLabel}. {leadsAwaitingFirstResponse} new enquiries over 24h in this period.</Typography.Paragraph><DashboardLeadStatus stages={leadStages} closureRate={leadClosureRate} /></div>
             <details className="dashboardDetailDisclosure"><summary>Top enquired vehicles / 热门询问车辆</summary><DashboardLeadVehicleList items={topEnquiredVehicles} periodLabel={analyticsPeriodLabel} /></details>
           </ProCard>
+            {dashboard?.budgetSearchAnalytics && (
+              <ProCard
+                title="FAQ budget searches / 购车预算查询"
+                className="dashboardAnalysisCard"
+              >
+                <BudgetSearchDashboard analytics={dashboard.budgetSearchAnalytics} period={analyticsPeriod} onNavigate={onNavigate} />
+              </ProCard>
+            )}
           <ProCard title="Stock context / 当前库存" className="dashboardAnalysisCard dashboardStockContext">
             <Typography.Paragraph type="secondary">Current stock and loans at the Summary update; independent of the analytics range.</Typography.Paragraph>
             <div className="metricGrid dashboardMetricGrid dashboardSupportingMetrics">
@@ -2858,6 +2870,33 @@ type DashboardBarItem = {
   label: string;
   value: number;
 };
+
+function BudgetSearchDashboard({ analytics, period, onNavigate }: {
+  analytics: NonNullable<DashboardSummary["budgetSearchAnalytics"]>;
+  period: DashboardAnalyticsPeriod;
+  onNavigate: (path: string) => void;
+}) {
+  const params = new URLSearchParams({ source: "faq-budget" });
+  if (period.from) params.set("from", period.from);
+  if (period.to) params.set("to", period.to);
+  const conversion = analytics.noMatches ? (analytics.enquiries / analytics.noMatches).toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 }) : "—";
+  return (
+    <>
+      <Space wrap>
+        <Tag>{analytics.searches} searches</Tag>
+        <Tag>{analytics.noMatches} without a match</Tag>
+        <Button type="link" onClick={() => onNavigate(`/leads?${params}`)}>{analytics.enquiries} {analytics.enquiries === 1 ? "enquiry" : "enquiries"}</Button>
+        <Tag>{conversion} no-match conversion</Tag>
+      </Space>
+      <DashboardBarList
+        items={analytics.bands.map((band) => ({ label: `RM ${band.minimum.toLocaleString()}–${(band.minimum + 9999).toLocaleString()}`, value: band.noMatches }))}
+        formatValue={(count) => count.toLocaleString()}
+        tone="demand"
+        emptyText="No unmatched budgets in this period."
+      />
+    </>
+  );
+}
 
 function DashboardBarList({
   items,
@@ -5187,12 +5226,15 @@ export function DeliveryPage({
   );
 }
 
-export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate }: { initialMyCarsPlate?: string; currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void }) {
+export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate, budgetSearchQuery, onLinkVehicle }: { initialMyCarsPlate?: string; currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void; budgetSearchQuery?: string; onLinkVehicle: (id: string, vehicleId: string) => Promise<Lead> }) {
   const [leadKeyword, setLeadKeyword] = useState("");
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
   const [leadSortMode, setLeadSortMode] = useState<"CloseAsap" | "Received">("Received");
   const [closingLead, setClosingLead] = useState<Lead | null>(null);
+  const [linkingLead, setLinkingLead] = useState<Lead | null>(null);
+  const [recommendedVehicle, setRecommendedVehicle] = useState<string>();
+  const [linkingVehicle, setLinkingVehicle] = useState(false);
   const [closureOutcome, setClosureOutcome] = useState<"Sold" | "Lost" | "Invalid">("Lost");
   const [leadView, setLeadView] = useState<"Leads" | "MyCars">(initialMyCarsPlate ? "MyCars" : "Leads");
   useEffect(() => { if (initialMyCarsPlate) setLeadView("MyCars"); }, [initialMyCarsPlate]);
@@ -5217,7 +5259,14 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
       setPendingLeadIds(new Set(pendingLeadRequests.current));
     }
   };
-  const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter });
+  const budgetParams = new URLSearchParams(budgetSearchQuery);
+  const [budgetOnly, setBudgetOnly] = useState(budgetParams.get("source") === "faq-budget");
+  const budgetFrom = budgetParams.get("from");
+  const budgetTo = budgetParams.get("to");
+  const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter })
+    .filter((lead) => !budgetOnly || (lead.budgetSearchDate
+      && (!budgetFrom || lead.budgetSearchDate >= budgetFrom)
+      && (!budgetTo || lead.budgetSearchDate <= budgetTo)));
   const displayedLeads = leadSortMode === "CloseAsap"
     ? sortLeadsByHotCarDemand(filteredLeads, vehicles)
     : newestRecordsFirst(filteredLeads, lead => lead.createdAt);
@@ -5229,12 +5278,13 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
   const openLeadCount = leads.filter((lead) => lead.status !== "Closed").length;
   const multiLeadVehicleCount = Object.values(activeCounts).filter((count) => count > 1).length;
   const hotVehicleCount = vehicles.filter((vehicle) => vehicle.status === "Available" && vehicle.isPublic && (activeCounts[vehicle.id] ?? 0) > 1).length;
-  const leadFiltersActive = Boolean(leadKeyword.trim()) || leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "Received";
+  const leadFiltersActive = Boolean(leadKeyword.trim()) || leadStatusFilter !== "All" || leadLinkFilter !== "All" || leadSortMode !== "Received" || budgetOnly;
   const clearLeadFilters = () => {
     setLeadKeyword("");
     setLeadStatusFilter("All");
     setLeadLinkFilter("All");
     setLeadSortMode("Received");
+    setBudgetOnly(false);
   };
   const customerRecordForLead = (lead: Lead) => lead.customerId ? customers.find((customer) => customer.id === lead.customerId) : undefined;
   const currentUserId = currentUser?.id ?? "";
@@ -5299,6 +5349,10 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
       <Space className="tableActionGroup leadActionGroup" wrap size={6}>
         {renderLeadWorkflowButton(lead)}
         {renderLeadReleaseButton(lead)}
+      {lead.budgetSearchDate && lead.vehicleId === "00000000-0000-0000-0000-000000000000" && lead.status === "Contacted"
+        && (isTakenByCurrentUser(lead) || currentUser?.roles?.includes("BossAdmin")) && (
+          <Button size="small" onClick={() => { setRecommendedVehicle(undefined); setLinkingLead(lead); }}>Link vehicle</Button>
+      )}
       </Space>
       {leadErrors[lead.id] && <Alert type="error" showIcon message={leadErrors[lead.id]} />}
     </div>
@@ -5325,9 +5379,12 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
       title: "Source / 来源",
       width: 260,
       render: (_, row) => (
-        <Tooltip title={leadSourceSummary(row, vehicles)}>
-          <Typography.Text className="leadSourceText">{leadSourceSummary(row, vehicles)}</Typography.Text>
-        </Tooltip>
+        <Space direction="vertical" size={2}>
+          <Tooltip title={leadSourceSummary(row, vehicles)}>
+            <Typography.Text className="leadSourceText">{leadSourceSummary(row, vehicles)}</Typography.Text>
+          </Tooltip>
+          {row.vehicleBudget != null && <Typography.Text>Budget {formatMoney(row.vehicleBudget)}</Typography.Text>}
+        </Space>
       )
     },
     {
@@ -5448,6 +5505,13 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
             <Select value={leadLinkFilter} options={leadFilterControlOptions.customerLink} onChange={setLeadLinkFilter} style={{ width: 180 }} />
           </label>
           <label className="leadFilterControl">
+            <span>Source</span>
+            <Select value={budgetOnly ? "faq" : "all"} onChange={(value) => setBudgetOnly(value === "faq")} style={{ width: 205 }} options={[
+              { value: "all", label: "All sources" },
+              { value: "faq", label: "FAQ calculator · No match" }
+            ]} />
+          </label>
+          <label className="leadFilterControl">
             <span>Sort By</span>
             <Select value={leadSortMode} options={leadFilterControlOptions.sort} onChange={setLeadSortMode} style={{ width: 180 }} />
           </label>
@@ -5487,6 +5551,7 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
                         <span>{lead.phone}</span>
                         <small>{lead.message || "No message"}</small>
                         <small>{leadSourceSummary(lead, vehicles)}</small>
+                        {lead.vehicleBudget != null && <small>Budget {formatMoney(lead.vehicleBudget)}</small>}
                         {leadOwnerLabel(lead) ? <small>{leadOwnerLabel(lead)}</small> : null}
                       </div>
                       <div className="leadMobileActions">
@@ -5521,17 +5586,20 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
               { name: "message", label: "Message" },
               { name: "status", label: "Status", options: leadFilterControlOptions.status.filter((option) => option.value !== "All") },
               { name: "customerLink", label: "Customer link", options: leadFilterControlOptions.customerLink.filter((option) => option.value !== "All") },
+              { name: "source", label: "Source", options: [{ value: "faq", label: "FAQ calculator · No match" }] },
               { name: "sort", label: "Sort by", options: leadFilterControlOptions.sort }
             ],
             values: {
               status: leadStatusFilter === "All" ? undefined : leadStatusFilter,
               customerLink: leadLinkFilter === "All" ? undefined : leadLinkFilter,
+              source: budgetOnly ? "faq" : undefined,
               sort: leadSortMode
             },
             onSubmit: (values) => {
               setLeadKeyword(operationsKeywordFromFields(values, ["customer", "phone", "plate", "message"]));
               setLeadStatusFilter((values.status as typeof leadStatusFilter | undefined) ?? "All");
               setLeadLinkFilter((values.customerLink as typeof leadLinkFilter | undefined) ?? "All");
+              setBudgetOnly(values.source === "faq");
               setLeadSortMode((values.sort as typeof leadSortMode | undefined) ?? "Received");
             },
             onReset: clearLeadFilters
@@ -5540,6 +5608,7 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
           scroll={{ x: 930 }}
           expandable={{
             defaultExpandAllRows: expandLeadGroupsByDefault,
+            defaultExpandedRowKeys: budgetParams.get("source") === "faq-budget" ? groupedLeadRows.map((group) => group.vehicleId) : undefined,
             expandedRowRender: (group) => (
               <Table
                 className="nativeSearchDesktopOnly"
@@ -5557,6 +5626,40 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
           locale={{ emptyText: "No leads match the current filters." }}
         />
       </ProCard>
+      <Modal
+        title="Link vehicle / 关联车辆"
+        open={Boolean(linkingLead)}
+        okText="Link vehicle"
+        okButtonProps={{ disabled: !recommendedVehicle }}
+        confirmLoading={linkingVehicle}
+        onCancel={() => { if (!linkingVehicle) setLinkingLead(null); }}
+        onOk={async () => {
+          if (!linkingLead || !recommendedVehicle || linkingVehicle) return;
+          setLinkingVehicle(true);
+          try {
+            await onLinkVehicle(linkingLead.id, recommendedVehicle);
+            setLinkingLead(null);
+          } catch {
+            // The portal displays the API error and leaves the selection open.
+          } finally {
+            setLinkingVehicle(false);
+          }
+        }}
+      >
+        {linkingLead?.vehicleBudget != null && <Typography.Paragraph>Customer budget {formatMoney(linkingLead.vehicleBudget)}</Typography.Paragraph>}
+        <Select
+          aria-label="Available vehicle"
+          className="fullWidth"
+          showSearch
+          optionFilterProp="label"
+          placeholder="Select an available vehicle"
+          value={recommendedVehicle}
+          onChange={setRecommendedVehicle}
+          options={vehicles.filter((vehicle) => vehicle.status === "Available" && vehicle.isPublic && vehicle.bossConfirmed)
+            .sort((first, second) => first.sellingPrice - second.sellingPrice)
+            .map((vehicle) => ({ value: vehicle.id, label: `${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber} · ${formatMoney(vehicle.sellingPrice)}` }))}
+        />
+      </Modal>
       <Modal
         title="Close lead / 结束询问"
         open={Boolean(closingLead)}

@@ -65,6 +65,8 @@ export type PublicLeadResult = { ok: true } | { ok: false; message: string; code
 export type PublicVehicleDetailPageData = { vehicle: PublicVehicle; vehicles: PublicVehicle[] };
 export type PublicInventoryResult = { vehicles: PublicVehicle[]; unavailable: boolean };
 export type PublicContactPayload = {
+  budgetSearchId?: string;
+  vehicleBudget?: number;
   customerName: string;
   phone: string;
   message: string;
@@ -435,6 +437,8 @@ async function withPhotoUrls(vehicles: ApiVehicle[], fetchBaseUrl = apiBaseUrl, 
 
 export async function submitPublicContact(payload: PublicContactPayload, baseUrl = apiBaseUrl): Promise<PublicLeadResult> {
   const cleanedPayload = {
+    budgetSearchId: payload.budgetSearchId,
+    vehicleBudget: payload.vehicleBudget,
     customerName: payload.customerName.trim(),
     phone: payload.phone.trim(),
     message: payload.message.trim(),
@@ -468,6 +472,16 @@ export async function submitPublicContact(payload: PublicContactPayload, baseUrl
   } catch {
     return { ok: false, code: "submit_failed", message: "Could not send enquiry. Please try again." };
   }
+}
+
+export async function searchPublicVehicleBudget(vehicleBudget: number): Promise<{ hasMatch: boolean; searchId: string | null }> {
+  const response = await fetch(`${apiBaseUrl}/api/public/budget-searches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ vehicleBudget })
+  });
+  if (!response.ok) throw new Error("Budget search failed");
+  return response.json();
 }
 
 export async function submitPublicShowroomEnquiry(payload: PublicShowroomEnquiryPayload, baseUrl = apiBaseUrl): Promise<PublicLeadResult> {
@@ -524,7 +538,7 @@ async function validationError(response: Response): Promise<Extract<PublicLeadRe
     const body = await response.json();
     const firstError = Array.isArray(body?.errors) ? body.errors[0] : undefined;
     if (firstError?.message) return { ok: false, code: String(firstError.code ?? "validation_failed"), message: String(firstError.message) };
-    if (body?.message) return { ok: false, code: "validation_failed", message: String(body.message) };
+    if (body?.message) return { ok: false, code: String(body.code ?? "validation_failed"), message: String(body.message) };
   } catch {
     // Fall through to the generic message.
   }

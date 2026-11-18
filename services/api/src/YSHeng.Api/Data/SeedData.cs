@@ -15,6 +15,7 @@ public static class SeedData
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
         await EnsureLeadSchemaAsync(db);
+        await EnsureBudgetSearchSchemaAsync(db);
         await EnsureCalendarTaskSchemaAsync(db);
         await EnsureBrokerDealPriceSchemaAsync(db);
         await EnsureHrSchemaAsync(db);
@@ -468,6 +469,28 @@ public static class SeedData
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_BrokerDealPrices_VehicleId"
                 ON "BrokerDealPrices" ("VehicleId");
+        """);
+    }
+
+    public static async Task EnsureBudgetSearchSchemaAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        await EnsureBudgetSearchSchemaAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
+    private static async Task EnsureBudgetSearchSchemaAsync(AppDbContext db)
+    {
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "VehicleBudget" integer NULL;
+            ALTER TABLE "Leads" ADD COLUMN IF NOT EXISTS "BudgetSearchDate" date NULL;
+            CREATE TABLE IF NOT EXISTS "BudgetSearches" (
+                "Id" uuid PRIMARY KEY,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "BudgetBand" integer NOT NULL,
+                "NoMatch" boolean NOT NULL,
+                "LeadId" uuid NULL
+            );
+            CREATE INDEX IF NOT EXISTS "IX_BudgetSearches_CreatedAt" ON "BudgetSearches" ("CreatedAt");
         """);
     }
 
