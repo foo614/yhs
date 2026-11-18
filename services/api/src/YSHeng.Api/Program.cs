@@ -1241,6 +1241,19 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     await using var loanUploadTransaction = linkedLoan is not null
         ? await DeliveryConcurrencyLock.BeginLoanAsync(db, id, linkedLoan.Id)
         : null;
+    if (linkedLoan is not null && category is (FileCategory.LoanOriginalDocument or FileCategory.LoanEditedDocument))
+    {
+        var evidence = await db.DocumentBlobs.AsNoTracking()
+            .Where(row => row.VehicleId == id && (row.LoanApplicationId == linkedLoan.Id ||
+                (row.LoanApplicationId == null && row.CustomerId == linkedLoan.CustomerId)))
+            .Select(row => new DocumentBlob { VehicleId = row.VehicleId, LoanApplicationId = row.LoanApplicationId,
+                CustomerId = row.CustomerId, Category = row.Category })
+            .ToListAsync();
+        var hasOriginal = LoanDocumentRules.CheckCompleteness(linkedLoan, evidence).IsComplete;
+        var expectedCategory = hasOriginal ? FileCategory.LoanEditedDocument : FileCategory.LoanOriginalDocument;
+        if (category != expectedCategory)
+            return Results.Conflict(new ApiError("Loan evidence has changed. Refresh the loan before uploading the document."));
+    }
     LoanBankOption? louBank = null;
     if (loanBankOptionId.HasValue || category == FileCategory.LoanDocument)
     {

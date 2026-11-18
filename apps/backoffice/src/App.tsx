@@ -67,7 +67,7 @@ import type { InputProps, InputRef } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
 import { assignableStaffRoles, backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation, roleDataKeys, routeAccess, type AppRoutePath, type BackOfficeDataKey } from "./access";
-import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanDocumentCategories, loanHistoryDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, loanRequiredDocumentCategories, markLoanDone, nextLoanDocumentReloadKey, type LoanFilters } from "./loan";
+import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, loanHistoryDocumentCategories, loanDocumentUploadOwner, loanRequiredDocumentCategories, markLoanDone, nextLoanDocumentReloadKey, type LoanFilters } from "./loan";
 import {
   activeLeadCountByVehicle,
   expandLeadGroupsByDefault,
@@ -4704,11 +4704,7 @@ export function LoanPage({
         throw error;
       }
     };
-    const loanDocumentUploadAction = (category: DocumentCategory, isPresent: boolean) => <PreviewDocumentUpload
-      documentLabel={documentCategoryLabel(category)}
-      buttonLabel={isPresent ? "Upload another / 再上传" : "Upload / 上传"}
-      onUpload={(file, onProgress) => uploadLoanDocument(category, file, onProgress)}
-    />;
+    const nextDocumentCategory = check?.isComplete ? "LoanEditedDocument" : "LoanOriginalDocument";
     const refreshBanks = async () => {
       const refreshedOptions = await getLoanBankOptions(selectedLoan.id);
       if (currentLoanIdRef.current !== selectedLoan.id) return;
@@ -4868,25 +4864,16 @@ export function LoanPage({
         </ProCard>
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">
-            <DocumentUploadChecklist
-              title="Required document checklist / 必需文件清单"
-              description="At least one original Loan document is mandatory; upload multiple originals when needed. Edited Loan Documents are optional, and the LOU is stored separately—neither replaces the original evidence."
-              items={loanDocumentCategories.map((category) => {
-                const isPresent = category === "LoanOriginalDocument"
-                  ? !missingLoanDocuments.includes(category)
-                  : (check?.editedDocumentCount ?? 0) > 0;
-                const canUpload = selectedLoan.status !== "Rejected" && canUploadLoanChecklistDocument(roles, category);
-                return {
-                  label: documentCategoryLabel(category),
-                  isPresent,
-                  statusText: selectedLoan.status === "Rejected"
-                    ? "Application rejected — existing files are read-only"
-                    : canUpload ? undefined : loanDocumentChecklistStatus(category, isPresent),
-                  action: canUpload ? loanDocumentUploadAction(category, isPresent) : undefined
-                };
-              })}
-            />
-            {selectedLoan.status !== "Rejected" && !check?.isComplete && (
+            {selectedLoan.status !== "Rejected" && check && !documentChecksError && (
+              canUploadLoanChecklistDocument(roles, nextDocumentCategory)
+                ? <PreviewDocumentUpload
+                    documentLabel={documentCategoryLabel(nextDocumentCategory)}
+                    buttonLabel="Upload loan document / 上传贷款文件"
+                    onUpload={(file, onProgress) => uploadLoanDocument(nextDocumentCategory, file, onProgress)}
+                  />
+                : <Typography.Text type="secondary">{check.isComplete ? "Loan staff can upload an edited copy." : "Request the original document from the Broker."}</Typography.Text>
+            )}
+            {selectedLoan.status !== "Rejected" && check && !documentChecksError && !check.isComplete && (
               <Alert
                 type="warning"
                 showIcon
@@ -4904,7 +4891,7 @@ export function LoanPage({
               loanApplicationId={selectedLoan.id}
               customerId={selectedLoan.customerId}
               reloadKey={documentReloadKey}
-              showOcrResults
+              showOcrResults={false}
               enablePreview
               onDelete={selectedLoan.status !== "Rejected" ? removeLoanDocument : undefined}
             />
