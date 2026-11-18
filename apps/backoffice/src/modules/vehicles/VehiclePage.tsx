@@ -1521,14 +1521,14 @@ export function VehiclePage({
   const requestPublicationApproval = (vehicle: Vehicle) => {
     publicationModal.confirm({
       title: `Request website listing approval for ${vehicle.plateNumber}?`,
-      content: "Boss/Admin will review the vehicle. This request does not approve or publish the listing.",
+      content: "Admin will review the vehicle. This request does not approve or publish the listing.",
       okText: "Request approval",
       cancelText: "Cancel",
       onOk: async () => {
         try {
           await requestVehiclePublicationApproval(vehicle.id);
           setPublicationRequestedIds((ids) => [...ids, vehicle.id]);
-          message.success("Listing approval requested. The vehicle remains private until Boss/Admin approves and publishes it.");
+          message.success("Listing approval requested. The vehicle remains private until Admin approves and publishes it.");
         } catch (error) {
           message.error(humanizeApiError(error));
         }
@@ -2785,7 +2785,7 @@ export function VehiclePage({
                 if (selectedVehicle.bossConfirmed && vehicleSellingPriceChanged(selectedVehicle.sellingPrice, vehicle.sellingPrice)) {
                   Modal.confirm({
                     title: "Reprice this approved vehicle?",
-                    content: "Saving the new selling price revokes management confirmation and immediately hides the vehicle from the public website. A Boss/Admin must review and approve the new price in a separate step before it can be published or invoiced.",
+                    content: "Saving the new selling price revokes management confirmation and immediately hides the vehicle from the public website. A Admin must review and approve the new price in a separate step before it can be published or invoiced.",
                     okText: "Save & revoke approval",
                     cancelText: "Keep approved price",
                     okButtonProps: { danger: true },
@@ -2816,7 +2816,7 @@ export function VehiclePage({
                   type="info"
                   showIcon
                   message="Approved selling price is locked"
-                  description="Brokers and other non-management users cannot change an approved price. Ask Boss/Admin to start a reprice if the agreed selling price changes."
+                  description="Brokers and other non-management users cannot change an approved price. Ask Admin to start a reprice if the agreed selling price changes."
                 />
               ) : selectedVehiclePricePolicy.warnsBeforeReprice ? (
                 <Alert
@@ -2832,7 +2832,7 @@ export function VehiclePage({
                 name="isPublic"
                 label="Website Visible / 网站展示"
                 valuePropName="checked"
-                extra={!selectedVehicle?.bossConfirmed && !canApproveVehicles ? "Website visibility stays hidden until Boss/Admin approval." : undefined}
+                extra={!selectedVehicle?.bossConfirmed && !canApproveVehicles ? "Website visibility stays hidden until Admin approval." : undefined}
               >
                 <Switch checkedChildren="Visible" unCheckedChildren="Hidden" disabled={!canApproveVehicles && !selectedVehicle?.bossConfirmed} />
               </Form.Item>

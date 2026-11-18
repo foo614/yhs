@@ -250,7 +250,7 @@ export function FinanceInvoiceReviewSummary({ input, vehicle, customerName }: {
         type="warning"
         showIcon
         message="Approval required before issuing the invoice"
-        description="A different Boss/Admin user must review and approve this NCD or adjusted total. No invoice is issued until approval is complete."
+        description="A different Admin user must review and approve this NCD or adjusted total. No invoice is issued until approval is complete."
       />}
     </div>
   );
@@ -1004,7 +1004,7 @@ export function FinancePage({
       content: <Space direction="vertical" size={12} className="fullWidth">
         <Typography.Text strong>{plateFor(vehicles, payment.vehicleId)}</Typography.Text>
         <FinancePriceAdjustmentSummary payment={payment} />
-        <Typography.Text type="secondary">Approval must be completed by a different Boss/Admin user from the requester.</Typography.Text>
+        <Typography.Text type="secondary">Approval must be completed by a different Admin user from the requester.</Typography.Text>
       </Space>,
       okText: "Approve & issue",
       cancelText: "Cancel",
@@ -1844,7 +1844,7 @@ export function FinancePage({
           {financeVehicleOptionLoadError && <Alert type="error" showIcon message="Vehicle prices are unavailable" description={`${financeVehicleOptionLoadError} Invoice preparation is disabled until the current selling price and additional charges load.`} action={<Button loading={financeVehicleOptionRefreshing} onClick={() => void onRetryFinanceVehicleOptions()}>Retry</Button>} />}
           <FinanceListNotice label="Finance records" loading={paymentRefreshing} />
           {financeFilters}
-          {!paymentRefreshing && !financeVehicleOptionRefreshing && !paymentLoadError && !financeVehicleOptionLoadError && approvedBuyerVehicles.length === 0 && <Alert type="warning" showIcon message="Only a Boss/Admin-approved vehicle with a confirmed buyer can be prepared for invoicing." />}
+          {!paymentRefreshing && !financeVehicleOptionRefreshing && !paymentLoadError && !financeVehicleOptionLoadError && approvedBuyerVehicles.length === 0 && <Alert type="warning" showIcon message="Only a Admin-approved vehicle with a confirmed buyer can be prepared for invoicing." />}
           {!paymentRefreshing && !financeVehicleOptionRefreshing && !paymentLoadError && !financeVehicleOptionLoadError && approvedBuyerVehicles.length > 0 && eligibleInvoiceVehicles.length === 0 && <Alert type="info" showIcon message="All approved, buyer-linked vehicles already have a finance record. Search the records below to continue collection work." />}
           <div className="mobileRecordList">
           {!paymentLoadError && !paymentRefreshing && filteredPayments.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={paymentEmptyText} />}
@@ -1944,7 +1944,7 @@ export function FinancePage({
               <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" />
             </Form.Item>
             <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]} extra="Any amount above RM 0 requires a reason and separate Boss/Admin approval."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]} extra="Any amount above RM 0 requires a reason and separate Admin approval."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </div>
           <ProCard size="small" title="Paid on behalf of customer / 代客户支付" variant="outlined">
@@ -1976,7 +1976,7 @@ export function FinancePage({
             <Form.Item name="nettPriceOverrideReason" label="Approval reason / 批准原因" rules={[{ required: true, whitespace: true, message: "Explain the NCD or nett-price adjustment." }]}>
               <Input.TextArea rows={3} maxLength={500} showCount placeholder="Example: verified NCD entitlement or agreed price adjustment and supporting basis" />
             </Form.Item>
-            <Alert type="warning" showIcon message="This adjustment will not issue an invoice now." description="A different Boss/Admin user must review and approve the NCD or adjusted total before the sales invoice can be issued." />
+            <Alert type="warning" showIcon message="This adjustment will not issue an invoice now." description="A different Admin user must review and approve the NCD or adjusted total before the sales invoice can be issued." />
           </>}
 
         </Form>
@@ -2044,7 +2044,7 @@ export function FinancePage({
             <FinancePriceAdjustmentSummary payment={selectedV2DetailsPayment} />
             <Descriptions size="small" column={1}>
               <Descriptions.Item label="Requested by">{financeRequesterLabel(selectedV2DetailsPayment.nettPriceOverrideRequestedBy, currentUser?.id)}</Descriptions.Item>
-              <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for a different Boss/Admin user"}</Descriptions.Item>
+              <Descriptions.Item label="Approval">{selectedV2DetailsPayment.nettPriceOverrideApprovedAt ? "Approved" : "Waiting for a different Admin user"}</Descriptions.Item>
             </Descriptions>
           </ProCard>}
           {selectedV2DetailsPayment.invoice && <Space direction="vertical" size={6}><Typography.Text type="secondary">{selectedV2DetailsPayment.invoice.invoiceNumber}</Typography.Text>{renderInvoiceActions(selectedV2DetailsPayment)}</Space>}
@@ -2075,7 +2075,7 @@ export function FinancePage({
         <Form name="financeLegacyCollection" form={legacyCollectionForm} layout="vertical" className="modalForm" onFinish={(values) => {
           const vehicle = approvedBuyerVehicles.find((item) => item.id === values.vehicleId);
           if (!vehicle || !Number.isFinite(vehicle.sellingPrice)) {
-            message.warning("Select a Boss/Admin-approved vehicle with a confirmed buyer.");
+            message.warning("Select a Admin-approved vehicle with a confirmed buyer.");
             return;
           }
           const payment: PaymentRecord = {
@@ -2103,7 +2103,7 @@ export function FinancePage({
           }
           void runLegacyMutation("payments", "collection-create", () => onCreate(payment), () => setFinanceCreateOpen(null));
         }} initialValues={{ vehicleId: approvedBuyerVehicles[0]?.id, nettPrice: approvedBuyerVehicles[0]?.sellingPrice }}>
-          <Alert type="info" showIcon message="New sales belong in Prepare sales invoice" description="This legacy collection path accepts only a Boss/Admin-approved vehicle price. The amount is loaded from the Vehicle record and cannot be reduced here." />
+          <Alert type="info" showIcon message="New sales belong in Prepare sales invoice" description="This legacy collection path accepts only a Admin-approved vehicle price. The amount is loaded from the Vehicle record and cannot be reduced here." />
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}>
             <Select
               showSearch

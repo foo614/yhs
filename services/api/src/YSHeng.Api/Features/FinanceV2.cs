@@ -140,7 +140,7 @@ public static class FinanceV2Rules
         }
         if (!vehicle.BossConfirmed)
         {
-            errors.Add(new("finance_vehicle_not_approved", "Boss/Admin must approve the vehicle selling price before Finance prepares the sale."));
+            errors.Add(new("finance_vehicle_not_approved", "Admin must approve the vehicle selling price before Finance prepares the sale."));
         }
         if (request.SalesPrice != vehicle.SellingPrice)
         {
@@ -206,7 +206,7 @@ public static class FinanceV2Rules
         if (payment.FinanceWorkflowVersion != 2) errors.Add(new("finance_v2_required", "Invoice generation through this route is only available for Finance V2 sales."));
         if (payment.CustomerId is null) errors.Add(new("finance_buyer_required", "Confirm the buyer before issuing the invoice."));
         if (payment.NettPrice <= 0 || payment.CalculatedNettPrice <= 0) errors.Add(new("finance_nett_price_invalid", "A positive calculated and agreed nett price is required."));
-        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before issuing an adjusted-price invoice."));
+        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Admin approval is required before issuing an adjusted-price invoice."));
         if (existingInvoice is not null && existingInvoice.PaymentRecordId != payment.Id) errors.Add(new("finance_invoice_conflict", "The existing invoice does not belong to this payment."));
         return new ValidationResult(errors);
     }
@@ -221,7 +221,7 @@ public static class FinanceV2Rules
         }
         if (!vehicle.BossConfirmed)
         {
-            errors.Add(new("finance_vehicle_not_approved", "Boss/Admin must approve the current vehicle selling price before Finance issues the invoice."));
+            errors.Add(new("finance_vehicle_not_approved", "Admin must approve the current vehicle selling price before Finance issues the invoice."));
         }
         if (payment.SalesPrice != vehicle.SellingPrice)
         {
@@ -333,7 +333,7 @@ public static class FinanceV2Rules
         var errors = new List<ValidationError>();
         if (payment.FinanceWorkflowVersion != 2) errors.Add(new("finance_v2_required", "Partial collections are only available for Finance V2 sales."));
         if (invoice is null) errors.Add(new("finance_invoice_required", "Issue the invoice before recording a collection."));
-        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before recording a collection for an NCD or adjusted nett price."));
+        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Admin approval is required before recording a collection for an NCD or adjusted nett price."));
         if (!Enum.IsDefined(typeof(CollectionMethod), request.Method)) errors.Add(new("collection_method_invalid", "Select a valid collection method."));
         if (request.FinancingStatus is { } financingStatus && !Enum.IsDefined(typeof(FinancingStatus), financingStatus))
         {
@@ -439,7 +439,7 @@ public static class FinanceV2Rules
         {
             errors.Add(new("finance_cash_custody_required", "Accept physical cash through Cash Custody so the handover and independent-checker controls cannot be bypassed."));
         }
-        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before reconciling a collection for an NCD or adjusted nett price."));
+        if (!HasApprovedVariance(payment)) errors.Add(new("finance_variance_approval_required", "Admin approval is required before reconciling a collection for an NCD or adjusted nett price."));
         if (!Enum.IsDefined(typeof(CollectionMethod), collection.Method)) errors.Add(new("collection_method_invalid", "The stored collection method is invalid and requires review."));
         if (!Enum.IsDefined(typeof(FinancingStatus), collection.FinancingStatus)) errors.Add(new("collection_financing_status_invalid", "The stored financing status is invalid and requires review."));
         if (collection.Status == CollectionStatus.Reversed) errors.Add(new("collection_reversed", "A reversed collection cannot be reconciled."));

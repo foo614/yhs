@@ -152,7 +152,7 @@ describe("module guidance", () => {
     expect(bossGuide.sections.map((section) => section.key)).toEqual(bossKeys);
     expect(bossGuide.sections.find((section) => section.key === "staff-calendar")?.kind).toBe("tab");
     expect(bossGuide.sections.find((section) => section.key === "office-network")?.kind).toBe("tab");
-    expect(bossGuide.roleLabel).toContain("Boss/Admin HR management");
+    expect(bossGuide.roleLabel).toContain("Admin HR management");
     expect(bossGuide).not.toBe(hrGuide);
   });
 });

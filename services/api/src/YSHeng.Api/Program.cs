@@ -874,7 +874,7 @@ backOffice.MapPost("/vehicles/{id:guid}/request-publication-approval", async (Gu
     ApiAudit.Add(db, context.User, "vehicle.publicationApprovalRequested", nameof(Vehicle), id);
     await db.SaveChangesAsync();
     await transaction.CommitAsync();
-    return Results.Ok(new { message = "Listing approval requested for Boss/Admin review." });
+    return Results.Ok(new { message = "Listing approval requested for Admin review." });
 }).RequireAuthorization("Vehicles");
 
 backOffice.MapGet("/vehicles/{id:guid}/stock-movements", async (Guid id, AppDbContext db) =>
@@ -3461,7 +3461,7 @@ backOffice.MapPost("/payments/finance-sale", async (FinanceSaleRequest request, 
     var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(item => item.Id == customerId);
     if (customer is null) return Results.BadRequest(new ApiError("The confirmed buyer is unavailable. Review the vehicle buyer before continuing."));
     var salesAgent = string.IsNullOrWhiteSpace(request.SalesAgentUserId) ? null : await userManager.FindByIdAsync(request.SalesAgentUserId);
-    if (salesAgent is null || !(await userManager.GetRolesAsync(salesAgent)).Contains("Sales")) return Results.BadRequest(new ApiError("Select an active Sales user as the responsible sales agent."));
+    if (salesAgent is null || !(await userManager.GetRolesAsync(salesAgent)).Contains("Sales")) return Results.BadRequest(new ApiError("Select an active Broker for this sale."));
     var receivableValidation = FinanceV2Rules.ValidateReceivableCreate(
         request.VehicleId,
         await db.PaymentRecords.AsNoTracking().Where(item => item.VehicleId == request.VehicleId).ToListAsync());
