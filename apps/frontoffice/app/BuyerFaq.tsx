@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { budgetEnquiryKey, budgetSearchCopy } from "./budget-search";
+import { budgetSearchCopy, type BudgetEnquiry } from "./budget-search";
 import { searchPublicVehicleBudget } from "./vehicles/service";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Languages, MessageCircle, X } from "lucide-react";
@@ -11,7 +11,16 @@ import { buyerFaq, faqLanguages, recommendedVehiclePriceFromSalary, type FaqLang
 import { hrefWithLanguage } from "./i18n";
 import styles from "./BuyerFaq.module.css";
 
-const BuyerHelpContext = createContext<{ open: boolean; show: (trigger: HTMLButtonElement) => void } | null>(null);
+const BuyerHelpContext = createContext<{
+  open: boolean;
+  show: (trigger: HTMLButtonElement) => void;
+  budgetEnquiry: BudgetEnquiry | null;
+  clearBudgetEnquiry: () => void;
+} | null>(null);
+
+export function useFaqBudgetEnquiry() {
+  return useContext(BuyerHelpContext);
+}
 
 export function BuyerHelpButton({ label }: { label: string }) {
   const help = useContext(BuyerHelpContext);
@@ -20,6 +29,7 @@ export function BuyerHelpButton({ label }: { label: string }) {
 
 export function BuyerFaq({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const [budgetEnquiry, setBudgetEnquiry] = useState<BudgetEnquiry | null>(null);
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -82,9 +92,12 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
       if (!dialog.current?.open) return;
       if (result.hasMatch) {
         router.push(hrefWithLanguage(`/vehicles?maxPrice=${suggestedMaxPrice}`, pageLanguage));
-      } else {
-        sessionStorage.setItem(budgetEnquiryKey, JSON.stringify({ searchId: result.searchId, vehicleBudget: suggestedMaxPrice, language: searchLanguage }));
+      } else if (result.searchId) {
+        setBudgetEnquiry({ searchId: result.searchId, vehicleBudget: suggestedMaxPrice, language: searchLanguage });
         router.push(`${hrefWithLanguage("/contact?from=faq-budget", pageLanguage)}#enquiry`);
+      } else {
+        setSearchError(true);
+        return;
       }
       close();
     } catch {
@@ -100,7 +113,7 @@ export function BuyerFaq({ children }: { children: ReactNode }) {
   }
 
   return (
-    <BuyerHelpContext.Provider value={{ open, show }}>
+    <BuyerHelpContext.Provider value={{ open, show, budgetEnquiry, clearBudgetEnquiry: () => setBudgetEnquiry(null) }}>
       {children}
       <button type="button" className={styles.launcher} aria-haspopup="dialog" aria-expanded={open} aria-controls="buyer-faq" onClick={(event) => show(event.currentTarget)}>
         <MessageCircle size={20} aria-hidden="true" />

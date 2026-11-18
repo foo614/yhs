@@ -1,4 +1,6 @@
-export const budgetEnquiryKey = "faq-budget-enquiry";
+import type { FaqLanguage } from "./buyer-faq";
+
+export type BudgetEnquiry = { searchId: string; vehicleBudget: number; language: FaqLanguage };
 export const maximumVehicleBudget = 2_000_000;
 
 export const budgetSearchCopy = {

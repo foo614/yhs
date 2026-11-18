@@ -1,15 +1,13 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { budgetEnquiryKey, budgetSearchCopy, maximumVehicleBudget } from "../budget-search";
-import type { FaqLanguage } from "../buyer-faq";
+import { useFaqBudgetEnquiry } from "../BuyerFaq";
+import { budgetSearchCopy, maximumVehicleBudget } from "../budget-search";
 import { CheckCircle2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import formStyles from "../EnquiryForm.module.css";
 import { frontofficeCopy, type Language } from "../i18n";
 import { submitPublicContact } from "../vehicles/service";
-
-type BudgetEnquiry = { searchId: string; vehicleBudget: number; language: FaqLanguage };
 
 const malayFormCopy = {
   formName: "Nama",
@@ -32,27 +30,14 @@ const messageMaxLength = 2000;
 
 export function ContactEnquiryForm({ language }: { language: Language }) {
   const fromBudgetSearch = useSearchParams().get("from") === "faq-budget";
-  const [budgetEnquiry, setBudgetEnquiry] = useState<BudgetEnquiry | null>(null);
-  const [vehicleBudget, setVehicleBudget] = useState("");
+  const faq = useFaqBudgetEnquiry();
+  const budgetEnquiry = fromBudgetSearch ? faq?.budgetEnquiry : null;
+  const [editedBudget, setEditedBudget] = useState<{ searchId: string; value: string }>();
+  const vehicleBudget = editedBudget && editedBudget.searchId === budgetEnquiry?.searchId ? editedBudget.value : String(budgetEnquiry?.vehicleBudget ?? "");
   const contactCopy = frontofficeCopy[language].contact;
   const t = budgetEnquiry?.language === "ms" ? { ...contactCopy, ...malayFormCopy } : contactCopy;
   const budgetCopy = budgetSearchCopy[budgetEnquiry?.language ?? language];
 
-  useEffect(() => {
-    if (!fromBudgetSearch) {
-      setBudgetEnquiry(null);
-      return;
-    }
-    try {
-      const saved: BudgetEnquiry | null = JSON.parse(sessionStorage.getItem(budgetEnquiryKey) ?? "null");
-      if (saved?.searchId && Object.hasOwn(budgetSearchCopy, saved.language) && Number.isInteger(saved.vehicleBudget)) {
-        setBudgetEnquiry(saved);
-        setVehicleBudget(String(saved.vehicleBudget));
-      }
-    } catch {
-      // The regular form is available without calculator context.
-    }
-  }, [fromBudgetSearch]);
   const formCopy = language === "zh"
     ? {
         intentLegend: "想了解什么？（选填）",
@@ -132,7 +117,6 @@ export function ContactEnquiryForm({ language }: { language: Language }) {
       });
 
       if (result.ok) {
-        if (budgetEnquiry) sessionStorage.removeItem(budgetEnquiryKey);
         setStatus("sent");
         return;
       }
@@ -154,7 +138,8 @@ export function ContactEnquiryForm({ language }: { language: Language }) {
     setPhone("");
     setMessage("");
     setIntent("");
-    setBudgetEnquiry(null);
+    faq?.clearBudgetEnquiry();
+    setEditedBudget(undefined);
     setErrorMessage(t.formDefaultError);
     setStatus("idle");
     submissionLockedRef.current = false;
@@ -180,7 +165,7 @@ export function ContactEnquiryForm({ language }: { language: Language }) {
             <>
               <p>{budgetCopy.noMatch(budgetEnquiry.vehicleBudget.toLocaleString("en-MY"))}</p>
               <label>{budgetCopy.budget}
-                <input name="vehicleBudget" type="number" min={1} max={maximumVehicleBudget} step={1} required value={vehicleBudget} onChange={(event) => setVehicleBudget(event.target.value)} />
+                <input name="vehicleBudget" type="number" min={1} max={maximumVehicleBudget} step={1} required value={vehicleBudget} onChange={(event) => setEditedBudget({ searchId: budgetEnquiry.searchId, value: event.target.value })} />
               </label>
             </>
           )}
