@@ -1599,7 +1599,7 @@ public static class OcrExtractionParser
                 return values.Length == 1 ? values[0] : null;
             }
 
-            fields["loanBank"] = UniqueValue(@"^\s*(?:bank|financier)\s*:\s*(?<value>[^\r\n]+)");
+            fields["loanBank"] = UniqueValue(@"^[ \t]*(?:bank(?: name)?|financier(?: name)?|lender(?: name)?|nama bank)[ \t]*:[ \t]*(?<value>[^\r\n]+)");
             fields["loanAmount"] = UniqueValue(@"^\s*(?:loan amount|approved amount|financing amount|amount financed)\s*[:\-]?\s*(?:RM|MYR)?\s*(?<value>\d+(?:,\d{3})*(?:\.\d{1,2})?)\s*$")?.Replace(",", "");
             fields["interestRate"] = UniqueValue(@"^\s*(?:interest rate|profit rate|flat rate)\s*[:\-]?\s*(?<value>\d+(?:\.\d+)?)\s*%(?:\s*(?:p\.?a\.?|per annum))?\s*$");
             fields["loanTenureMonths"] = UniqueValue(@"^\s*(?:tenure|loan tenure|financing tenure|period)\s*[:\-]?\s*(?<value>\d+)\s*months?\s*$");

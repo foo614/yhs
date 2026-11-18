@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OcrJob } from "../../api";
-import { groupOcrFields, isOcrImageMimeType, isOcrUploadMimeType, ocrFailureMessage, ocrFieldConflicts, ocrSupportsLineItems, repairLineItemsFromRawText, runOcrApplySteps, type OcrApplyProgress, type OcrReviewValues } from "./OcrUploadReview";
+import { groupOcrFields, isOcrImageMimeType, isOcrUploadMimeType, ocrFailureMessage, ocrFieldConflicts, ocrSupportsLineItems, repairLineItemsFromRawText, runOcrApplySteps, supportsManualOcrFallback, type OcrApplyProgress, type OcrReviewValues } from "./OcrUploadReview";
 
 describe("OCR partial-save recovery", () => {
   const reviewedJob: OcrJob = { id: "reviewed-job", documentId: "document", category: "Voc", status: "Reviewed", progress: 100, warnings: [], createdAt: "2026-09-07T00:00:00Z", reviewDecision: "Reviewed" };
@@ -63,6 +63,12 @@ describe("OCR review conflicts", () => {
     expect(ocrSupportsLineItems("Voc")).toBe(false);
     expect(ocrSupportsLineItems("RepairInvoice")).toBe(true);
     expect(ocrSupportsLineItems("PaymentReceipt")).toBe(true);
+  });
+
+  it("limits manual OCR fallback to uploaded loan documents", () => {
+    expect(supportsManualOcrFallback("LoanDocument")).toBe(true);
+    expect(supportsManualOcrFallback("Voc")).toBe(false);
+    expect(supportsManualOcrFallback("RepairInvoice")).toBe(false);
   });
 
   const fields = [

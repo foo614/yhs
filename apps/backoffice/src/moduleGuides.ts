@@ -454,7 +454,7 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan and Admin",
       purpose: "Verify the canonical customer/vehicle, status, Submitted date, LOU state, and missing documents.",
-      actions: ["Confirm car plate and customer.", "Confirm status and Submitted date.", "Review LOU Approved and LOU Done.", "Inspect every missing-document tag.", "Perform the offered workflow action."],
+      actions: ["Confirm car plate and customer.", "Confirm status and Submitted date.", "Upload the bank LOU and confirm its bank, amount, rate, tenure and terms.", "Select the accepted LOU. Open Final deal to enter or update the selling price, deposit and other deal details.", "Inspect every missing-document tag.", "Perform the offered workflow action."],
       requiredItems: ["Existing vehicle and customer", "Loan customer matching the vehicle's confirmed buyer"],
       completeWhen: "The record contains no customer, vehicle, status, date, or LOU contradiction.",
       handoff: "Loan Documents.",

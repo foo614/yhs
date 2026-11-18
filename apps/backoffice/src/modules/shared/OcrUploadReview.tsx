@@ -54,11 +54,15 @@ export function isOcrImageMimeType(mimeType: string) {
 }
 
 export function isOcrUploadMimeType(category: DocumentCategory, mimeType: string) {
-  return isOcrImageMimeType(mimeType) || (category === "Voc" && mimeType === "application/pdf");
+  return isOcrImageMimeType(mimeType) || (["Voc", "LoanDocument"] as DocumentCategory[]).includes(category) && mimeType === "application/pdf";
 }
 
 export function ocrSupportsLineItems(category: DocumentCategory) {
   return ["RepairInvoice", "PurchaseInvoice", "PaymentInvoice", "PaymentReceipt"].includes(category);
+}
+
+export function supportsManualOcrFallback(category: DocumentCategory) {
+  return category === "LoanDocument";
 }
 
 export function ocrFailureMessage(job: Pick<OcrJob, "status" | "result" | "warnings"> | null | undefined) {
@@ -166,6 +170,7 @@ export function OcrUploadReview({
   uploadOwner,
   onUploaded,
   onCompleted,
+  onManualApply,
   onApply
 }: {
   vehicleId?: string;
@@ -181,6 +186,8 @@ export function OcrUploadReview({
   uploadOwner?: DocumentUploadOwner;
   onUploaded?: () => void;
   onCompleted?: () => void | Promise<void>;
+  /** LOU-only fallback. The uploaded document remains the source evidence while staff enter values manually. */
+  onManualApply?: (values: OcrReviewValues, documentId: string) => void | Promise<void>;
   onApply: (values: OcrReviewValues, job: OcrJob) => void | Promise<void>;
 }) {
   const [form] = Form.useForm<OcrReviewValues>();
@@ -191,6 +198,9 @@ export function OcrUploadReview({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [savedStep, setSavedStep] = useState<"target" | "review" | undefined>();
+  const [uploadedDocumentId, setUploadedDocumentId] = useState<string>();
+  const [manualFallbackMessage, setManualFallbackMessage] = useState("");
+  const manualTargetApplied = useRef(false);
   const pendingApply = useRef<{ values: OcrReviewValues; result: OcrReviewedResult; localJob: OcrJob; progress: OcrApplyProgress } | undefined>(undefined);
   const requestVersion = useRef(0);
   const requestBusy = useRef(false);
@@ -200,6 +210,9 @@ export function OcrUploadReview({
     setBusy(false);
     setJob(null);
     setSavedStep(undefined);
+    setUploadedDocumentId(undefined);
+    setManualFallbackMessage("");
+    manualTargetApplied.current = false;
     pendingApply.current = undefined;
     setLineItems([]);
     setReviewOpen(false);
@@ -221,10 +234,13 @@ export function OcrUploadReview({
   const hasAmountReconciliation = fields.some((field) => field.name === "amount") && declaredAmountNumber !== undefined && hasCompleteLineItemAmounts;
   const lineItemsMatchDeclaredAmount = !hasAmountReconciliation || Math.abs(lineItemsTotal - declaredAmountForDisplay) <= 0.01;
   const failureMessage = ocrFailureMessage(job);
+  const manualFallbackAllowed = supportsManualOcrFallback(category) && Boolean(onManualApply);
+  const manualReviewOpen = manualFallbackAllowed && Boolean((failureMessage || manualFallbackMessage) && (uploadedDocumentId || job?.documentId));
+  const normalReview = !failureMessage && !manualFallbackMessage;
   const canApplyReview = !failureMessage && Boolean(job?.result) && !hasMissingLineItemAmounts && lineItemsMatchDeclaredAmount;
   const reviewConflicts = job ? ocrFieldConflicts(fields, existingValues, initialValuesFromJob(job, fields)) : [];
   const reviewFieldGroups = groupOcrFields(fields);
-  const previewDocumentId = job?.documentId;
+  const previewDocumentId = uploadedDocumentId ?? job?.documentId;
 
   async function handleUpload(option: UploadRequestOption) {
     if (!vehicleId) {
@@ -235,7 +251,7 @@ export function OcrUploadReview({
     if (disabled || requestBusy.current || savedStep) return;
     const file = option.file as File;
     if (!isOcrUploadMimeType(category, file.type) || file.size > 10 * 1024 * 1024) {
-      const error = new Error(category === "Voc" ? "Use a VOC PDF, JPG, PNG, or WebP file, up to 10 MB." : "Use a JPG, PNG, or WebP image, up to 10 MB.");
+      const error = new Error(["Voc", "LoanDocument"].includes(category) ? "Use a PDF, JPG, PNG, or WebP file, up to 10 MB." : "Use a JPG, PNG, or WebP image, up to 10 MB.");
       option.onError?.(error);
       message.error(error.message);
       return;
@@ -243,15 +259,19 @@ export function OcrUploadReview({
     const version = ++requestVersion.current;
     const isCurrent = () => requestVersion.current === version;
     requestBusy.current = true;
+    let uploadedDocumentIdForFallback: string | undefined;
 
     try {
       setBusy(true);
+      manualTargetApplied.current = false;
       setJob(null);
       setLineItems([]);
       setUploadProgress(0);
       setAnalyzeProgress(0);
       const document = await uploadVehicleDocumentWithProgress(vehicleId, file, category, (progress) => { if (isCurrent()) setUploadProgress(progress); }, uploadOwner);
       if (!isCurrent()) return;
+      setUploadedDocumentId(document.id);
+      uploadedDocumentIdForFallback = document.id;
       onUploaded?.();
       const loadedJob = await analyzeUploadedDocument(document.id, async (progress) => {
         if (isCurrent()) setAnalyzeProgress(progress);
@@ -264,13 +284,56 @@ export function OcrUploadReview({
       setLineItems(extractedLineItems);
       const initialValues = initialValuesFromJob(loadedJob, fields);
       for (const conflict of ocrFieldConflicts(fields, existingValues, initialValues)) initialValues[conflict.name] = conflict.existingValue;
+      if (manualFallbackAllowed && ocrFailureMessage(loadedJob)) {
+        for (const [name, value] of Object.entries(existingValues ?? {})) {
+          if (initialValues[name] === undefined) initialValues[name] = value;
+        }
+      }
       form.setFieldsValue(initialValues);
       setReviewOpen(true);
       option.onSuccess?.({ ok: true });
     } catch (error) {
       if (!isCurrent()) return;
+      if (manualFallbackAllowed && uploadedDocumentIdForFallback) {
+        setManualFallbackMessage(humanizeApiError(error, "OCR could not be completed for this uploaded document."));
+        setUploadedDocumentId(uploadedDocumentIdForFallback);
+        form.setFieldsValue(existingValues ?? {});
+        setReviewOpen(true);
+        option.onSuccess?.({ ok: true });
+        message.warning("The document was uploaded. OCR is unavailable, so enter the LOU details manually.");
+        return;
+      }
       option.onError?.(error instanceof Error ? error : new Error("OCR upload failed."));
       message.error(humanizeApiError(error, "OCR upload failed. Please check the file and try again."));
+    } finally {
+      if (isCurrent()) {
+        requestBusy.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function applyManualResult() {
+    if (!onManualApply || !uploadedDocumentId || requestBusy.current || disabled) return;
+    const version = requestVersion.current;
+    const isCurrent = () => requestVersion.current === version;
+    requestBusy.current = true;
+    setBusy(true);
+    try {
+      const values = await form.validateFields();
+      if (!isCurrent()) return;
+      if (!manualTargetApplied.current) {
+        await onManualApply(values, uploadedDocumentId);
+        if (!isCurrent()) return;
+        manualTargetApplied.current = true;
+      }
+      await onCompleted?.();
+      if (!isCurrent()) return;
+      setReviewOpen(false);
+      setManualFallbackMessage("");
+      message.success("LOU details saved. The uploaded document remains attached to this loan.");
+    } catch (error) {
+      if (isCurrent()) message.error(humanizeApiError(error, "Could not save the manually entered LOU details."));
     } finally {
       if (isCurrent()) {
         requestBusy.current = false;
@@ -338,18 +401,18 @@ export function OcrUploadReview({
             <span className="ocrStepLabel">Step 1 of 3</span>
             <div>
               <Typography.Text strong>Choose a clear document</Typography.Text>
-              <Typography.Text type="secondary">{category === "Voc" ? "English VOC PDF (1–15 readable, unencrypted pages), JPG, PNG, or WebP, up to 10 MB." : "JPG, PNG, or WebP, up to 10 MB. Use Document Upload for PDFs."}</Typography.Text>
+              <Typography.Text type="secondary">{["Voc", "LoanDocument"].includes(category) ? "Readable PDF (1–15 unencrypted pages), JPG, PNG, or WebP, up to 10 MB." : "JPG, PNG, or WebP, up to 10 MB. Use Document Upload for PDFs."}</Typography.Text>
             </div>
           </div>
         )}
         <Upload
-          accept={[...ocrImageMimeTypes, ...(category === "Voc" ? ["application/pdf"] : [])].join(",")}
+          accept={[...ocrImageMimeTypes, ...(["Voc", "LoanDocument"].includes(category) ? ["application/pdf"] : [])].join(",")}
           disabled={disabled || busy || Boolean(savedStep)}
           maxCount={1}
           showUploadList={false}
           beforeUpload={(file) => {
             if (isOcrUploadMimeType(category, file.type) && file.size <= 10 * 1024 * 1024) return true;
-            message.error(category === "Voc" ? "Choose a VOC PDF, JPG, PNG, or WebP file up to 10 MB." : "Choose a JPG, PNG, or WebP image up to 10 MB. Upload PDFs through Document Upload instead.");
+            message.error(["Voc", "LoanDocument"].includes(category) ? "Choose a PDF, JPG, PNG, or WebP file up to 10 MB." : "Choose a JPG, PNG, or WebP image up to 10 MB. Upload PDFs through Document Upload instead.");
             return Upload.LIST_IGNORE;
           }}
           customRequest={(option) => void handleUpload(option)}
@@ -371,21 +434,30 @@ export function OcrUploadReview({
         title={(
           <div className="ocrReviewDrawerTitle">
             <span className="ocrStepLabel">Step 2 of 3</span>
-            <span>{failureMessage ? "OCR could not read this document" : "Check the details we found"}</span>
+            <span>{failureMessage || manualFallbackMessage ? "OCR could not read this document" : "Check the details we found"}</span>
           </div>
         )}
         open={reviewOpen}
         onClose={() => { if (!busy) setReviewOpen(false); }}
         actions={(
           <div className="ocrReviewActions">
-            {failureMessage
-              ? <Button onClick={() => setReviewOpen(false)}>Close</Button>
+            {manualReviewOpen
+              ? <Space><Button disabled={busy} onClick={() => setReviewOpen(false)}>Dismiss</Button><Button type="primary" loading={busy} onClick={() => void applyManualResult()}>{applyLabel}</Button></Space>
+              : failureMessage
+                ? <Button onClick={() => setReviewOpen(false)}>Close</Button>
               : <Button type="primary" loading={busy} disabled={!canApplyReview || disabled} onClick={() => void applyResult()}>{savedStep ? "Retry remaining step" : applyLabel}</Button>}
           </div>
         )}
       >
         <Space direction="vertical" size={16} className="fullWidth">
-          {failureMessage ? (
+          {manualReviewOpen ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="Check and complete the LOU details manually"
+              description={<>{manualFallbackMessage || failureMessage}<br />The uploaded document is retained and can be previewed below. Saving these values updates the linked bank option without creating an OCR review.</>}
+            />
+          ) : failureMessage ? (
             <Alert
               type="error"
               showIcon
@@ -400,10 +472,10 @@ export function OcrUploadReview({
               description={savedStep ? "Retry the remaining step with the same reviewed values. Completed steps will not be submitted again. Do not upload another copy to retry." : "Check and correct the suggested values. Saving the review records the differences from the original OCR result; the linked record changes only after its save succeeds."}
             />
           )}
-          {!failureMessage && job?.warnings?.length ? (
+          {normalReview && job?.warnings?.length ? (
             <Alert type="warning" showIcon message={job.warnings.join(" ")} />
           ) : null}
-          {!failureMessage ? (
+          {normalReview ? (
             <>
               <Space wrap className="ocrReviewSummary">
                 <Tag color="blue">{documentCategoryLabel(job?.category)}</Tag>
@@ -413,7 +485,7 @@ export function OcrUploadReview({
               {vehicleId && previewDocumentId && <div className="ocrReviewDocumentActions">
                 <DocumentPreviewButton
                   fullWidth
-                  fileName={`${documentCategoryLabel(job.category)} document`}
+                  fileName={`${documentCategoryLabel(job?.category ?? category)} document`}
                   downloadUrl={vehicleDocumentContentUrl(vehicleId!, previewDocumentId!)}
                   loadContent={() => getVehicleDocumentContent(vehicleId!, previewDocumentId!)}
                   previewLabel="Preview document"
@@ -422,7 +494,17 @@ export function OcrUploadReview({
               </div>}
             </>
           ) : null}
-          {!failureMessage ? <Form name={`ocrReview-${job?.id ?? category}`} form={form} disabled={busy || Boolean(savedStep)} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
+          {manualReviewOpen && vehicleId && previewDocumentId && <div className="ocrReviewDocumentActions">
+            <DocumentPreviewButton
+              fullWidth
+              fileName={`${documentCategoryLabel(category)} document`}
+              downloadUrl={vehicleDocumentContentUrl(vehicleId, previewDocumentId)}
+              loadContent={() => getVehicleDocumentContent(vehicleId, previewDocumentId)}
+              previewLabel="Preview document"
+              downloadLabel="Download original"
+            />
+          </div>}
+          {normalReview || manualReviewOpen ? <Form name={`ocrReview-${job?.id ?? category}`} form={form} disabled={busy || Boolean(savedStep)} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (
               <Form.Item label="Information already on file" extra="The current value is shown below. Edit it if this document proves it should change.">
                 <Space direction="vertical" size={8} className="fullWidth">
@@ -502,7 +584,7 @@ export function OcrUploadReview({
               </Form.Item>
             ) : null}
           </Form> : null}
-          {!failureMessage ? <Collapse
+          {normalReview ? <Collapse
             size="small"
             items={[{
               key: "raw-text",
@@ -510,7 +592,7 @@ export function OcrUploadReview({
               children: <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly aria-label="Original text read from the document" />
             }]}
           /> : null}
-          {!failureMessage ? <Typography.Text type="secondary">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</Typography.Text> : null}
+          {normalReview ? <Typography.Text type="secondary">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</Typography.Text> : null}
         </Space>
       </OcrReviewShell>
     </>

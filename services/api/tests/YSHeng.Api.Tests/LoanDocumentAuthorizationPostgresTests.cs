@@ -144,6 +144,70 @@ public sealed class LoanDocumentAuthorizationPostgresTests
             using var check = JsonDocument.Parse(await admin.GetStringAsync($"/api/loans/{result.Loan.Id}/document-check"));
             Assert.False(check.RootElement.GetProperty("isComplete").GetBoolean());
 
+            LoanStatus statusBeforePreview;
+            bool louApprovedBeforePreview;
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var loan = await db.LoanApplications.FindAsync(result.Loan.Id);
+                statusBeforePreview = loan!.Status;
+                louApprovedBeforePreview = loan.LouApproved;
+            }
+            async Task<Guid> UploadLouPreviewAsync()
+            {
+                using var form = new MultipartFormDataContent();
+                var file = new ByteArrayContent(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
+                file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+                form.Add(file, "file", "synthetic-lou.png");
+                using var response = await admin.PostAsync($"/api/vehicles/{vehicle.Id}/documents?category=LoanDocument&loanApplicationId={result.Loan.Id}&louPreview=true", form);
+                Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+                using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                return json.RootElement.GetProperty("id").GetGuid();
+            }
+            var previewDocumentId = await UploadLouPreviewAsync();
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var loan = await db.LoanApplications.FindAsync(result.Loan.Id);
+                Assert.Equal(statusBeforePreview, loan!.Status);
+                Assert.Equal(louApprovedBeforePreview, loan.LouApproved);
+            }
+            foreach (var unauthorized in new[] { broker, loanStaff })
+            {
+                using var denied = await unauthorized.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}",
+                    new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, useAsFinal = true });
+                Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            }
+            using var incompleteReview = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankName = "Synthetic Bank", loanAmount = 0m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            Assert.Equal(HttpStatusCode.BadRequest, incompleteReview.StatusCode);
+            using var review = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms", useAsFinal = true });
+            Assert.Equal(HttpStatusCode.Created, review.StatusCode);
+            using var reviewJson = JsonDocument.Parse(await review.Content.ReadAsStringAsync());
+            var reviewedBankId = reviewJson.RootElement.GetProperty("id").GetGuid();
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var loan = await db.LoanApplications.FindAsync(result.Loan.Id);
+                Assert.Equal(LoanStatus.Approved, loan!.Status);
+                Assert.True(loan.LouApproved);
+                Assert.Equal("Synthetic Bank", loan.LoanBank);
+                Assert.Equal(45000m, loan.LoanAmount);
+                Assert.Equal(3.5m, loan.InterestRate);
+                Assert.Equal(84, loan.LoanTenureMonths);
+                Assert.Equal("Terms", loan.LoanTerms);
+            }
+            using var replay = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+            Assert.Equal(reviewedBankId, JsonDocument.Parse(await replay.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid());
+            var duplicatePreviewId = await UploadLouPreviewAsync();
+            using var duplicateBank = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{duplicatePreviewId}", new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            Assert.Equal(HttpStatusCode.BadRequest, duplicateBank.StatusCode);
+            using var secondBank = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks", new { loanApplicationId = result.Loan.Id, bankName = "Second Bank", loanAmount = 40000m, interestRate = 4m, tenureMonths = 60, terms = "Second terms" });
+            Assert.Equal(HttpStatusCode.Created, secondBank.StatusCode);
+            var secondPreviewId = await UploadLouPreviewAsync();
+            using var conflictingFinal = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{secondPreviewId}", new { bankName = "Second Bank", loanAmount = 40000m, interestRate = 4m, tenureMonths = 60, terms = "Second terms", useAsFinal = true });
+            Assert.Equal(HttpStatusCode.Conflict, conflictingFinal.StatusCode);
+
         }
         finally
         {
