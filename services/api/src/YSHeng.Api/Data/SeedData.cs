@@ -1532,6 +1532,7 @@ public static class SeedData
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TakenByUserId" text NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TakenByName" text NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "TakenAt" timestamp with time zone NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "RequiresExplicitOriginal" boolean NOT NULL DEFAULT false;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LastUpdatedAt" timestamp with time zone NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "BankSubmittedAt" timestamp with time zone NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "LoanAmount" numeric NULL;

@@ -4705,7 +4705,7 @@ export function LoanPage({
         throw error;
       }
     };
-    const nextDocumentCategory = check?.isComplete ? "LoanEditedDocument" : "LoanOriginalDocument";
+    const nextDocumentCategory = check?.hasExplicitOriginal ? "LoanEditedDocument" : "LoanOriginalDocument";
     const refreshBanks = async () => {
       const refreshedOptions = await getLoanBankOptions(selectedLoan.id);
       if (currentLoanIdRef.current !== selectedLoan.id) return;
@@ -4872,7 +4872,7 @@ export function LoanPage({
                     buttonLabel="Upload loan document / 上传贷款文件"
                     onUpload={(file, onProgress) => uploadLoanDocument(nextDocumentCategory, file, onProgress)}
                   />
-                : <Typography.Text type="secondary">{check.isComplete ? "Loan staff can upload an edited copy." : "Request the original document from the Broker."}</Typography.Text>
+                : <Typography.Text type="secondary">{check.hasExplicitOriginal ? "Loan staff can upload an edited copy." : "Request the original document from the Broker."}</Typography.Text>
             )}
             {selectedLoan.status !== "Rejected" && check && !documentChecksError && !check.isComplete && (
               <Alert

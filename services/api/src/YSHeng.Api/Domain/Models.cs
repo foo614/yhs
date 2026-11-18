@@ -444,6 +444,8 @@ public sealed record CreateRepairWithReceiptResponse(RepairJob Repair, SupplierI
 
 public sealed record LoanApplication
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool RequiresExplicitOriginal { get; init; }
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
     public Guid CustomerId { get; init; }
