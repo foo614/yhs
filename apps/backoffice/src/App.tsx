@@ -889,9 +889,17 @@ export default function App() {
       .map((item) => ({ ...item, name: routeDisplayName(item.path, currentRoles) }))
   }), [currentUser?.isAuthenticated, currentRoles]);
   const menuActionBadges = useMemo(() => sidebarActionBadges(reminders, priorityActions), [priorityActions, reminders]);
+  const menuActionBadge = (action: (typeof menuActionBadges)[string] | undefined) => action && (
+    <Badge
+      className="navActionBadge"
+      classNames={{ indicator: action.urgent ? "navActionBadgeIndicator navActionBadgeUrgent" : "navActionBadgeIndicator" }}
+      count={action.count}
+      overflowCount={99}
+    />
+  );
   const menuLabel = (item: { path?: string; name?: ReactNode }, dom: ReactNode) => {
     const action = item.path ? menuActionBadges[item.path] : undefined;
-    return action ? <span className="sidebarActionLabel">{dom}<Badge count={action.count} overflowCount={99} color={action.urgent ? "red" : "blue"} /></span> : dom;
+    return action ? <span className="sidebarActionLabel">{dom}{menuActionBadge(action)}</span> : dom;
   };
   const pageTitle = routeDisplayName(pathname, currentRoles);
   const activeModuleGuide = useMemo(() => moduleGuideForPath(pathname, currentRoles), [currentRoles, pathname]);
@@ -1270,7 +1278,7 @@ export default function App() {
             >
               <span className="mobileNavIcon">{item.icon}</span>
               <span>{item.name}</span>
-              {menuActionBadges[item.path] ? <Badge count={menuActionBadges[item.path].count} overflowCount={99} color={menuActionBadges[item.path].urgent ? "red" : "blue"} /> : null}
+              {menuActionBadge(menuActionBadges[item.path])}
             </button>
           ))}
           <Button onClick={() => { setMobileNavOpen(false); setWhatsAppConnectionOpen(true); }}>My WhatsApp</Button>

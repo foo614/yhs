@@ -33,6 +33,31 @@ body {
   width: 100%;
 }
 
+.navActionBadge {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+button .navActionBadge .navActionBadgeIndicator {
+  min-width: 24px;
+  height: 20px;
+  padding-inline: 6px;
+  border: 1px solid #bdd8d0;
+  border-radius: 6px;
+  background: #e7f3ef;
+  box-shadow: none;
+  color: #22584c;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+}
+
+button .navActionBadge .navActionBadgeUrgent {
+  border-color: #edc8bc;
+  background: #fbece6;
+  color: #9b3726;
+}
+
 .ant-pro-layout .ant-pro-layout-bg-list {
   background:
     radial-gradient(circle at 12% 12%, rgba(18, 104, 86, .14), transparent 28%),
