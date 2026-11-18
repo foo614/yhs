@@ -4227,7 +4227,7 @@ function RepairPage({
                 <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement" /></Form.Item>
               </div>
               <div className="repairManualApprovalNote">
-                <Typography.Text type="secondary">A Boss/Admin records approval separately after checking the repair work and cost.</Typography.Text>
+                <Typography.Text type="secondary">A Admin records approval separately after checking the repair work and cost.</Typography.Text>
               </div>
               <Form.Item className="formActions repairManualSubmit"><Button type="primary" htmlType="submit">Save repair / 保存整备</Button></Form.Item>
             </section>
@@ -4598,7 +4598,7 @@ export function LoanPage({
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
-        <Alert type="warning" showIcon message="Take this loan case before opening details" description="A Loan processor must take ownership before viewing or changing the case. Boss/Admin can review all cases." />
+        <Alert type="warning" showIcon message="Take this loan case before opening details" description="A Loan processor must take ownership before viewing or changing the case. Admin can review all cases." />
         {selectedLoan.status === "Pending" && !selectedLoan.takenByUserId && roles.includes("Loan") && <Button type="primary" onClick={() => onTake(selectedLoan.id)}>Take case / 接手</Button>}
       </Space>
     );
@@ -6595,7 +6595,7 @@ function dataKeyLabel(key: BackOfficeDataKey) {
   hrReminders: "HR attendance reminders",
   hrReminderPolicies: "HR reminder settings",
   hrBusinessTrips: "HR business trips and outstation duty",
-  hrBossCalendar: "Boss leave calendar",
+  hrBossCalendar: "Admin leave calendar",
   hrAttendanceNetworks: "Office attendance networks",
     hrLeaveRequests: "HR leave requests",
     hrLeaveBalances: "HR leave balances",

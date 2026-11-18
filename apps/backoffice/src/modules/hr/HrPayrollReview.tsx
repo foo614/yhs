@@ -21,8 +21,8 @@ export function payrollActions(slip: HrPayslip, user: CurrentUser | null): HrPay
   if (slip.status === "PendingBoss" && user.roles.includes("BossAdmin")) return user.id !== slip.preparedBy && user.id !== slip.submittedBy && user.id !== slip.financeApprovedBy && user.id !== slip.staffUserId ? ["BossApprove", "Return"] : ["Return"];
   return [];
 }
-const actionLabels: Record<HrPayrollAction, string> = { Submit: "Submit to Finance / 提交财务", FinanceApprove: "Finance approve / 财务批准", BossApprove: "Boss approve & publish / 老板批准并发布", Return: "Return to HR / 退回人事" };
-const statusLabels: Record<HrPayslip["status"], string> = { Draft: "Draft / 草稿", Generated: "Legacy / 旧薪资单", PendingFinance: "Finance review / 待财务审批", PendingBoss: "Boss review / 待老板审批", Published: "Published / 已发布" };
+const actionLabels: Record<HrPayrollAction, string> = { Submit: "Submit to Finance / 提交财务", FinanceApprove: "Finance approve / 财务批准", BossApprove: "Admin approve & publish / 管理员批准并发布", Return: "Return to HR / 退回人事" };
+const statusLabels: Record<HrPayslip["status"], string> = { Draft: "Draft / 草稿", Generated: "Legacy / 旧薪资单", PendingFinance: "Finance review / 待财务审批", PendingBoss: "Admin review / 待管理员审批", Published: "Published / 已发布" };
 function HrEarningsSummary({ slip }: { slip: HrPayslip }) {
   return <Descriptions size="small" layout="vertical" column={{ xs: 1, sm: 2, md: 2, lg: 2, xl: 2, xxl: 2 }} items={[
     { key: "type", label: "Employment / 雇用类型", children: slip.employmentType === "Hourly" ? "Hourly / 时薪" : "Monthly / 月薪" },
@@ -89,7 +89,7 @@ export function HrPayrollReview({ currentUser, slip, period, onClose, onChanged,
           {actions.map(action => <Button key={action} style={{ minHeight: 44 }} disabled={busy || action === "Submit" && Boolean(submitBlock)} type={action === "Return" ? "default" : "primary"} onClick={() => { setError(""); reviewForm.resetFields(); setReview(action); }}>{actionLabels[action]}</Button>)}
         </Space>
         {slip.status === "PendingFinance" && !actions.includes("FinanceApprove") && <Typography.Text type="secondary">Waiting for a separate Finance reviewer. / 等待独立财务人员审批。</Typography.Text>}
-        {slip.status === "PendingBoss" && !actions.includes("BossApprove") && <Typography.Text type="secondary">Waiting for a separate Boss/Admin reviewer. / 等待独立老板或管理员审批。</Typography.Text>}
+        {slip.status === "PendingBoss" && !actions.includes("BossApprove") && <Typography.Text type="secondary">Waiting for a separate Admin reviewer. / 等待另一位管理员审批。</Typography.Text>}
         {slip.status === "Published" && <Typography.Text type="secondary">Published payslips are locked. / 已发布薪资单已锁定。</Typography.Text>}
         {onLoadPayslip ? <DocumentPreviewButton fileName={`payslip-${slip.id}.pdf`} mimeType="application/pdf" downloadUrl={hrPayslipPdfUrl(slip.id)} loadContent={() => onLoadPayslip(slip)} previewLabel="Preview PDF / 预览" downloadLabel="Download PDF / 下载" /> : onDownloadPayslip && <Button onClick={() => void onDownloadPayslip(slip)}>Download PDF / 下载</Button>}
       </Space>}

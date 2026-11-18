@@ -447,7 +447,7 @@ export function DeliveryWorkboardPage({
 
   const uploadEvidence = async (item: DeliveryWorkboardItem, file: File, category: DocumentCategory) => {
     if (!hasLockedDeliveryBuyer(item.customerId)) {
-      message.warning("Ask Boss to lock the confirmed buyer before uploading delivery evidence.");
+      message.warning("Ask an Admin to lock the confirmed buyer before uploading delivery evidence.");
       return;
     }
     setSaving(true);

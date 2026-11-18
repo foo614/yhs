@@ -548,7 +548,7 @@ public static class VehicleApprovalRules
         {
             return new ValidationResult([new ValidationError(
                 "vehicle_repricing_admin_required",
-                "Only Boss/Admin can change the selling price after a vehicle has been approved.")]);
+                "Only Admin can change the selling price after a vehicle has been approved.")]);
         }
 
         return !IsSellingPriceChange(existing, update) &&
@@ -577,7 +577,7 @@ public static class VehicleApprovalRules
         vehicle.BossConfirmed ? vehicle : vehicle with { IsPublic = false };
 
     private static ValidationResult AdminApprovalRequired() =>
-        new([new ValidationError("vehicle_approval_admin_required", "Only Boss/Admin can approve or revoke vehicle approval.")]);
+        new([new ValidationError("vehicle_approval_admin_required", "Only Admin can approve or revoke vehicle approval.")]);
 }
 
 public static class VehicleWorkflowRules
@@ -2664,7 +2664,7 @@ public static class FinanceRules
         var errors = new List<ValidationError>();
         if (!vehicle.BossConfirmed)
         {
-            errors.Add(new ValidationError("finance_vehicle_not_approved", "Boss/Admin must approve the vehicle selling price before Finance creates a receivable."));
+            errors.Add(new ValidationError("finance_vehicle_not_approved", "Admin must approve the vehicle selling price before Finance creates a receivable."));
         }
 
         if (payment.NettPrice != vehicle.SellingPrice)

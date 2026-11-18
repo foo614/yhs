@@ -88,9 +88,9 @@ describe("finance workflow helpers", () => {
     const confirmedVehicles = [{ ...vehicleLookup[0], customerId: "customer-1" }];
     expect(financeSaleBlockReason(input, confirmedVehicles)).toBeUndefined();
     expect(financeSaleBlockReason({ ...input, salesPrice: Number.NaN }, confirmedVehicles)).toBe("Complete the required sales invoice amounts.");
-    expect(financeSaleBlockReason({ ...input, nettPrice: 60000 }, confirmedVehicles)).toBe("Explain the NCD or price reduction before sending it for Boss/Admin approval.");
+    expect(financeSaleBlockReason({ ...input, nettPrice: 60000 }, confirmedVehicles)).toBe("Explain the NCD or price reduction before sending it for Admin approval.");
     expect(financeSaleBlockReason({ ...input, nettPrice: 60000, nettPriceOverrideReason: "Agreed discount" }, confirmedVehicles)).toBeUndefined();
-    expect(financeSaleBlockReason({ ...input, ncdAmount: 500 }, confirmedVehicles)).toBe("Explain the NCD or price reduction before sending it for Boss/Admin approval.");
+    expect(financeSaleBlockReason({ ...input, ncdAmount: 500 }, confirmedVehicles)).toBe("Explain the NCD or price reduction before sending it for Admin approval.");
     expect(financeSaleBlockReason({ ...input, ncdAmount: 500, nettPriceOverrideReason: "NCD entitlement verified" }, confirmedVehicles)).toBeUndefined();
     expect(financeSaleNeedsApproval({ ...input, ncdAmount: 500 })).toBe(true);
   });

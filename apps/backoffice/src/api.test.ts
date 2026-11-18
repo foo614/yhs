@@ -506,7 +506,7 @@ describe("backoffice api client", () => {
   });
 
   it.each([
-    ["finance_vehicle_not_approved", "Boss/Admin must approve the vehicle selling price before Finance prepares the sale."],
+    ["finance_vehicle_not_approved", "Admin must approve the vehicle selling price before Finance prepares the sale."],
     ["finance_sales_price_mismatch", "The submitted sales price does not match the approved vehicle selling price. Refresh the vehicle price and try again."]
   ])("surfaces the structured %s Finance sale error", async (code, validationMessage) => {
     mockFetch({ errors: [{ code, message: validationMessage }] }, false, 400);

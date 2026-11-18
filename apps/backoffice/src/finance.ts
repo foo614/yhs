@@ -40,7 +40,7 @@ export function financeSaleBlockReason(input: FinanceSaleInput, vehicles: Vehicl
   const calculated = calculateFinanceNettPrice(input);
   const agreed = input.nettPrice ?? calculated;
   if (calculated <= 0 || agreed <= 0) return "Invoice total must be greater than zero.";
-  if (financeSaleNeedsApproval(input) && !input.nettPriceOverrideReason?.trim()) return "Explain the NCD or price reduction before sending it for Boss/Admin approval.";
+  if (financeSaleNeedsApproval(input) && !input.nettPriceOverrideReason?.trim()) return "Explain the NCD or price reduction before sending it for Admin approval.";
   return undefined;
 }
 

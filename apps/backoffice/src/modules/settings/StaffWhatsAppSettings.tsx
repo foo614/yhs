@@ -9,12 +9,12 @@ import { OperationsProTable } from "../shared/OperationsProTable";
 import { StaffWhatsAppLimitSettings } from "./StaffWhatsAppLimitSettings";
 
 const descriptions: Record<StaffWhatsAppPolicyCategory, { title: string; detail: string }> = {
-  OutstandingDigest: { title: "Outstanding digest", detail: "Boss: due finance items and deliveries. Broker: assigned deliveries only. Default 09:00 Malaysia time, three calendar days ahead." },
+  OutstandingDigest: { title: "Outstanding digest", detail: "Admin: due finance items and deliveries. Broker: assigned deliveries only. Default 09:00 Malaysia time, three calendar days ahead." },
   AttendanceSummary: { title: "Attendance summary", detail: "Daily staff availability summary. Default 10:00 Malaysia time." },
   LeaveApproval: { title: "Leave approval", detail: "Daily pending leave approval summary. Default 09:00 Malaysia time." },
   OcrUsage: { title: "OCR usage", detail: "Warn when OCR use reaches the selected share of its limit. Default 90%." },
-  InspectionReminder: { title: "Inspection reminders", detail: "Boss/Admin appointment and report expiry reminders. Cancelled inspections and sold vehicles are excluded." },
-  CalendarTasks: { title: "Calendar tasks", detail: "Daily reminder for assigned tasks. Boss/Admin sees all; each employee receives only their own tasks." },
+  InspectionReminder: { title: "Inspection reminders", detail: "Admin appointment and report expiry reminders. Cancelled inspections and sold vehicles are excluded." },
+  CalendarTasks: { title: "Calendar tasks", detail: "Daily reminder for assigned tasks. Admin sees all; each employee receives only their own tasks." },
   CompanyNews: { title: "Company news — all staff", detail: "New-stock updates sent individually to each connected active employee. No cost, supplier or customer details are included." },
   VehicleEvent: { title: "Vehicle events", detail: "Notify assigned staff about relevant vehicle workflow changes." },
   DeliveryEvent: { title: "Delivery events", detail: "Notify assigned staff about relevant handover changes." },

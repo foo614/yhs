@@ -143,7 +143,7 @@ public static class CashCustodyRules
             errors.AddRange(FinanceV2Rules.ValidateCanonicalBuyer(payment, invoice, vehicle).Errors);
             if (!FinanceV2Rules.HasApprovedVariance(payment))
             {
-                errors.Add(new("finance_variance_approval_required", "Boss/Admin approval is required before recording cash for an NCD or adjusted nett price."));
+                errors.Add(new("finance_variance_approval_required", "Admin approval is required before recording cash for an NCD or adjusted nett price."));
             }
             if (request.Amount > FinanceV2Rules.AvailableToAllocate(payment, collections ?? []))
             {
@@ -161,7 +161,7 @@ public static class CashCustodyRules
     public static ValidationResult ValidateResponsibleSales(PaymentRecord payment, string actorUserId) =>
         payment.FinanceWorkflowVersion != 2 || string.Equals(payment.SalesAgentUserId, actorUserId, StringComparison.Ordinal)
             ? new ValidationResult([])
-            : new ValidationResult([new ValidationError("cash_handover_responsible_sales_required", "Only the Sales user assigned to this Finance V2 sale can record its physical cash.")]);
+            : new ValidationResult([new ValidationError("cash_handover_responsible_sales_required", "Only the Broker assigned to this Finance V2 sale can record its physical cash.")]);
 
     public static ValidationResult ValidateRejectTransaction(CashHandover handover, PaymentRecord payment, CollectionTransaction? collection)
     {
@@ -273,7 +273,7 @@ public static class CashCustodyRules
         if (handover.Status != expectedStatus) errors.Add(new(code, message));
         if (string.Equals(handover.CollectedByUserId, actorUserId, StringComparison.Ordinal)) errors.Add(new("cash_handover_self_approval_forbidden", "The collector cannot receive, accept, or reject their own cash handover."));
         if (requireIndependentChecker && string.IsNullOrWhiteSpace(handover.HandedOverToUserId)) errors.Add(new("cash_handover_receiver_required", "Finance receipt must identify the receiving user before custody can be accepted or rejected."));
-        if (requireIndependentChecker && string.Equals(handover.HandedOverToUserId, actorUserId, StringComparison.Ordinal)) errors.Add(new("cash_handover_checker_required", "A different Finance or Boss/Admin user must accept or reject custody."));
+        if (requireIndependentChecker && string.Equals(handover.HandedOverToUserId, actorUserId, StringComparison.Ordinal)) errors.Add(new("cash_handover_checker_required", "A different Finance or Admin user must accept or reject custody."));
         return new ValidationResult(errors);
     }
 }
