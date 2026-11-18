@@ -1023,6 +1023,7 @@ export function VehiclePage({
     ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined);
   const sellerIdentityReadFailed = ownerIdentityCardReadFailed(sellerIdentityPreview);
   const [stockExportSource, setStockExportSource] = useState<VehiclePurchaseSource | undefined>();
+  const [stockExportOpen, setStockExportOpen] = useState(false);
   const [stockExporting, setStockExporting] = useState(false);
   const [purchaseInvoiceCreateOpen, setPurchaseInvoiceCreateOpen] = useState(false);
   const [purchaseInvoiceSupplierId, setPurchaseInvoiceSupplierId] = useState<string | undefined>();
@@ -2319,6 +2320,7 @@ export function VehiclePage({
       link.download = `stock-list-${stockExportSource ?? "all"}.xlsx`;
       link.click();
       URL.revokeObjectURL(objectUrl);
+      setStockExportOpen(false);
       message.success("Stock list Excel downloaded.");
     } catch (error) {
       message.error(humanizeApiError(error, "Stock list Excel could not be downloaded."));
@@ -2329,10 +2331,25 @@ export function VehiclePage({
   return (
     <>
       {publicationModalContext}
+      {canApproveVehicles && <Modal
+        title="Export stock Excel / 导出库存 Excel"
+        open={stockExportOpen}
+        onCancel={() => { if (!stockExporting) setStockExportOpen(false); }}
+        onOk={() => void downloadStockList()}
+        confirmLoading={stockExporting}
+        cancelButtonProps={{ disabled: stockExporting }}
+        okText="Export Excel / 导出 Excel"
+        cancelText="Cancel / 取消"
+      >
+        <Space direction="vertical" className="fullWidth">
+          <span id="stock-export-source-label">Stock source to export / 选择导出的库存来源</span>
+          <Select aria-labelledby="stock-export-source-label" style={{ width: "100%" }} disabled={stockExporting} allowClear placeholder="All sources / 所有来源" value={stockExportSource} onChange={setStockExportSource} options={[{ value: "Carsome", label: "Carsome (CAR)" }, { value: "Carro", label: "Carro (MY)" }, { value: "KSA", label: "KSA (KLG)" }, { value: "YSHeng", label: "YSHeng (YS)" }]} />
+        </Space>
+      </Modal>}
       <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
       <ProCard
         title="Vehicle Inventory / 车辆库存"
-        extra={<Space wrap><Tag color="green">{vehicles.length} vehicles</Tag>{canApproveVehicles ? <><Select aria-label="Stock export source" allowClear placeholder="All sources" value={stockExportSource} onChange={setStockExportSource} options={[{ value: "Carsome", label: "Carsome (CAR)" }, { value: "Carro", label: "Carro (MY)" }, { value: "KSA", label: "KSA (KLG)" }, { value: "YSHeng", label: "YSHeng (YS)" }]} /><Button loading={stockExporting} onClick={() => void downloadStockList()}>Export stock Excel</Button></> : null}<Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
+        extra={<Space wrap><Tag color="green">{vehicles.length} vehicles</Tag>{canApproveVehicles ? <Button onClick={() => { setStockExportSource(undefined); setStockExportOpen(true); }}>Export stock Excel / 导出库存 Excel</Button> : null}<Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
       >
         {dashboardFocus && <Alert
           className="sectionIntroAlert"
