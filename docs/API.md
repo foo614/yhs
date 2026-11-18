@@ -118,6 +118,7 @@ Public endpoints are unauthenticated and must not expose purchase price, refurbi
 | `GET` | `/api/public/vehicles/{id}/photos/{photoId}` | Return one full public gallery photo for a public available vehicle. |
 | `POST` | `/api/public/leads` | Create a public lead for a visible available vehicle. |
 | `POST` | `/api/public/contact-enquiries` | Create a general website contact enquiry for Sales triage. |
+| `POST` | `/api/public/budget-searches` | Check approved, publicly available stock against an estimated vehicle budget. |
 | `POST` | `/api/public/showroom-enquiries` | Create a no-login in-store QR showroom enquiry. The API records the server-owned `in-store-qr` source and stores vehicle preferences in the lead message for Sales triage. |
 
 `GET /api/public/vehicles` returns the compact inventory DTO. `GET /api/public/vehicles/{id}` additionally returns optional `descriptionMarkdown`, the staff-authored public listing description. It is returned only after the existing visible-and-available vehicle filter; it must contain marketing copy only and never internal vehicle, customer, finance, repair, audit, or workflow information.
@@ -152,6 +153,10 @@ Public contact-enquiry payload:
 ```
 
 `customerName`, `phone`, and `message` are required. `message` is limited to 2,000 characters. General contact enquiries use no vehicle link and appear in the Sales lead queue as `Website contact enquiry`; the public response returns only the new enquiry ID.
+
+The FAQ calculator sends a whole-ringgit `vehicleBudget` between RM1 and RM2,000,000 to `POST /api/public/budget-searches`. It keeps take-home pay in the browser. The response contains `hasMatch` and a `searchId` for zero-match results. Search records retain the RM10,000 budget band, search time, match outcome, and any resulting enquiry ID. The endpoint allows 30 searches per minute per client IP.
+
+A no-match enquiry sends `budgetSearchId` and the customer-confirmed `vehicleBudget` with the usual contact fields. The API accepts the search ID for 24 hours and records the lead as `faq-budget-no-match`. Repeating a successful submission with the same search ID returns the same enquiry ID.
 
 Showroom QR enquiry payload:
 
@@ -357,6 +362,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `PUT` | `/api/supplier-invoices/{id}` | `Repairs` | Update supplier invoice with the same amount and date validation. Legacy records may retain no invoice date. |
 | `GET` | `/api/leads` | `Sales` | List public and back-office leads. |
 | `PUT` | `/api/leads/{id}` | `Sales` | Update lead/customer link/status. |
+| `POST` | `/api/leads/{id}/vehicle/{vehicleId}` | `Sales` | Link an available public vehicle once to a contacted FAQ budget enquiry. The lead owner or a BossAdmin can link it. |
 | `GET` | `/api/sales/workboard?agentUserId={id}` | `Sales` | Return `Sold this month` and assigned cars for the `Cars I’m Handling` view, with the current process and combined current handoff (responsible department plus next action). Sales is server-scoped to the signed-in agent; Boss/Admin may select an agent. |
 
 Lead ownership: the first staff member who moves a lead out of `New` is recorded as the taker. After that, only the same staff member may mutate the lead; Boss/Admin retains the management override.
@@ -577,6 +583,8 @@ Collection ageing preserves the headline formula: legacy non-Reconciled payment 
 | `PUT` | `/api/admin/users/{id}/roles` | `BossAdmin` | Replace staff role assignments. |
 
 Reminder and priority-action items include additive `sourceType` and `sourceId` fields identifying the originating record; priority actions also include a nullable `vehicleId`. The portal merges a reminder and department action only when action `type`, `sourceType`, and `sourceId` match. Different follow-up kinds on one record remain separate. Legacy items without a complete, nonzero identity remain separate rather than being matched by title, subject, vehicle, or date. The merged row retains the more specific destination. Loan and Delivery actions open their exact `loanId` or `deliveryId`; older responses fall back to vehicle or module routes. Finance invoice-update actions retain their Finance destination. Role filtering and reminder eligibility are unchanged; identity fields add no staff names or leave reasons.
+
+`budgetSearchAnalytics` counts FAQ searches, no matches, and enquiries by Singapore search date. Zero-match budget bands help track demand gaps.
 
 ## Enum Values
 

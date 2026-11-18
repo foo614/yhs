@@ -153,6 +153,8 @@ public sealed record Lead
     public string? SourcePage { get; init; }
     public string? SourceReferrer { get; init; }
     public string? SourceCampaign { get; init; }
+    public int? VehicleBudget { get; init; }
+    public DateOnly? BudgetSearchDate { get; init; }
     public LeadStatus Status { get; init; } = LeadStatus.New;
     public LeadClosureOutcome? ClosureOutcome { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
@@ -188,6 +190,15 @@ public sealed record BrokerDealPrice
     public string BrokerUserId { get; init; } = "";
     public string BrokerName { get; init; } = "";
     public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record BudgetSearch
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public int BudgetBand { get; init; }
+    public bool NoMatch { get; init; }
+    public Guid? LeadId { get; init; }
 }
 
 public sealed record VehiclePhoto

@@ -14,7 +14,8 @@ using UglyToad.PdfPig;
 namespace YSHeng.Api.Features;
 
 public sealed record LeadRequest(Guid VehicleId, string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
-public sealed record ContactEnquiryRequest(string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null);
+public sealed record ContactEnquiryRequest(string CustomerName, string Phone, string? Message, string? SourcePage = null, string? SourceReferrer = null, string? SourceCampaign = null, Guid? BudgetSearchId = null, int? VehicleBudget = null);
+public sealed record BudgetSearchRequest(int VehicleBudget);
 public sealed record ShowroomEnquiryRequest(string VehicleType, string? PreferredBrand, string? PreferredModel, string BudgetRange, string CustomerName, string Phone, string? Email);
 public sealed record HrLeaveAdjustmentRequest(string StaffUserId, HrLeaveAdjustmentType Type, HrLeaveAdjustmentDirection Direction, decimal Days, string Reason);
 public sealed record HrAttendanceQrChallengeResponse(Guid Id, string Token, DateTime ExpiresAt);
@@ -195,7 +196,11 @@ public sealed record DashboardSummary(
     DashboardRefurbishmentSummary Refurbishment)
 {
     public DashboardAiDocumentProcessing AiDocumentProcessing { get; init; } = DashboardAiDocumentProcessing.Empty;
+    public BudgetSearchAnalytics? BudgetSearchAnalytics { get; init; }
 }
+
+public sealed record BudgetSearchAnalytics(int Searches, int NoMatches, int Enquiries, List<BudgetSearchBand> Bands);
+public sealed record BudgetSearchBand(int Minimum, int NoMatches);
 
 public sealed record DashboardAgingBucket(string Label, int Count);
 public sealed record DashboardCountSlice(string Label, int Count);
@@ -1252,6 +1257,8 @@ public static class LeadRules
             SourcePage = existing.SourcePage,
             SourceReferrer = existing.SourceReferrer,
             SourceCampaign = existing.SourceCampaign,
+            VehicleBudget = existing.VehicleBudget,
+            BudgetSearchDate = existing.BudgetSearchDate,
             ClosureOutcome = incoming.Status == LeadStatus.Closed ? incoming.ClosureOutcome : null,
             TakenByUserId = takenByUserId,
             TakenByName = takenByName,
@@ -4165,6 +4172,10 @@ public static class BusinessClock
     private static readonly TimeZoneInfo SingaporeTimeZone = FindSingaporeTimeZone();
 
     public static DateOnly Today() => SingaporeDate(DateTimeOffset.UtcNow);
+
+    public static DateTime SingaporeDayStartUtc(DateOnly date) =>
+        date == DateOnly.MinValue ? DateTime.SpecifyKind(DateTime.MinValue, DateTimeKind.Utc)
+            : TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue), SingaporeTimeZone);
 
     public static DateOnly SingaporeDate(DateTimeOffset instant) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, SingaporeTimeZone).DateTime);

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Net;
+using System.Threading.RateLimiting;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
@@ -90,6 +91,13 @@ builder.Services.AddCors(options =>
     });
 });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("BudgetSearch", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1) }));
+});
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 if (workerEnabled)
@@ -106,6 +114,7 @@ app.Use(async (context, next) =>
     await next();
 });
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -208,6 +217,24 @@ app.MapPost("/api/public/leads", async (LeadRequest request, AppDbContext db) =>
     return Results.Created($"/api/leads/{lead.Id}", lead);
 });
 
+app.MapPost("/api/public/budget-searches", async (BudgetSearchRequest request, AppDbContext db) =>
+{
+    if (request.VehicleBudget is < 1 or > 2_000_000)
+        return Results.BadRequest(new { message = "Enter a vehicle budget between RM1 and RM2,000,000." });
+
+    var hasMatch = await db.Vehicles.AnyAsync(vehicle =>
+        vehicle.BossConfirmed && vehicle.IsPublic && vehicle.Status == VehicleStatus.Available &&
+        vehicle.SellingPrice <= request.VehicleBudget);
+    var search = new BudgetSearch
+    {
+        BudgetBand = request.VehicleBudget / 10000 * 10000,
+        NoMatch = !hasMatch
+    };
+    db.BudgetSearches.Add(search);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { hasMatch, searchId = search.NoMatch ? (Guid?)search.Id : null });
+}).RequireRateLimiting("BudgetSearch");
+
 app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest request, AppDbContext db) =>
 {
     var validation = WorkflowReferenceRules.ValidatePublicContactEnquiry(request);
@@ -215,6 +242,31 @@ app.MapPost("/api/public/contact-enquiries", async (ContactEnquiryRequest reques
 
     var lead = LeadCapture.CreateContactEnquiry(request);
     await using var notificationTransaction = await db.Database.BeginTransactionAsync();
+    if (request.BudgetSearchId is Guid searchId)
+    {
+        if (request.VehicleBudget is not (>= 1 and <= 2_000_000))
+            return Results.BadRequest(new { code = "invalid_budget", message = "Enter a vehicle budget between RM1 and RM2,000,000." });
+
+        var cutoff = DateTime.UtcNow.AddHours(-24);
+        var eligible = db.BudgetSearches.Where(search => search.Id == searchId && search.NoMatch && search.CreatedAt >= cutoff);
+        var linked = await eligible.Where(search => search.LeadId == null)
+            .ExecuteUpdateAsync(update => update.SetProperty(search => search.LeadId, (Guid?)lead.Id));
+        if (linked == 0)
+        {
+            var existingLeadId = await eligible.Select(search => search.LeadId).SingleOrDefaultAsync();
+            if (existingLeadId is Guid submittedId)
+                return Results.Ok(new { id = submittedId });
+            return Results.BadRequest(new { code = "budget_search_expired", message = "Run the budget search again to refresh your enquiry." });
+        }
+        var searchedAt = await eligible.Select(search => search.CreatedAt).SingleAsync();
+        lead = lead with
+        {
+            VehicleBudget = request.VehicleBudget,
+            BudgetSearchDate = BusinessClock.SingaporeDate(searchedAt),
+            SourcePage = "/contact",
+            SourceCampaign = "faq-budget-no-match"
+        };
+    }
     db.Leads.Add(lead);
     ApiAudit.Add(db, "public", "contactEnquiry.created", nameof(Lead), lead.Id);
     await WhatsAppBusinessEvents.StageEnquiryAsync(db, lead, whatsappCaptureEnabled);
@@ -4423,6 +4475,24 @@ backOffice.MapGet("/payment-vouchers/{id:guid}/pdf", async (Guid id, AppDbContex
     return Results.File(pdf.Content, "application/pdf", $"{pdf.VoucherNumber}.pdf");
 }).RequireAuthorization("Finance");
 backOffice.MapGet("/leads", async (AppDbContext db) => await db.Leads.AsNoTracking().OrderByDescending(lead => lead.CreatedAt).ToListAsync()).RequireAuthorization("Sales");
+backOffice.MapPost("/leads/{id:guid}/vehicle/{vehicleId:guid}", async (Guid id, Guid vehicleId, AppDbContext db, HttpContext context) =>
+{
+    var userId = StaffIdentity.CurrentUserId(context);
+    var isAdmin = context.User.IsInRole("BossAdmin");
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    var linked = await db.Leads.Where(lead => lead.Id == id && lead.BudgetSearchDate != null &&
+            lead.VehicleId == Guid.Empty && lead.Status == LeadStatus.Contacted &&
+            (isAdmin || lead.TakenByUserId == userId) &&
+            db.Vehicles.Any(vehicle => vehicle.Id == vehicleId && vehicle.BossConfirmed && vehicle.IsPublic && vehicle.Status == VehicleStatus.Available))
+        .ExecuteUpdateAsync(update => update.SetProperty(lead => lead.VehicleId, vehicleId));
+    if (linked == 0) return Results.Conflict(new { message = "The lead or vehicle is no longer eligible for linking." });
+
+    ApiAudit.Add(db, context.User, "lead.vehicleLinked", nameof(Lead), id);
+    await db.SaveChangesAsync();
+    var lead = await db.Leads.AsNoTracking().SingleAsync(lead => lead.Id == id);
+    await transaction.CommitAsync();
+    return Results.Ok(lead);
+}).RequireAuthorization("Sales");
 backOffice.MapPut("/leads/{id:guid}", async (Guid id, Lead lead, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
     if (id != lead.Id) return Results.BadRequest(ApiErrors.RouteIdMismatch("lead"));
@@ -5694,8 +5764,31 @@ backOffice.MapGet("/dashboard/summary", async (AppDbContext db, AiUsageQuotaServ
         await aiUsageQuota.GetOcrSnapshotAsync(cancellationToken),
         analyticsPeriod.From,
         analyticsPeriod.To);
+    var budgetSearches = db.BudgetSearches.AsNoTracking();
+    if (analyticsPeriod.From is DateOnly startDate)
+        budgetSearches = budgetSearches.Where(search => search.CreatedAt >= BusinessClock.SingaporeDayStartUtc(startDate));
+    if (analyticsPeriod.To is DateOnly endDate && endDate < DateOnly.MaxValue)
+        budgetSearches = budgetSearches.Where(search => search.CreatedAt < BusinessClock.SingaporeDayStartUtc(endDate.AddDays(1)));
+    var budgetBands = await budgetSearches.GroupBy(search => search.BudgetBand)
+        .Select(group => new
+        {
+            minimum = group.Key,
+            searches = group.Count(),
+            noMatches = group.Count(search => search.NoMatch),
+            enquiries = group.Count(search => search.LeadId != null)
+        })
+        .OrderBy(band => band.minimum)
+        .ToListAsync(cancellationToken);
     return Results.Ok(DashboardSummaryPrivacy.ForRole(
-        summary with { AiDocumentProcessing = aiDocumentProcessing },
+        summary with
+        {
+            AiDocumentProcessing = aiDocumentProcessing,
+            BudgetSearchAnalytics = new(
+                budgetBands.Sum(band => band.searches),
+                budgetBands.Sum(band => band.noMatches),
+                budgetBands.Sum(band => band.enquiries),
+                budgetBands.Where(band => band.noMatches > 0).Select(band => new BudgetSearchBand(band.minimum, band.noMatches)).ToList())
+        },
         context.User.IsInRole("BossAdmin")));
 }).RequireAuthorization("Dashboard");
 
@@ -5796,6 +5889,7 @@ else
 {
     await SeedData.EnsureCalendarTaskSchemaAsync(app);
     await SeedData.EnsureHrSchemaAsync(app);
+    await SeedData.EnsureBudgetSearchSchemaAsync(app);
     await SeedData.EnsureCashCustodySchemaAsync(app);
     await SeedData.EnsureFinanceRepairEnhancementSchemaAsync(app);
     await SeedData.EnsureFinanceV2SchemaAsync(app);
