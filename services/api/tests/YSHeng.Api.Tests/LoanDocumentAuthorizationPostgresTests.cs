@@ -114,6 +114,36 @@ public sealed class LoanDocumentAuthorizationPostgresTests
                 Assert.Equal(VehicleStatus.LoanProcessing, (await db.Vehicles.FindAsync(vehicle.Id))!.Status);
                 Assert.True(await db.AuditLogs.AnyAsync(row => row.EntityId == result.Loan.Id && row.Actor == "intake-broker@example.test"));
             }
+            // A historical buyer VOC must not consume the first upload or replace a deleted original.
+            using (var scope = factory.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                db.DocumentBlobs.Add(new DocumentBlob { VehicleId = vehicle.Id, CustomerId = result.Customer.Id, Category = FileCategory.Voc });
+                await db.SaveChangesAsync();
+            }
+            var documentPath = $"/api/vehicles/{vehicle.Id}/documents?loanApplicationId={result.Loan!.Id}&category=";
+            async Task<HttpResponseMessage> UploadAsync(string category)
+            {
+                using var form = new MultipartFormDataContent();
+                var file = new ByteArrayContent("%PDF-1.4 synthetic document"u8.ToArray());
+                file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pdf");
+                form.Add(file, "file", "synthetic.pdf");
+                return await admin.PostAsync(documentPath + category, form);
+            }
+            using var prematureEdit = await UploadAsync("LoanEditedDocument");
+            Assert.Equal(HttpStatusCode.Conflict, prematureEdit.StatusCode);
+            using var originalUpload = await UploadAsync("LoanOriginalDocument");
+            Assert.Equal(HttpStatusCode.Created, originalUpload.StatusCode);
+            using var originalJson = JsonDocument.Parse(await originalUpload.Content.ReadAsStringAsync());
+            var originalId = originalJson.RootElement.GetProperty("id").GetGuid();
+            using var duplicateOriginal = await UploadAsync("LoanOriginalDocument");
+            Assert.Equal(HttpStatusCode.Conflict, duplicateOriginal.StatusCode);
+            using var editUpload = await UploadAsync("LoanEditedDocument");
+            Assert.Equal(HttpStatusCode.Created, editUpload.StatusCode);
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/vehicles/{vehicle.Id}/loan-documents/{originalId}")).StatusCode);
+            using var check = JsonDocument.Parse(await admin.GetStringAsync($"/api/loans/{result.Loan.Id}/document-check"));
+            Assert.False(check.RootElement.GetProperty("isComplete").GetBoolean());
+
         }
         finally
         {
