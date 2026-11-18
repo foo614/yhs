@@ -7,7 +7,7 @@ export const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repa
 export const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
 const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", customerId: "test-customer", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
 const fixtures = {
-  "/api/dashboard/updates": { news: [], reminders: [] },
+  "/api/dashboard/updates": { news: [], reminders: Array.from({ length: 6 }, (_, index) => ({ id: `update-${index}`, kind: "Loan", plate: `TEST${index}`, title: "Loan case / 贷款个案", status: "Approved", date: "2026-11-01", daysOpen: 17, recordedBy: "Synthetic Staff", path: "/loans" })) },
   "/api/auth/me": { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: ["BossAdmin"] },
   "/api/vehicles": [vehicle],
   "/api/vehicle-lookup": [vehicle],
@@ -489,6 +489,7 @@ async function verifyDashboardActionIdentity() {
   const dueDate = "2026-01-01";
   fixtures["/api/customers"] = [...original["/api/customers"], { id: "second-borrower", name: "Second Application Borrower", phone: "0000000001" }];
   fixtures["/api/loans"] = [...original["/api/loans"], { ...original["/api/loans"][0], id: "second-loan", customerId: "second-borrower" }];
+  fixtures["/api/loans/second-loan/banks"] = [];
   fixtures["/api/loans/second-loan/document-check"] = fixtures["/api/loans/test-loan/document-check"];
   fixtures["/api/deliveries/workboard"] = [...original["/api/deliveries/workboard"], { ...original["/api/deliveries/workboard"][0], id: "second-delivery", picName: "Second Delivery PIC" }];
   fixtures["/api/deliveries/second-delivery/activity"] = [];
@@ -547,6 +548,7 @@ async function verifyDashboardActionIdentity() {
     else fixtures[path] = original[path];
   }
   delete fixtures["/api/loans/second-loan/document-check"];
+  delete fixtures["/api/loans/second-loan/banks"];
   delete fixtures["/api/deliveries/second-delivery/activity"];
   await page.reload();
   diagnostics.dashboardActionIdentity = "Six distinct actions retained; duplicate reminder/action sources merged; second Loan and Delivery on one vehicle opened their exact records.";
