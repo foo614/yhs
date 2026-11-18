@@ -35,12 +35,12 @@ $apiProject = Read-Text "services/api/src/YSHeng.Api/YSHeng.Api.csproj"
 $apiProgram = Read-Text "services/api/src/YSHeng.Api/Program.cs"
 $solution = Read-Text "services/api/YSHeng.sln"
 
-Assert-Contains -Name "Pinned Aspire CLI" -Text $tools -Expected '"version": "13.4.6"'
+Assert-Contains -Name "Pinned Aspire CLI" -Text $tools -Expected '"version": "13.6.5"'
 foreach ($expected in @(
-  'Sdk="Aspire.AppHost.Sdk/13.4.6"',
-  'PackageReference Include="Aspire.Hosting.AppHost" Version="13.4.6"',
-  'PackageReference Include="Aspire.Hosting.Docker" Version="13.4.6"',
-  'PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.4.6"'
+  'Sdk="Aspire.AppHost.Sdk/13.6.5"',
+  'PackageReference Include="Aspire.Hosting.AppHost" Version="13.6.5"',
+  'PackageReference Include="Aspire.Hosting.Docker" Version="13.6.5"',
+  'PackageReference Include="Aspire.Hosting.PostgreSQL" Version="13.6.5"'
 )) {
   Assert-Contains -Name "Aspire AppHost project" -Text $appHostProject -Expected $expected
 }
