@@ -974,10 +974,12 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, Guid? loanApplicationId, Guid? loanBankOptionId, Guid? bankSettlementId, Guid? inspectionId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, Guid? loanApplicationId, Guid? loanBankOptionId, bool? louPreview, Guid? bankSettlementId, Guid? inspectionId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
 {
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
+    if (louPreview == true && (category != FileCategory.LoanDocument || loanBankOptionId.HasValue))
+        return Results.BadRequest(new ApiError("LOU preview must be a new loan-scoped document without a bank option."));
     var isBankEvidence = category == FileCategory.BankSettlementPayment;
     if (isBankEvidence != bankSettlementId.HasValue)
         return Results.BadRequest(new ApiError("Bank payment evidence must identify its bank settlement."));
@@ -1178,7 +1180,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         contentValidation = identityContentValidation.Result;
         detectedMimeType = identityContentValidation.MimeType;
     }
-    else if (category is FileCategory.Voc or FileCategory.BankSettlementPayment)
+    else if (category is FileCategory.Voc or FileCategory.BankSettlementPayment || louPreview == true)
     {
         var vocContentValidation = UploadPolicy.ValidateVehicleIntakeVocContent(file.FileName, file.ContentType, bytes);
         contentValidation = vocContentValidation.Result;
@@ -1257,14 +1259,19 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     LoanBankOption? louBank = null;
     if (loanBankOptionId.HasValue || category == FileCategory.LoanDocument)
     {
-        if (linkedLoan is null || category != FileCategory.LoanDocument || !loanBankOptionId.HasValue)
-            return Results.BadRequest(new ApiError("LOU upload requires its loan case and bank option."));
+        if (linkedLoan is null || category != FileCategory.LoanDocument || (!loanBankOptionId.HasValue && louPreview != true))
+            return Results.BadRequest(new ApiError("LOU upload requires its loan case and bank option or preview review."));
         linkedLoan = await db.LoanApplications.FirstAsync(row => row.Id == linkedLoan.Id);
         if (!LoanDecisionRules.CanProcess(linkedLoan, context.User, StaffIdentity.CurrentUserId(context))) return Results.Forbid();
-        louBank = await db.LoanBankOptions.FirstOrDefaultAsync(row => row.Id == loanBankOptionId && row.LoanApplicationId == linkedLoan.Id);
-        if (louBank is null) return Results.BadRequest(new ApiError("Select a bank belonging to this loan."));
-        if (linkedLoan.Status is LoanStatus.Done or LoanStatus.Rejected || louBank.IsSelected || louBank.Status is not (LoanBankOptionStatus.Submitted or LoanBankOptionStatus.Approved))
-            return Results.BadRequest(new ApiError("Upload LOU only to an active submitted bank before final selection."));
+        if (louPreview == true && linkedLoan.Status is LoanStatus.Done or LoanStatus.Rejected)
+            return Results.BadRequest(new ApiError("This loan cannot accept a new LOU preview."));
+        if (loanBankOptionId.HasValue)
+        {
+            louBank = await db.LoanBankOptions.FirstOrDefaultAsync(row => row.Id == loanBankOptionId && row.LoanApplicationId == linkedLoan.Id);
+            if (louBank is null) return Results.BadRequest(new ApiError("Select a bank belonging to this loan."));
+            if (linkedLoan.Status is LoanStatus.Done or LoanStatus.Rejected || louBank.IsSelected || louBank.Status is not (LoanBankOptionStatus.Submitted or LoanBankOptionStatus.Approved))
+                return Results.BadRequest(new ApiError("Upload LOU only to an active submitted bank before final selection."));
+        }
     }
     var document = new DocumentBlob
     {
@@ -1297,7 +1304,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
             db.Entry(louBank).CurrentValues.SetValues(savedBank);
             await LoanBankWorkflow.RefreshLoanAsync(db, trackedLoan, savedBank, context.User, whatsappCaptureEnabled);
         }
-        else db.Entry(trackedLoan).CurrentValues.SetValues(trackedLoan with { LastUpdatedAt = DateTime.UtcNow });
+        else if (louPreview != true) db.Entry(trackedLoan).CurrentValues.SetValues(trackedLoan with { LastUpdatedAt = DateTime.UtcNow });
     }
     if (linkedDelivery is not null)
     {

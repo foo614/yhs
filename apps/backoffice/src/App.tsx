@@ -37,6 +37,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  Collapse,
   DatePicker,
   Descriptions,
   Drawer,
@@ -255,6 +256,7 @@ import {
   submitLoanBank,
   rejectLoanBank,
   selectFinalLoanBank,
+  saveReviewedLoanLou,
   createLoanBuyerIntake,
   updateLoanBankOption,
   uploadHrMedicalCertificate,
@@ -4334,6 +4336,10 @@ export function LoanPage({
   const [completionError, setCompletionError] = useState("");
   const completionPending = useRef(false);
   const [loanDetailForm] = Form.useForm<Partial<LoanApplication>>();
+  const [louTarget, setLouTarget] = useState<string>();
+  const [manualBankOpen, setManualBankOpen] = useState(false);
+  const [finalDealEditing, setFinalDealEditing] = useState(false);
+  const [finalDealSaving, setFinalDealSaving] = useState(false);
   const [loanBankForm] = Form.useForm<Partial<LoanBankOption>>();
   const [loanBankOptions, setLoanBankOptions] = useState<LoanBankOption[]>([]);
   const [loanBankOptionsLoading, setLoanBankOptionsLoading] = useState(false);
@@ -4348,28 +4354,25 @@ export function LoanPage({
   const brokerOwnsLoan = (loan: LoanApplication) => roles.includes("Sales") && !isBossAdmin && vehicles.some((vehicle) => vehicle.id === loan.vehicleId && vehicle.salesAgentUserId === currentUser?.id && vehicle.customerId === loan.customerId);
   const canOpenLoanDetails = (loan: LoanApplication) => canProcessLoan(loan) || brokerOwnsLoan(loan);
   const canEditLoanDetails = (loan: LoanApplication) => (canProcessLoan(loan) || brokerOwnsLoan(loan)) && loan.status !== "Rejected" && loan.status !== "Done";
+  const dealFields = (loan: LoanApplication) => ({
+    finalSellingPrice: loan.finalSellingPrice,
+    depositAmount: loan.depositAmount,
+    contraAmount: loan.contraAmount,
+    tradeInPlateNumber: loan.tradeInPlateNumber,
+    ncdAmount: loan.ncdAmount,
+    ncdPercentage: loan.ncdPercentage,
+    ncdVehiclePlate: loan.ncdVehiclePlate,
+    ncdInsurer: loan.ncdInsurer,
+    windscreenCovered: loan.windscreenCovered,
+    windscreenCover: loan.windscreenCover,
+    warrantyInsuranceSelected: loan.warrantyInsuranceSelected,
+    agreementSignedAt: loan.agreementSignedAt
+  });
   useEffect(() => {
-    if (!selectedLoan) return;
-    loanDetailForm.setFieldsValue({
-      loanAmount: selectedLoan.loanAmount,
-      loanBank: selectedLoan.loanBank,
-      interestRate: selectedLoan.interestRate,
-      loanTenureMonths: selectedLoan.loanTenureMonths,
-      loanTerms: selectedLoan.loanTerms,
-      finalSellingPrice: selectedLoan.finalSellingPrice,
-      depositAmount: selectedLoan.depositAmount,
-      contraAmount: selectedLoan.contraAmount,
-      tradeInPlateNumber: selectedLoan.tradeInPlateNumber,
-      ncdAmount: selectedLoan.ncdAmount,
-      ncdPercentage: selectedLoan.ncdPercentage,
-      ncdVehiclePlate: selectedLoan.ncdVehiclePlate,
-      ncdInsurer: selectedLoan.ncdInsurer,
-      windscreenCovered: selectedLoan.windscreenCovered,
-      windscreenCover: selectedLoan.windscreenCover,
-      warrantyInsuranceSelected: selectedLoan.warrantyInsuranceSelected,
-      agreementSignedAt: selectedLoan.agreementSignedAt
-    });
-  }, [loanDetailForm, selectedLoan]);
+    setFinalDealEditing(false);
+    setManualBankOpen(false);
+    setLouTarget(undefined);
+  }, [uploadLoanId]);
   useEffect(() => {
     if (!selectedLoan || !canOpenLoanDetails(selectedLoan)) {
       setLoanBankOptions([]);
@@ -4690,6 +4693,8 @@ export function LoanPage({
 
   if (selectedLoan) {
     const check = documentChecks[selectedLoan.id];
+    const latestDeal = dealFields(selectedLoan);
+    const hasDeal = Object.values(latestDeal).some(value => value != null && value !== "");
     const missingLoanDocuments = check?.missingCategories ?? loanRequiredDocumentCategories;
     const uploadLoanDocument = async (category: DocumentCategory, file: File, onProgress: UploadProgressHandler) => {
       await onUploadDocument(selectedLoan.vehicleId, file, category, onProgress, loanDocumentUploadOwner(selectedLoan));
@@ -4712,6 +4717,35 @@ export function LoanPage({
       setLoanBankOptions(refreshedOptions);
       setDocumentReloadKey((value) => value + 1);
       await onRefresh();
+    };
+    const reviewableBanks = loanBankOptions.filter(bank => bank.loanApplicationId === selectedLoan.id &&
+      !bank.isSelected && bank.status !== "Rejected");
+    const targetBank = louTarget === undefined && reviewableBanks.length === 1
+      ? reviewableBanks[0]
+      : reviewableBanks.find(bank => bank.id === louTarget);
+    const reviewLou = (option?: LoanBankOption) => {
+      const useAsFinal = !loanBankOptionsLoading && !loanBankOptions.some(bank =>
+        bank.loanApplicationId === selectedLoan.id && bank.status !== "Rejected" && bank.id !== option?.id);
+      const save = async (values: OcrReviewValues, documentId: string) => {
+        await saveReviewedLoanLou(selectedLoan.id, documentId, values, option?.id, useAsFinal);
+      };
+      return <OcrUploadReview
+        key={`lou-review-${option?.id ?? "new"}`} compact commitAfterApply vehicleId={selectedLoan.vehicleId} category="LoanDocument"
+        uploadOwner={{ ...loanDocumentUploadOwner(selectedLoan), louPreview: true }}
+        buttonLabel={option ? `Upload LOU for ${option.bankName}` : "Upload LOU and review / 上传 LOU 并复核"}
+        applyLabel={useAsFinal ? "Confirm and use this LOU / 确认采用此 LOU" : "Confirm bank and terms / 确认银行与条款"}
+        fields={[
+          { name: "loanBank", label: "Bank / 银行" },
+          { name: "loanAmount", label: "Loan amount / 贷款金额", type: "number" },
+          { name: "interestRate", label: "Interest rate / 利率 (%)", type: "number" },
+          { name: "loanTenureMonths", label: "Tenure / 期限 (months)", type: "number" },
+          { name: "loanTerms", label: "Exact bank terms / 银行原文条款", fullWidth: true }
+        ]}
+        onUploaded={() => setDocumentReloadKey(nextLoanDocumentReloadKey)}
+        onManualApply={save}
+        onApply={(values, job) => save(values, job.documentId)}
+        onCompleted={refreshBanks}
+      />;
     };
     const bankAction = async (action: () => Promise<unknown>) => {
       try { await action(); await refreshBanks(); }
@@ -4770,40 +4804,23 @@ export function LoanPage({
             <Space wrap>{renderLoanNextAction(selectedLoan, true)}</Space>
           </Space>
         </ProCard>
-        <ProCard title="LOU & deal details / LOU 与成交资料">
-          <Form
-            form={loanDetailForm}
-            layout="vertical"
-            onFinish={async (values) => {
-              await onUpdate({ ...selectedLoan, ...values });
-            }}
-            disabled={!canEditLoanDetails(selectedLoan)}
-          >
-            <div className="formGridTwo">
-              <Form.Item name="loanAmount" label="LOU amount / LOU 金额"><InputNumber disabled className="fullWidth" min={0} precision={2} /></Form.Item>
-              <Form.Item name="loanBank" label="Selected bank / 选定银行"><Input disabled placeholder="Bank name" /></Form.Item>
-              <Form.Item name="interestRate" label="Interest rate / 利率 (%)"><InputNumber disabled className="fullWidth" min={0} precision={3} /></Form.Item>
-              <Form.Item name="loanTenureMonths" label="Loan tenure / 贷款期限 (months)"><InputNumber disabled className="fullWidth" min={1} precision={0} /></Form.Item>
-              <Form.Item name="finalSellingPrice" label="Final selling price / 最终成交价"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-              <Form.Item name="depositAmount" label="Deposit / 定金"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-              <Form.Item name="contraAmount" label="Contra / 抵扣金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-              <Form.Item name="tradeInPlateNumber" label="Trade-in plate / 旧车车牌"><Input /></Form.Item>
-              <Form.Item name="ncdAmount" label="NCD / NCD 金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-              <Form.Item name="ncdPercentage" label="NCD percentage / NCD 百分比"><InputNumber className="fullWidth" min={0} max={100} precision={2} /></Form.Item>
-              <Form.Item name="ncdVehiclePlate" label="NCD vehicle plate / NCD 车牌"><Input /></Form.Item>
-              <Form.Item name="ncdInsurer" label="NCD insurer / NCD 保险公司"><Input /></Form.Item>
-              <Form.Item name="windscreenCovered" label="Windscreen / 挡风玻璃保险"><Select options={[{ value: true, label: "Yes / 是" }, { value: false, label: "No / 否" }]} /></Form.Item>
-              <Form.Item name="windscreenCover" label="Windscreen cover / 挡风玻璃保险"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-              <Form.Item name="warrantyInsuranceSelected" label="Warranty insurance / 保修保险"><Select allowClear options={[{ value: true, label: "Yes / 有" }, { value: false, label: "No / 无" }]} /></Form.Item>
-              <Form.Item name="agreementSignedAt" label="Date signed agreement / 签约日期 (optional)" getValueProps={(value) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
-            </div>
-            <Form.Item name="loanTerms" label="LOU terms / LOU 条款"><Input.TextArea disabled rows={3} placeholder="Keep the bank's exact terms for later review." /></Form.Item>
-            <Button type="primary" htmlType="submit" disabled={!canEditLoanDetails(selectedLoan)}>Save LOU & deal details / 保存资料</Button>
-          </Form>
-        </ProCard>
-        <ProCard title="Bank options / 银行方案">
+        <ProCard title="Bank approval & LOU / 银行审批与 LOU">
           <Space direction="vertical" size={16} className="fullWidth">
             {loanBankOptionsLoading && <Typography.Text type="secondary">Loading bank options…</Typography.Text>}
+            {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !loanBankOptionsLoading && <>
+              {reviewableBanks.length > 0 && <Form.Item label="LOU for / 对应银行">
+                <Select
+                  aria-label="LOU for / 对应银行"
+                  value={targetBank?.id ?? "new"}
+                  onChange={setLouTarget}
+                  options={[
+                    { value: "new", label: "Read bank from LOU / 从 LOU 读取银行" },
+                    ...reviewableBanks.map(bank => ({ value: bank.id, label: bank.bankName }))
+                  ]}
+                />
+              </Form.Item>}
+              {reviewLou(targetBank)}
+            </>}
             {loanBankOptions.filter((option) => option.loanApplicationId === selectedLoan.id).map((option) => <div key={option.id}>
               <Space wrap>
                 <Typography.Text strong>{option.bankName}</Typography.Text><Tag>{option.status}</Tag>
@@ -4813,7 +4830,7 @@ export function LoanPage({
                 {option.submittedAt && <Typography.Text>Submitted / 提交: {option.submittedAt.slice(0, 10)}</Typography.Text>}
                 {option.isSelected && <Tag color="green">Final LOU / 最终方案</Tag>}
                 {canEditLoanDetails(selectedLoan) && option.status === "Approved" && !option.isSelected && <Popconfirm title="Use this final LOU / 采用此方案?" onConfirm={() => bankAction(() => selectFinalLoanBank(option))}><Button>Select final LOU / 选择最终方案</Button></Popconfirm>}
-                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && option.status !== "Rejected" && <Button onClick={() => loanBankForm.setFieldsValue(option)}>Edit / 编辑</Button>}
+                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && option.status !== "Rejected" && <Button onClick={() => { setManualBankOpen(true); loanBankForm.setFieldsValue(option); }}>Edit / 编辑</Button>}
                 {canProcessLoan(selectedLoan) && option.status === "Pending" && <Popconfirm title="Record bank submission / 记录已提交银行?" onConfirm={() => bankAction(() => submitLoanBank(option))}><Button>Submitted to bank / 已提交银行</Button></Popconfirm>}
                 {canProcessLoan(selectedLoan) && option.status === "Submitted" && <Button danger onClick={() => {
                   let reason = "";
@@ -4821,33 +4838,13 @@ export function LoanPage({
                 }}>Reject / 拒绝</Button>}
               </Space>
               {option.rejectionReason && <Typography.Paragraph type="secondary">{option.rejectionReason}</Typography.Paragraph>}
-              {canProcessLoan(selectedLoan) && option.status === "Submitted" && <PreviewDocumentUpload
-                documentLabel="Bank LOU PDF / 银行 LOU 文件"
-                buttonLabel="Upload LOU file / 上传 LOU 文件"
-                onUpload={async (file, progress) => {
-                  await onUploadDocument(selectedLoan.vehicleId, file, "LoanDocument", progress, { ...loanDocumentUploadOwner(selectedLoan), loanBankOptionId: option.id });
-                  await refreshBanks();
-                }}
-              />}
-              {canProcessLoan(selectedLoan) && option.status === "Submitted" && <OcrUploadReview
-                vehicleId={selectedLoan.vehicleId} category="LoanDocument" compact commitAfterApply
-                uploadOwner={{ ...loanDocumentUploadOwner(selectedLoan), loanBankOptionId: option.id }}
-                buttonLabel="Upload bank LOU / 上传银行 LOU" applyLabel="Save reviewed terms / 保存复核条款"
-                existingValues={{ loanBank: option.bankName, loanAmount: option.loanAmount, interestRate: option.interestRate, loanTenureMonths: option.tenureMonths, loanTerms: option.terms }}
-                fields={[{ name: "loanBank", label: "Bank / 银行" }, { name: "loanAmount", label: "Loan amount / 贷款金额", type: "number" }, { name: "interestRate", label: "Interest / 利率 (%)", type: "number" }, { name: "loanTenureMonths", label: "Tenure / 期数", type: "number" }, { name: "loanTerms", label: "Exact bank terms / 银行原文条款", fullWidth: true }]}
-                onUploaded={() => setDocumentReloadKey((value) => value + 1)}
-                onCompleted={refreshBanks}
-                onApply={async (values) => {
-                  await updateLoanBankOption({ ...option, bankName: String(values.loanBank ?? option.bankName), loanAmount: values.loanAmount == null ? undefined : Number(values.loanAmount), interestRate: values.interestRate == null ? undefined : Number(values.interestRate), tenureMonths: values.loanTenureMonths == null ? undefined : Number(values.loanTenureMonths), terms: String(values.loanTerms ?? "") });
-                }}
-              />}
             </div>)}
-            {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && <Form form={loanBankForm} layout="vertical" onFinish={async (values) => {
+            {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && <Collapse activeKey={manualBankOpen ? ["manual-bank"] : []} onChange={(keys) => setManualBankOpen(keys.includes("manual-bank"))} items={[{ key: "manual-bank", label: "Record bank application / 记录银行申请", children: <Form form={loanBankForm} layout="vertical" onFinish={async (values) => {
               try {
                 const existing = loanBankOptions.find((option) => option.id === values.id);
                 if (existing) await updateLoanBankOption({ ...existing, ...values });
                 else await createLoanBankOption(selectedLoan.id, { loanApplicationId: selectedLoan.id, bankName: values.bankName || "", loanAmount: values.loanAmount, interestRate: values.interestRate, tenureMonths: values.tenureMonths, terms: values.terms, isSelected: false });
-                await refreshBanks(); loanBankForm.resetFields();
+                await refreshBanks(); loanBankForm.resetFields(); setManualBankOpen(false);
                 message.success("Bank option saved / 银行方案已保存");
               } catch (error) { message.error(humanizeApiError(error, "Bank option could not be saved.")); }
             }}>
@@ -4860,8 +4857,83 @@ export function LoanPage({
               </div>
               <Form.Item name="terms" label="Bank terms / 银行条款"><Input.TextArea rows={3} /></Form.Item>
               <Space wrap><Button type="primary" htmlType="submit">Save bank option / 保存银行方案</Button><Button onClick={() => loanBankForm.resetFields()}>Clear / 清空</Button></Space>
-            </Form>}
+            </Form> }]} />}
           </Space>
+        </ProCard>
+        <ProCard
+          title="Final deal / 最终成交资料"
+          extra={canEditLoanDetails(selectedLoan) && !finalDealEditing
+            ? <Button type="primary" onClick={() => { loanDetailForm.setFieldsValue(latestDeal); setFinalDealEditing(true); }}>{hasDeal ? "Update final deal / 更新成交资料" : "Enter final deal / 填写成交资料"}</Button>
+            : undefined}
+        >
+          {!finalDealEditing ? (
+            <Space direction="vertical" size={12} className="fullWidth">
+              <Descriptions size="small" column={{ xs: 1, sm: 2 }}>
+                <Descriptions.Item label="Selected bank / 选定银行">{selectedLoan.loanBank || "Awaiting approved LOU"}</Descriptions.Item>
+                <Descriptions.Item label="LOU amount / LOU 金额">{selectedLoan.loanAmount == null ? "-" : `RM ${selectedLoan.loanAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+                <Descriptions.Item label="Final selling price / 最终成交价">{selectedLoan.finalSellingPrice == null ? "Not entered" : `RM ${selectedLoan.finalSellingPrice.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+                <Descriptions.Item label="Deposit / 定金">{selectedLoan.depositAmount == null ? "-" : `RM ${selectedLoan.depositAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+              </Descriptions>
+              <Collapse items={[{
+                key: "details",
+                label: "View all deal details / 查看全部成交资料",
+                children: <Descriptions size="small" column={{ xs: 1, sm: 2, xl: 3 }}>
+                  <Descriptions.Item label="Interest / 利率">{selectedLoan.interestRate == null ? "-" : `${selectedLoan.interestRate}%`}</Descriptions.Item>
+                  <Descriptions.Item label="Tenure / 期限">{selectedLoan.loanTenureMonths == null ? "-" : `${selectedLoan.loanTenureMonths} months`}</Descriptions.Item>
+                  <Descriptions.Item label="Contra / 抵扣金额">{selectedLoan.contraAmount == null ? "-" : `RM ${selectedLoan.contraAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+                  <Descriptions.Item label="Trade-in plate / 旧车车牌">{selectedLoan.tradeInPlateNumber || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="NCD / NCD">{selectedLoan.ncdAmount == null ? "-" : `RM ${selectedLoan.ncdAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+                  <Descriptions.Item label="NCD percentage / NCD 百分比">{selectedLoan.ncdPercentage == null ? "-" : `${selectedLoan.ncdPercentage}%`}</Descriptions.Item>
+                  <Descriptions.Item label="NCD vehicle plate / NCD 车牌">{selectedLoan.ncdVehiclePlate || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="NCD insurer / NCD 保险公司">{selectedLoan.ncdInsurer || "-"}</Descriptions.Item>
+                  <Descriptions.Item label="Windscreen / 挡风玻璃保险">{selectedLoan.windscreenCovered == null ? "-" : selectedLoan.windscreenCovered ? "Yes / 是" : "No / 否"}</Descriptions.Item>
+                  <Descriptions.Item label="Windscreen cover / 挡风玻璃保险">{selectedLoan.windscreenCover == null ? "-" : `RM ${selectedLoan.windscreenCover.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+                  <Descriptions.Item label="Warranty insurance / 保修保险">{selectedLoan.warrantyInsuranceSelected == null ? "-" : selectedLoan.warrantyInsuranceSelected ? "Yes / 有" : "No / 无"}</Descriptions.Item>
+                  <Descriptions.Item label="Agreement signed / 签约日期">{selectedLoan.agreementSignedAt ? formatDisplayDate(selectedLoan.agreementSignedAt) : "-"}</Descriptions.Item>
+                  <Descriptions.Item label="LOU terms / LOU 条款" span={3}>{selectedLoan.loanTerms || "-"}</Descriptions.Item>
+                </Descriptions>
+              }]} />
+            </Space>
+          ) : (
+            <Form
+              form={loanDetailForm}
+              layout="vertical"
+              onFinish={async (values) => {
+                if (finalDealSaving) return;
+                setFinalDealSaving(true);
+                try {
+                  await onUpdate({ ...selectedLoan, ...values });
+                  setFinalDealEditing(false);
+                } finally {
+                  setFinalDealSaving(false);
+                }
+              }}
+              disabled={!canEditLoanDetails(selectedLoan)}
+            >
+              <Descriptions size="small" column={{ xs: 1, sm: 2 }}>
+                <Descriptions.Item label="Selected bank / 选定银行">{selectedLoan.loanBank || "Awaiting final LOU"}</Descriptions.Item>
+                <Descriptions.Item label="LOU amount / LOU 金额">{selectedLoan.loanAmount == null ? "—" : `RM ${selectedLoan.loanAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+              </Descriptions>
+              <div className="formGridTwo">
+                <Form.Item name="finalSellingPrice" label="Final selling price / 最终成交价"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+                <Form.Item name="depositAmount" label="Deposit / 定金"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+                <Form.Item name="contraAmount" label="Contra / 抵扣金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+                <Form.Item name="tradeInPlateNumber" label="Trade-in plate / 旧车车牌"><Input /></Form.Item>
+                <Form.Item name="ncdAmount" label="NCD / NCD 金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+                <Form.Item name="ncdPercentage" label="NCD percentage / NCD 百分比"><InputNumber className="fullWidth" min={0} max={100} precision={2} /></Form.Item>
+                <Form.Item name="ncdVehiclePlate" label="NCD vehicle plate / NCD 车牌"><Input /></Form.Item>
+                <Form.Item name="ncdInsurer" label="NCD insurer / NCD 保险公司"><Input /></Form.Item>
+                <Form.Item name="windscreenCovered" label="Windscreen / 挡风玻璃保险"><Select options={[{ value: true, label: "Yes / 是" }, { value: false, label: "No / 否" }]} /></Form.Item>
+                <Form.Item name="windscreenCover" label="Windscreen cover / 挡风玻璃保险"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+                <Form.Item name="warrantyInsuranceSelected" label="Warranty insurance / 保修保险"><Select allowClear options={[{ value: true, label: "Yes / 有" }, { value: false, label: "No / 无" }]} /></Form.Item>
+                <Form.Item name="agreementSignedAt" label="Date signed agreement / 签约日期 (optional)" getValueProps={(value) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
+              </div>
+              <Space wrap>
+                <Button type="primary" htmlType="submit" loading={finalDealSaving}>Save deal details / 保存成交资料</Button>
+                <Button disabled={finalDealSaving} onClick={() => setFinalDealEditing(false)}>Cancel / 取消</Button>
+              </Space>
+            </Form>
+          )}
         </ProCard>
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">

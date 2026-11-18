@@ -8093,7 +8093,7 @@ public sealed class BusinessRulesTests
         var extraction = OcrExtractionParser.Analyze(
             new DocumentBlob { Category = FileCategory.LoanDocument },
             [],
-            "Bank: Maybank\nApproved Amount: RM 80,000.00\nInterest Rate: 3.20% p.a.\nTenure: 84 months\nTerms and Conditions:\nSubject to bank approval and insurance requirements.",
+            "Bank name: Maybank\nApproved Amount: RM 80,000.00\nInterest Rate: 3.20% p.a.\nTenure: 84 months\nTerms and Conditions:\nSubject to bank approval and insurance requirements.",
             0.9m,
             []);
 
@@ -8119,10 +8119,11 @@ public sealed class BusinessRulesTests
         var result = OcrExtractionParser.Analyze(
             new DocumentBlob { Category = FileCategory.LoanDocument },
             [],
-            "Bank: Maybank\nApproved Amount: RM 80,000\nLoan Amount: RM 81,000\nInterest Rate: 3.20%\nTenure: 84 months\nTerms: Confirmed subject to bank terms.",
+            "Bank:\nApproved Amount: RM 80,000\nLoan Amount: RM 81,000\nInterest Rate: 3.20%\nTenure: 84 months\nTerms: Confirmed subject to bank terms.",
             0.9m,
             []);
 
+        Assert.Null(result.Fields["loanBank"]);
         Assert.Null(result.Fields["loanAmount"]);
         Assert.Null(result.Fields["amount"]);
         Assert.Contains(result.Warnings, warning => warning.Contains("loanAmount", StringComparison.Ordinal));

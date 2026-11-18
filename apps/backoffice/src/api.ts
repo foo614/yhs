@@ -131,6 +131,7 @@ export type DocumentUploadOwner = {
   inspectionId?: string;
   loanApplicationId?: string;
   loanBankOptionId?: string;
+  louPreview?: boolean;
 };
 
 export type InspectionTypeCode = 9001 | 9002 | 9003 | 9004 | 9011;
@@ -2779,6 +2780,27 @@ export async function updateLoanBankOption(option: LoanBankOption): Promise<Loan
   return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}`, { method: "PUT", body: JSON.stringify(option) });
 }
 
+export async function saveReviewedLoanLou(
+  loanId: string,
+  documentId: string,
+  values: Record<string, string | number | undefined>,
+  bankOptionId?: string,
+  useAsFinal = false
+): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${loanId}/banks/from-document/${documentId}`, {
+    method: "POST",
+    body: JSON.stringify({
+      bankOptionId,
+      useAsFinal,
+      bankName: values.loanBank,
+      loanAmount: values.loanAmount,
+      interestRate: values.interestRate,
+      tenureMonths: values.loanTenureMonths,
+      terms: values.loanTerms
+    })
+  });
+}
+
 export async function submitLoanBank(option: LoanBankOption): Promise<LoanBankOption> {
   return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/submit`, { method: "POST" });
 }
@@ -3250,6 +3272,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.inspectionId) query.set("inspectionId", owner.inspectionId);
   if (owner?.loanApplicationId) query.set("loanApplicationId", owner.loanApplicationId);
   if (owner?.loanBankOptionId) query.set("loanBankOptionId", owner.loanBankOptionId);
+  if (owner?.louPreview) query.set("louPreview", "true");
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
 

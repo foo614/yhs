@@ -16,8 +16,8 @@ Use designated test records and test staff. Do not enter a real payment just to 
 
 1. Broker: create a financed buyer with IC image/PDF; confirm buyer and Pending loan save correctly. Try cash buyer: customer saves without creating a loan. Cancel and reopen: previous IC must not be reused invisibly.
 2. Broker uploads the original. Loan staff take the case, open details, and upload optional edited copies. Another processor must not access the taken case's private documents.
-3. Banks: add two banks, record submission, upload the correct LOU and check amount/rate/tenure/terms. Broker selects the final approved LOU. Confirm selected terms agree with deal details; rejected bank option cannot be revived by editing.
-4. Loan completion: enter required deal fields and original documents; leave agreement date blank and confirm it does not block completion. Check missing required fields are explained. Rejected historical cases can be found by search/filter.
+3. Banks: open a loan with no bank recorded, upload an LOU, and compare the proposed bank, amount, rate, tenure and terms with the file. Correct a value before confirming. Add another offer and select the accepted LOU. Check that its terms appear in Final deal.
+4. Final deal: open the summary, enter the selling price and deposit, save, then reopen and confirm the latest figures. Cancel an edit and check the saved price. Saving the deal leaves the loan status unchanged. Complete the loan separately after its handoff requirements are met.
 5. Delivery: check selling price belongs to this buyer and is read-only. Edit permitted delivery fields, upload/view files and VOC, review road-tax expiry, and verify manual insurance/JPJ details. Confirm Inspection upload is not duplicated. Check old completed delivery can be searched.
 6. Repair: filter by date/status, compare footer total before/after changing page size, inspect receipt, approve or reject a test record. Rejected/paid records must block disallowed changes. Pending correction preserves supplier and amount accurately.
 7. Pagination: select 10, 20 and 30 on phone and desktop; actual row count and navigation must follow the selection.
