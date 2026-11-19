@@ -1422,6 +1422,68 @@ public static class StaffUserRules
 
 public static class HrRules
 {
+    public static decimal CalculateLeaveDays(
+        DateOnly startDate,
+        DateOnly endDate,
+        string startSession,
+        string endSession,
+        IEnumerable<DateOnly> scheduledDates,
+        IEnumerable<DateOnly> holidayDates)
+    {
+        if (endDate < startDate) return 0;
+        var scheduled = scheduledDates.ToHashSet();
+        var holidays = holidayDates.ToHashSet();
+        var days = 0m;
+        for (var date = startDate; ; date = date.AddDays(1))
+        {
+            if (!holidays.Contains(date) && (scheduled.Count == 0 ? IsWeekday(date) : scheduled.Contains(date)))
+            {
+                var isStart = date == startDate;
+                var isEnd = date == endDate;
+                if (isStart && isEnd) days += SessionValue(startSession, endSession);
+                else if (isStart) days += string.Equals(startSession, "AM", StringComparison.OrdinalIgnoreCase) ? 1m : 0.5m;
+                else if (isEnd) days += string.Equals(endSession, "PM", StringComparison.OrdinalIgnoreCase) ? 1m : 0.5m;
+                else days += 1m;
+            }
+            if (date == endDate) break;
+        }
+        return days;
+    }
+
+    public static ValidationResult ValidateLeaveCalculationInput(DateOnly startDate, DateOnly endDate, string? startSession, string? endSession)
+    {
+        var errors = new List<ValidationError>();
+        if (startDate.Year is < 2000 or > 2100 || endDate.Year is < 2000 or > 2100)
+            errors.Add(new("leave_year_invalid", "Leave dates must be between 2000 and 2100."));
+        if (endDate < startDate)
+            errors.Add(new("leave_date_range_invalid", "Leave end date cannot be before the start date."));
+        else if (endDate.DayNumber - startDate.DayNumber > 366)
+            errors.Add(new("leave_date_range_too_long", "Leave calculations are limited to 367 calendar days."));
+        if (!string.Equals(startSession, "AM", StringComparison.OrdinalIgnoreCase) && !string.Equals(startSession, "PM", StringComparison.OrdinalIgnoreCase))
+            errors.Add(new("leave_start_session_invalid", "Leave start session must be AM or PM."));
+        if (!string.Equals(endSession, "AM", StringComparison.OrdinalIgnoreCase) && !string.Equals(endSession, "PM", StringComparison.OrdinalIgnoreCase))
+            errors.Add(new("leave_end_session_invalid", "Leave end session must be AM or PM."));
+        return new ValidationResult(errors);
+    }
+
+    public static ValidationResult ValidatePublicHoliday(HrPublicHoliday holiday)
+    {
+        var errors = new List<ValidationError>();
+        if (!string.Equals(holiday.StateCode, "JHR", StringComparison.OrdinalIgnoreCase)) errors.Add(new("holiday_state_invalid", "Only Johor (JHR) holidays are supported."));
+        if (holiday.Year < 2000 || holiday.Year > 2100 || holiday.Date.Year != holiday.Year) errors.Add(new("holiday_year_invalid", "Holiday year must match the date and be between 2000 and 2100."));
+        if (string.IsNullOrWhiteSpace(holiday.Name)) errors.Add(new("holiday_name_required", "Holiday name is required."));
+        if (holiday.Name.Length > 200) errors.Add(new("holiday_name_too_long", "Holiday name must be 200 characters or fewer."));
+        if (string.IsNullOrWhiteSpace(holiday.SourceTitle)) errors.Add(new("holiday_source_title_required", "Provide the official notice title for this holiday."));
+        if (!Uri.TryCreate(holiday.SourceUrl, UriKind.Absolute, out var source) || source.Scheme is not ("https" or "http")) errors.Add(new("holiday_source_required", "Provide the official notice URL for this holiday."));
+        return new ValidationResult(errors);
+    }
+
+    private static decimal SessionValue(string startSession, string endSession) =>
+        string.Equals(startSession, "AM", StringComparison.OrdinalIgnoreCase) && string.Equals(endSession, "PM", StringComparison.OrdinalIgnoreCase) ? 1m :
+        string.Equals(startSession, endSession, StringComparison.OrdinalIgnoreCase) ? 0.5m : 0m;
+
+    private static bool IsWeekday(DateOnly date) => date.DayOfWeek is not (DayOfWeek.Saturday or DayOfWeek.Sunday);
+
     public static ValidationResult ValidateAttendanceReminderPolicy(HrAttendanceReminderPolicyRequest request)
     {
         var errors = new List<ValidationError>();
@@ -1534,6 +1596,11 @@ public static class HrRules
         if (request.Days <= 0)
         {
             errors.Add(new ValidationError("leave_days_invalid", "Leave days must be greater than zero."));
+        }
+
+        if (request.StartSession is not ("AM" or "PM") || request.EndSession is not ("AM" or "PM"))
+        {
+            errors.Add(new ValidationError("leave_session_invalid", "Leave sessions must be AM or PM."));
         }
 
         return new ValidationResult(errors);

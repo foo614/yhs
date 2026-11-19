@@ -2043,6 +2043,51 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Hr_leave_days_use_personal_schedule_and_skip_johor_holidays()
+    {
+        var start = new DateOnly(2026, 2, 1);
+        var scheduled = new[] { start, start.AddDays(1), start.AddDays(2) };
+        var holidays = new[] { start.AddDays(1) };
+
+        var days = HrRules.CalculateLeaveDays(start, start.AddDays(2), "AM", "PM", scheduled, holidays);
+
+        Assert.Equal(2m, days);
+    }
+
+    [Fact]
+    public void Hr_leave_days_fall_back_to_weekdays_when_no_personal_schedule_exists()
+    {
+        var days = HrRules.CalculateLeaveDays(new DateOnly(2026, 2, 6), new DateOnly(2026, 2, 9), "AM", "PM", [], [new DateOnly(2026, 2, 9)]);
+
+        Assert.Equal(1m, days);
+    }
+
+    [Fact]
+    public void Hr_public_holiday_requires_johor_source_and_matching_year()
+    {
+        var valid = HrRules.ValidatePublicHoliday(new HrPublicHoliday
+        {
+            StateCode = "JHR",
+            Year = 2026,
+            Date = new DateOnly(2026, 2, 17),
+            Name = "Tahun Baru Cina",
+            SourceTitle = "Cuti Umum Johor 2026",
+            SourceUrl = "https://www.johor.gov.my/rakyat/cuti-umum-2"
+        });
+        var invalid = HrRules.ValidatePublicHoliday(new HrPublicHoliday
+        {
+            StateCode = "KDH",
+            Year = 2025,
+            Date = new DateOnly(2026, 2, 17),
+            Name = "Holiday",
+            SourceUrl = "not-a-url"
+        });
+
+        Assert.True(valid.IsValid);
+        Assert.False(invalid.IsValid);
+    }
+
+    [Fact]
     public void Hr_attendance_rejects_check_in_when_session_is_open()
     {
         var openSession = new HrAttendanceRecord

@@ -49,6 +49,10 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.Configure<GoogleDocumentAiOptions>(builder.Configuration.GetSection("Ocr:GoogleDocumentAi"));
 builder.Services.AddSingleton<IGoogleAccessTokenProvider, GoogleApplicationDefaultAccessTokenProvider>();
 builder.Services.AddHttpClient<GoogleDocumentAiClient>();
+builder.Services.AddHttpClient<JohorPublicHolidayImporter>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
 builder.Services.AddScoped<GoogleDocumentAiExtractor>();
 builder.Services.AddScoped<AiUsageQuotaService>();
 builder.Services.AddScoped<IOcrExtractor>(services => services.GetRequiredService<GoogleDocumentAiExtractor>());
@@ -103,6 +107,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 if (workerEnabled)
 {
     builder.Services.AddHostedService<ReminderWorker>();
+    builder.Services.AddHostedService<JohorPublicHolidayImportWorker>();
 }
 
 var app = builder.Build();
@@ -459,6 +464,7 @@ backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, App
     var staff = await userManager.Users.AsNoTracking().ToDictionaryAsync(user => user.Id, user => user.DisplayName);
     var leaves = await db.HrLeaveRequests.AsNoTracking().Where(item => item.Status == HrLeaveStatus.Approved && item.StartDate <= to && item.EndDate >= from).ToListAsync();
     var trips = await db.HrBusinessTrips.AsNoTracking().Where(item => item.Status == HrBusinessTripStatus.Approved && item.StartDate <= to && item.EndDate >= from).ToListAsync();
+    var holidays = await db.HrPublicHolidays.AsNoTracking().Where(item => item.StateCode == "JHR" && item.Date >= from && item.Date <= to).ToListAsync();
     var taskQuery = db.CalendarTasks.AsNoTracking().Where(item => item.StartDate <= to && item.EndDate >= from);
     if (!context.User.IsInRole("BossAdmin"))
     {
@@ -470,6 +476,7 @@ backOffice.MapGet("/operations-calendar", async (DateOnly from, DateOnly to, App
     events.AddRange(inspections.Select(item => new { Id = item.Id.ToString(), Kind = "Inspection", Title = item.PlateNumber, VehicleYear = (int?)item.Year, VehicleMake = (string?)item.Make, VehicleModel = (string?)item.Model, StartDate = item.AppointmentDate, EndDate = item.AppointmentDate, Time = item.AppointmentTime?.ToString("HH:mm"), StartTime = item.AppointmentTime?.ToString("HH:mm"), EndTime = (string?)null, Status = (string?)item.Status.ToString(), CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null, AssignedToUserId = (string?)null, AssignedToName = (string?)null, Description = (string?)null }));
     events.AddRange(leaves.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), VehicleYear = (int?)null, VehicleMake = (string?)null, VehicleModel = (string?)null, StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, StartTime = (string?)null, EndTime = (string?)null, Status = (string?)null, CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null, AssignedToUserId = (string?)null, AssignedToName = (string?)null, Description = (string?)null }));
     events.AddRange(trips.Select(item => new { Id = item.Id.ToString(), Kind = "Busy", Title = staff.GetValueOrDefault(item.StaffUserId, "Staff"), VehicleYear = (int?)null, VehicleMake = (string?)null, VehicleModel = (string?)null, StartDate = item.StartDate < from ? from : item.StartDate, EndDate = item.EndDate > to ? to : item.EndDate, Time = (string?)null, StartTime = (string?)null, EndTime = (string?)null, Status = (string?)null, CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null, AssignedToUserId = (string?)null, AssignedToName = (string?)null, Description = (string?)null }));
+    events.AddRange(holidays.Select(item => new { Id = $"holiday-{item.Id}", Kind = "Holiday", Title = item.Name, VehicleYear = (int?)null, VehicleMake = (string?)null, VehicleModel = (string?)null, StartDate = item.Date, EndDate = item.Date, Time = (string?)null, StartTime = (string?)null, EndTime = (string?)null, Status = (string?)null, CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null, AssignedToUserId = (string?)null, AssignedToName = (string?)null, Description = (string?)(item.IsSubstitute ? $"Replacement day · {item.SourceTitle}" : item.SourceTitle) }));
     events.AddRange(tasks.Select(item => new { Id = item.Id.ToString(), Kind = "Task", Title = item.Title, VehicleYear = (int?)null, VehicleMake = (string?)null, VehicleModel = (string?)null, StartDate = item.StartDate, EndDate = item.EndDate, Time = item.StartTime?.ToString("HH:mm"), StartTime = item.StartTime?.ToString("HH:mm"), EndTime = item.EndTime?.ToString("HH:mm"), Status = (string?)item.Status.ToString(), CustomerName = (string?)null, CustomerContact = (string?)null, CustomerAccess = (string?)null, AssignedToUserId = (string?)item.AssignedToUserId, AssignedToName = (string?)item.AssignedToName, Description = item.Description }));
     return Results.Ok(events.OrderBy(item => item.StartDate).ThenBy(item => item.Time).ThenBy(item => item.Title));
 });
@@ -5346,6 +5353,77 @@ hr.MapPut("/work-schedules", async (HrWorkSchedule request, AppDbContext db, Htt
     return Results.Ok(saved);
 });
 
+hr.MapGet("/public-holidays", async (int? year, AppDbContext db) =>
+{
+    var selectedYear = year is >= 2000 and <= 2100 ? year.Value : HrBusinessClock.Today().Year;
+    return Results.Ok(await db.HrPublicHolidays.AsNoTracking()
+        .Where(item => item.StateCode == "JHR" && item.Year == selectedYear)
+        .OrderBy(item => item.Date)
+        .ThenBy(item => item.IsSubstitute)
+        .ToListAsync());
+});
+
+hr.MapGet("/public-holidays/import-status", async (int? year, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    var selectedYear = year is >= 2000 and <= 2100 ? year.Value : HrBusinessClock.Today().Year;
+    return Results.Ok(await db.HrPublicHolidayImportStatuses.AsNoTracking()
+        .FirstOrDefaultAsync(item => item.StateCode == "JHR" && item.Year == selectedYear));
+});
+
+hr.MapPost("/public-holidays", async (HrPublicHolidayRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    var actor = StaffIdentity.CurrentUserId(context);
+    var holiday = new HrPublicHoliday
+    {
+        StateCode = "JHR",
+        Year = request.Date.Year,
+        Date = request.Date,
+        Name = request.Name?.Trim() ?? "",
+        IsSubstitute = request.IsSubstitute,
+        SourceTitle = request.SourceTitle?.Trim() ?? "",
+        SourceUrl = request.SourceUrl?.Trim() ?? "",
+        Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+        CreatedBy = actor,
+        UpdatedBy = actor
+    };
+    var validation = HrRules.ValidatePublicHoliday(holiday);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrPublicHolidays.AnyAsync(item => item.StateCode == "JHR" && item.Date == holiday.Date && item.IsSubstitute == holiday.IsSubstitute)) return Results.Conflict(new ApiError("A Johor holiday with this date and type already exists."));
+    db.HrPublicHolidays.Add(holiday);
+    ApiAudit.Add(db, context.User, "hr.publicHoliday.created", nameof(HrPublicHoliday), holiday.Id);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/hr/public-holidays/{holiday.Id}", holiday);
+});
+
+hr.MapPut("/public-holidays/{id:guid}", async (Guid id, HrPublicHolidayRequest request, AppDbContext db, HttpContext context) =>
+{
+    if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();
+    var existing = await db.HrPublicHolidays.FirstOrDefaultAsync(item => item.Id == id);
+    if (existing is null) return Results.NotFound();
+    var actor = StaffIdentity.CurrentUserId(context);
+    var updated = existing with
+    {
+        Year = request.Date.Year,
+        Date = request.Date,
+        Name = request.Name?.Trim() ?? "",
+        IsSubstitute = request.IsSubstitute,
+        SourceTitle = request.SourceTitle?.Trim() ?? "",
+        SourceUrl = request.SourceUrl?.Trim() ?? "",
+        Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+        UpdatedBy = actor,
+        UpdatedAt = DateTime.UtcNow
+    };
+    var validation = HrRules.ValidatePublicHoliday(updated);
+    if (!validation.IsValid) return Results.BadRequest(validation);
+    if (await db.HrPublicHolidays.AnyAsync(item => item.Id != id && item.StateCode == "JHR" && item.Date == updated.Date && item.IsSubstitute == updated.IsSubstitute)) return Results.Conflict(new ApiError("A Johor holiday with this date and type already exists."));
+    db.Entry(existing).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "hr.publicHoliday.updated", nameof(HrPublicHoliday), id);
+    await db.SaveChangesAsync();
+    return Results.Ok(updated);
+});
+
 hr.MapGet("/attendance-corrections", async (AppDbContext db, HttpContext context) =>
 {
     var query = db.HrAttendanceCorrections.AsNoTracking();
@@ -5410,14 +5488,31 @@ hr.MapGet("/leave-requests", async (AppDbContext db, HttpContext context) =>
     return Results.Ok(await query.OrderByDescending(request => request.CreatedAt).ToListAsync());
 });
 
+hr.MapPost("/leave-requests/preview", async (HrLeaveCalculationPreviewRequest request, AppDbContext db, HttpContext context, CancellationToken cancellationToken) =>
+{
+    var inputValidation = HrRules.ValidateLeaveCalculationInput(request.StartDate, request.EndDate, request.StartSession, request.EndSession);
+    if (!inputValidation.IsValid) return Results.BadRequest(inputValidation);
+    var actor = StaffIdentity.CurrentUserId(context);
+    if (!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId is not null && request.StaffUserId != actor) return Results.Forbid();
+    var effectiveStaffUserId = DepartmentAccess.IsHrManager(context.User) && !string.IsNullOrWhiteSpace(request.StaffUserId) ? request.StaffUserId : actor;
+    if (!await db.Users.AnyAsync(user => user.Id == effectiveStaffUserId, cancellationToken)) return Results.BadRequest(new ApiError("Select an existing staff member."));
+    var calculation = await HrLeaveCalculationService.CalculateAsync(db, effectiveStaffUserId, request.StartDate, request.EndDate, request.StartSession, request.EndSession, cancellationToken);
+    return Results.Ok(new HrLeaveCalculationPreviewResponse(effectiveStaffUserId, calculation.Days, calculation.ScheduledDates, calculation.HolidayDates));
+});
+
 hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, HttpContext context) =>
 {
     var staffUserId = StaffIdentity.CurrentUserId(context);
     if (!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId != staffUserId) return Results.Forbid();
+    var effectiveStaffUserId = DepartmentAccess.IsHrManager(context.User) && !string.IsNullOrWhiteSpace(request.StaffUserId) ? request.StaffUserId : staffUserId;
+    var inputValidation = HrRules.ValidateLeaveCalculationInput(request.StartDate, request.EndDate, request.StartSession, request.EndSession);
+    if (!inputValidation.IsValid) return Results.BadRequest(inputValidation);
+    var calculation = await HrLeaveCalculationService.CalculateAsync(db, effectiveStaffUserId, request.StartDate, request.EndDate, request.StartSession, request.EndSession);
     var leave = request with
     {
-        StaffUserId = DepartmentAccess.IsHrManager(context.User) && !string.IsNullOrWhiteSpace(request.StaffUserId) ? request.StaffUserId : staffUserId,
+        StaffUserId = effectiveStaffUserId,
         Status = HrLeaveStatus.Pending,
+        Days = calculation.Days,
         ApprovedBy = null,
         ApprovedAt = null,
         DecisionNotes = null,
@@ -5950,6 +6045,9 @@ public sealed record UpdateStaffUserStatusRequest(bool IsActive);
 public sealed record UpdateStaffUserRolesRequest(string[] Roles);
 
 public sealed record HrLeaveDecisionRequest(HrLeaveStatus Status, string? DecisionNotes);
+public sealed record HrPublicHolidayRequest(DateOnly Date, string? Name, bool IsSubstitute, string? SourceTitle, string? SourceUrl, string? Notes = null);
+public sealed record HrLeaveCalculationPreviewRequest(string? StaffUserId, DateOnly StartDate, DateOnly EndDate, string StartSession = "AM", string EndSession = "PM");
+public sealed record HrLeaveCalculationPreviewResponse(string StaffUserId, decimal Days, IReadOnlyList<DateOnly> ScheduledDates, IReadOnlyList<DateOnly> HolidayDates);
 public sealed record HrLeaveAdjustmentResult(HrLeaveBalance Balance, HrLeaveAdjustment Adjustment);
 
 internal static class HrBusinessClock

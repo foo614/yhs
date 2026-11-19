@@ -17,8 +17,8 @@ describe("shared operations calendar", () => {
     expect(operationsCalendarEventDetail(events[1])).toEqual({ time: "2026-09-05 – 2026-09-07", status: undefined });
   });
   it("returns aligned delivery and busy cues for dates with mixed events", () => {
-    expect(operationsCalendarCellKinds(events)).toEqual({ delivery: 1, busy: 1 });
-    expect(operationsCalendarCellKinds([events[1]])).toEqual({ delivery: 0, busy: 1 });
+    expect(operationsCalendarCellKinds(events)).toEqual({ delivery: 1, busy: 1, holiday: 0 });
+    expect(operationsCalendarCellKinds([events[1]])).toEqual({ delivery: 0, busy: 1, holiday: 0 });
   });
   it("only marks a delivery as timed when it has an actual scheduled time", () => {
     expect(hasScheduledDeliveryTime(events[0])).toBe(true);

@@ -5,7 +5,7 @@ import type { HrCheckOutInput } from "../../api";
 ﻿import { ClockCircleOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { QRCodeSVG } from "qrcode.react";
-import { Alert, Button, Checkbox, Collapse, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Popconfirm, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
+import { Alert, Button, Checkbox, Collapse, DatePicker, Descriptions, Empty, Form, Input, InputNumber, List, Modal, Pagination, Popconfirm, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import { ProCard } from "@ant-design/pro-components";
 import type { ProColumns } from "@ant-design/pro-components";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TabsProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
-import { getHrMedicalCertificateContent, humanizeApiError, staffRoleValues } from "../../api";
+import { getHrMedicalCertificateContent, humanizeApiError, previewHrLeaveRequest, staffRoleValues } from "../../api";
 import { MissingUploadReminder } from "../shared/MissingUploadReminder";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
 import "./HrSalaryPage.css";
@@ -39,9 +39,13 @@ import type {
   HrCalendarAvailability,
   HrLeaveAdjustment,
   HrLeaveAdjustmentRequest,
+  HrLeaveCalculationPreview,
   HrLeaveBalance,
   HrLeavePolicy,
   HrLeaveRequest,
+  HrPublicHoliday,
+  HrPublicHolidayImportStatus,
+  HrPublicHolidayInput,
   HrLeaveStatus,
   HrLeaveType,
   HrPayPeriod,
@@ -64,6 +68,8 @@ type HrSalaryPageProps = {
   bossCalendar: HrCalendarAvailability[];
   attendanceNetworks: HrAttendanceNetwork[];
   leaveRequests: HrLeaveRequest[];
+  publicHolidays?: HrPublicHoliday[];
+  publicHolidayImportStatus?: HrPublicHolidayImportStatus | null;
   leaveBalances: HrLeaveBalance[];
   leavePolicies: HrLeavePolicy[];
   leaveAdjustments: HrLeaveAdjustment[];
@@ -89,6 +95,8 @@ type HrSalaryPageProps = {
   onSaveAttendanceNetwork: (network: HrAttendanceNetwork) => Promise<void>;
   onCreateLeave: (leave: HrLeaveRequest) => Promise<HrLeaveRequest>;
   onDecideLeave: (leaveId: string, status: HrLeaveStatus, decisionNotes?: string) => Promise<void>;
+  onCreatePublicHoliday?: (input: HrPublicHolidayInput) => Promise<void>;
+  onUpdatePublicHoliday?: (id: string, input: HrPublicHolidayInput) => Promise<void>;
   onUploadMc: (leaveId: string, file: File) => Promise<void>;
   mcContentUrl: (leaveId: string) => string;
   onUpdateBalance: (balance: HrLeaveBalance) => Promise<void>;
@@ -123,11 +131,6 @@ const adjustmentDirections = [
 const halfDayOptions = [
   { value: "AM", label: "AM / 上午" },
   { value: "PM", label: "PM / 下午" }
-];
-const johorHolidayReference = [
-  "Default State / 默认州属: Johor",
-  "Weekend / 周末: Saturday + Sunday",
-  "Public holidays should be reviewed yearly by HR"
 ];
 const hrRecordPageSize = 10;
 const businessTripPageSize = 10;
@@ -289,6 +292,8 @@ export function HrSalaryPage({
   bossCalendar,
   attendanceNetworks,
   leaveRequests,
+  publicHolidays = [],
+  publicHolidayImportStatus = null,
   leaveBalances,
   leavePolicies,
   leaveAdjustments,
@@ -313,6 +318,8 @@ export function HrSalaryPage({
   onSaveAttendanceNetwork,
   onCreateLeave,
   onDecideLeave,
+  onCreatePublicHoliday = async () => {},
+  onUpdatePublicHoliday = async () => {},
   onUploadMc,
   mcContentUrl,
   onUpdateBalance,
@@ -346,6 +353,13 @@ export function HrSalaryPage({
   const [payrollProfileForm] = Form.useForm();
   const [payPeriodForm] = Form.useForm();
   const [clockNow, setClockNow] = useState(() => new Date());
+  const [holidayEditorOpen, setHolidayEditorOpen] = useState(false);
+  const [editingHolidayId, setEditingHolidayId] = useState<string>();
+  const [holidayForm] = Form.useForm();
+  const [leaveCalculationPreview, setLeaveCalculationPreview] = useState<HrLeaveCalculationPreview | null>(null);
+  const [leaveCalculationPreviewError, setLeaveCalculationPreviewError] = useState<string | null>(null);
+  const [leaveCalculationPreviewBusy, setLeaveCalculationPreviewBusy] = useState(false);
+  const leaveCalculationPreviewRequestRef = useRef(0);
 
   const [decisionSubmitting, setDecisionSubmitting] = useState<string | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
@@ -377,10 +391,57 @@ export function HrSalaryPage({
   const leaveStartHalf = Form.useWatch("startHalf", leaveForm) as "AM" | "PM" | undefined;
   const leaveEndHalf = Form.useWatch("endHalf", leaveForm) as "AM" | "PM" | undefined;
   const leaveType = Form.useWatch("type", leaveForm) as HrLeaveType | undefined;
+  const leaveStaffUserId = String(Form.useWatch("staffUserId", leaveForm) || selfId);
   const calculatedLeaveDays = useMemo(
-    () => calculateLeaveDays(leaveStartDate || today, leaveEndDate || today, leaveStartHalf || "AM", leaveEndHalf || "PM"),
-    [leaveEndDate, leaveEndHalf, leaveStartDate, leaveStartHalf, today]
+    () => leaveCalculationPreview?.days ?? calculateLeaveDays(leaveStartDate || today, leaveEndDate || today, leaveStartHalf || "AM", leaveEndHalf || "PM", new Set(publicHolidays.map(item => item.date))),
+    [leaveCalculationPreview, leaveEndDate, leaveEndHalf, leaveStartDate, leaveStartHalf, publicHolidays, today]
   );
+
+  useEffect(() => {
+    let active = true;
+    if (!leaveStartDate || !leaveEndDate || !leaveStartHalf || !leaveEndHalf || !leaveStaffUserId || !parseDateOnly(leaveStartDate) || !parseDateOnly(leaveEndDate) || leaveEndDate < leaveStartDate) {
+      setLeaveCalculationPreview(null);
+      setLeaveCalculationPreviewError(null);
+      setLeaveCalculationPreviewBusy(false);
+      return () => { active = false; };
+    }
+    const requestId = ++leaveCalculationPreviewRequestRef.current;
+    setLeaveCalculationPreviewBusy(true);
+    setLeaveCalculationPreviewError(null);
+    void previewHrLeaveRequest({ staffUserId: leaveStaffUserId, startDate: leaveStartDate, endDate: leaveEndDate, startSession: leaveStartHalf, endSession: leaveEndHalf })
+      .then((preview) => { if (active && requestId === leaveCalculationPreviewRequestRef.current) setLeaveCalculationPreview(preview); })
+      .catch((error) => { if (active && requestId === leaveCalculationPreviewRequestRef.current) { setLeaveCalculationPreview(null); setLeaveCalculationPreviewError(humanizeApiError(error, "Leave days could not be previewed. Please retry.")); } })
+      .finally(() => { if (active && requestId === leaveCalculationPreviewRequestRef.current) setLeaveCalculationPreviewBusy(false); });
+    return () => { active = false; };
+  }, [currentUser?.id, leaveEndDate, leaveEndHalf, leaveStartDate, leaveStartHalf, leaveStaffUserId]);
+
+  const openHolidayEditor = (holiday?: HrPublicHoliday) => {
+    setEditingHolidayId(holiday?.id);
+    holidayForm.setFieldsValue(holiday ? {
+      date: dayjs(holiday.date),
+      name: holiday.name,
+      isSubstitute: holiday.isSubstitute,
+      sourceTitle: holiday.sourceTitle,
+      sourceUrl: holiday.sourceUrl,
+      notes: holiday.notes
+    } : { date: dayjs(`${today.slice(0, 4)}-01-01`), isSubstitute: false, sourceTitle: "Johor official public holiday notice", sourceUrl: "https://www.johor.gov.my/rakyat/cuti-umum-2" });
+    setHolidayEditorOpen(true);
+  };
+
+  const saveHoliday = async () => {
+    const values = await holidayForm.validateFields();
+    const input: HrPublicHolidayInput = {
+      date: values.date.format("YYYY-MM-DD"),
+      name: String(values.name).trim(),
+      isSubstitute: Boolean(values.isSubstitute),
+      sourceTitle: String(values.sourceTitle).trim(),
+      sourceUrl: String(values.sourceUrl).trim(),
+      notes: values.notes ? String(values.notes).trim() : undefined
+    };
+    if (editingHolidayId) await onUpdatePublicHoliday(editingHolidayId, input); else await onCreatePublicHoliday(input);
+    setHolidayEditorOpen(false);
+    holidayForm.resetFields();
+  };
 
   useEffect(() => {
     if (!shouldShowOptionalMcUpload(leaveType)) setSelectedMedicalCertificate(null);
@@ -1136,8 +1197,10 @@ export function HrSalaryPage({
                       <Form.Item label="Calculated Days / 自动计算天数">
                         <div className="leaveCalculatedDays">
                           <strong>{calculatedLeaveDays > 0 ? calculatedLeaveDays : "-"}</strong>
-                          <span>days / 天. Weekends excluded / 默认不计算周末.</span>
+                          <span>{leaveCalculationPreview?.scheduledDates.length ? "days / 天. Personal work schedule applied / 已套用个人班表." : "days / 天. Weekdays used when no personal schedule is set / 没有个人班表时按工作日计算."}</span>
                         </div>
+                        {leaveCalculationPreviewBusy && <Typography.Text type="secondary">Checking saved schedule and holidays… / 正在检查已保存班表和假期…</Typography.Text>}
+                        {leaveCalculationPreviewError && <Alert type="warning" showIcon message="Leave preview unavailable / 请假预览暂不可用" description={leaveCalculationPreviewError} />}
                       </Form.Item>
                       <Form.Item name="reason" label="Reason / 原因"><Input.TextArea rows={3} /></Form.Item>
                     </div>
@@ -1159,17 +1222,40 @@ export function HrSalaryPage({
                       </Form.Item>
                     )}
                     <div className="leaveFormActions">
-                      <Button type="primary" htmlType="submit" disabled={calculatedLeaveDays <= 0}>Submit Request / 提交申请</Button>
+                       <Button type="primary" htmlType="submit" disabled={calculatedLeaveDays <= 0 || leaveCalculationPreviewBusy || Boolean(leaveCalculationPreviewError)}>Submit Request / 提交申请</Button>
                     </div>
                   </Form>
                 </ProCard>
                 {isHrManager && (
                   <ProCard title="Holiday Calendar / Johor Default / 假期日历">
                     <Space direction="vertical" size={10} className="fullWidth">
-                      <Typography.Text type="secondary">Use this as the HR reference for leave calculation / 作为请假计算参考. Public holiday persistence can be added as the next backend step / 公共假期设定可在下一阶段加入.</Typography.Text>
                       <Space wrap>
-                        {johorHolidayReference.map((item) => <Tag color="green" key={item}>{item}</Tag>)}
+                        <Tag color="blue">Loaded year / 已载入年份: {today.slice(0, 4)}</Tag>
+                        <Tag color="green">Automatic official source / 自动官方来源</Tag>
                       </Space>
+                      <Typography.Text type="secondary">Official Johor holidays are excluded from new leave calculations and shown on the shared operations calendar. Existing leave records are not recalculated. / 官方柔佛假期会从新的请假计算中排除，并显示在共享工作日历；现有记录不会重算。</Typography.Text>
+                      {isBossAdmin && <Alert
+                        type={publicHolidayImportStatus?.status === "Failed" ? "warning" : "info"}
+                        showIcon
+                        message={`Automatic source sync / 自动来源同步: ${publicHolidayImportStatus ? publicHolidayImportStatus.status : "Not reported / 尚无记录"}`}
+                        description={publicHolidayImportStatus
+                          ? <Space direction="vertical" size={2}>
+                            <Typography.Text type="secondary">Last successful sync / 上次成功同步: {formatImportStatusTime(publicHolidayImportStatus.lastSuccessAt)} · Next check / 下次检查: {formatImportStatusTime(publicHolidayImportStatus.nextAttemptAt)}</Typography.Text>
+                            <Typography.Text type="secondary">Imported {publicHolidayImportStatus.importedCount} dates · preserved {publicHolidayImportStatus.skippedManualCount} manual dates / 已导入 {publicHolidayImportStatus.importedCount} 天 · 保留 {publicHolidayImportStatus.skippedManualCount} 个手动日期</Typography.Text>
+                            {publicHolidayImportStatus.lastError && <Typography.Text type="warning">{publicHolidayImportStatus.lastError}</Typography.Text>}
+                            <Typography.Link href={publicHolidayImportStatus.sourceUrl} target="_blank" rel="noreferrer">{publicHolidayImportStatus.sourceTitle}</Typography.Link>
+                          </Space>
+                          : "The worker will report its first attempt after the current-year check. / 工作器将在本年度检查后报告首次尝试。"}
+                      />}
+                      <List
+                        size="small"
+                        dataSource={publicHolidays}
+                        locale={{ emptyText: "No Johor holidays loaded / 暂无柔佛假期" }}
+                        renderItem={(holiday) => <List.Item actions={isBossAdmin ? [<Button key="edit" type="link" size="small" onClick={() => openHolidayEditor(holiday)}>Edit / 编辑</Button>] : undefined}>
+                          <List.Item.Meta title={<Space wrap><Typography.Text>{holiday.date} · {holiday.name}</Typography.Text>{holiday.isSubstitute && <Tag color="gold">Replacement / 补假</Tag>}</Space>} description={<Typography.Text type="secondary"><a href={holiday.sourceUrl} target="_blank" rel="noreferrer">{holiday.sourceTitle}</a>{holiday.notes ? ` · ${holiday.notes}` : ""}</Typography.Text>} />
+                        </List.Item>}
+                      />
+                      {isBossAdmin && <Button onClick={() => openHolidayEditor()}>Add supplemental holiday / 新增补充假期</Button>}
                     </Space>
                   </ProCard>
                 )}
@@ -1452,6 +1538,16 @@ export function HrSalaryPage({
           <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Admin for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及管理员审批。</Typography.Paragraph>
         </>}
       </Modal>
+      <Modal title={editingHolidayId ? "Edit Johor holiday / 编辑柔佛假期" : "Add Johor holiday / 新增柔佛假期"} open={holidayEditorOpen} onCancel={() => setHolidayEditorOpen(false)} onOk={() => void saveHoliday()} okText="Save / 保存" destroyOnClose>
+        <Form form={holidayForm} layout="vertical">
+          <Form.Item name="date" label="Date / 日期" rules={[{ required: true, message: "Select a date." }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+          <Form.Item name="name" label="Holiday name / 假期名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} /></Form.Item>
+          <Form.Item name="isSubstitute" valuePropName="checked"><Checkbox>Replacement day / 补假</Checkbox></Form.Item>
+          <Form.Item name="sourceTitle" label="Source title / 来源标题" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} /></Form.Item>
+          <Form.Item name="sourceUrl" label="Source URL / 来源链接" rules={[{ required: true, type: "url" }]}><Input /></Form.Item>
+          <Form.Item name="notes" label="Notes / 备注"><Input.TextArea maxLength={500} rows={3} /></Form.Item>
+        </Form>
+      </Modal>
     </Space>
   );
 }
@@ -1495,6 +1591,8 @@ function leaveFromValues(values: Record<string, unknown>, currentUserId: string,
     status: "Pending",
     startDate: datePickerValueToDateString(values.startDate),
     endDate: datePickerValueToDateString(values.endDate),
+    startSession: values.startHalf === "PM" ? "PM" : "AM",
+    endSession: values.endHalf === "AM" ? "AM" : "PM",
     days: calculatedDays,
     reason: values.reason ? String(values.reason) : undefined,
     createdAt: new Date().toISOString()
@@ -1525,7 +1623,7 @@ function adjustmentFromValues(values: Record<string, unknown>): HrLeaveAdjustmen
   };
 }
 
-function calculateLeaveDays(startDate: string, endDate: string, startHalf: "AM" | "PM", endHalf: "AM" | "PM") {
+function calculateLeaveDays(startDate: string, endDate: string, startHalf: "AM" | "PM", endHalf: "AM" | "PM", holidayDates = new Set<string>()) {
   const start = parseDateOnly(startDate);
   const end = parseDateOnly(endDate);
   if (!start || !end || end < start) return 0;
@@ -1533,7 +1631,8 @@ function calculateLeaveDays(startDate: string, endDate: string, startHalf: "AM" 
   let days = 0;
   const current = new Date(start);
   while (current <= end) {
-    if (isWorkday(current)) {
+    const date = formatDateOnly(current);
+    if (!holidayDates.has(date) && isWorkday(current)) {
       const isStart = sameDate(current, start);
       const isEnd = sameDate(current, end);
       if (isStart && isEnd) {
@@ -1550,6 +1649,10 @@ function calculateLeaveDays(startDate: string, endDate: string, startHalf: "AM" 
   }
 
   return Math.max(0, days);
+}
+
+function formatDateOnly(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
 function sameDayLeaveValue(startHalf: "AM" | "PM", endHalf: "AM" | "PM") {
@@ -1663,6 +1766,11 @@ function shortformLabel(short: string, long: string) {
 function formatDateTime(value?: string) {
   if (!value) return "-";
   return new Date(value).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatImportStatusTime(value?: string) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function formatLiveClock(value: Date) {

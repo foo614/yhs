@@ -890,6 +890,8 @@ public sealed record HrLeaveRequest
     public HrLeaveStatus Status { get; init; } = HrLeaveStatus.Pending;
     public DateOnly StartDate { get; init; }
     public DateOnly EndDate { get; init; }
+    public string StartSession { get; init; } = "AM";
+    public string EndSession { get; init; } = "PM";
     public decimal Days { get; init; }
     public string? Reason { get; init; }
     public Guid? MedicalCertificateDocumentId { get; init; }
@@ -897,6 +899,43 @@ public sealed record HrLeaveRequest
     public DateTime? ApprovedAt { get; init; }
     public string? DecisionNotes { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrPublicHoliday
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StateCode { get; init; } = "JHR";
+    public int Year { get; init; }
+    public DateOnly Date { get; init; }
+    public string Name { get; init; } = "";
+    public bool IsSubstitute { get; init; }
+    public string SourceTitle { get; init; } = "";
+    public string SourceUrl { get; init; } = "";
+    public string? Notes { get; init; }
+    public string CreatedBy { get; init; } = "";
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
+    public string UpdatedBy { get; init; } = "";
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
+}
+
+public sealed record HrPublicHolidayImportStatus
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public string StateCode { get; init; } = "JHR";
+    public int Year { get; init; }
+    public string Status { get; init; } = "NeverRun";
+    public DateTime? LastAttemptAt { get; init; }
+    public Guid? LastAttemptId { get; init; }
+    public DateTime? LastSuccessAt { get; init; }
+    public DateTime? NextAttemptAt { get; init; }
+    public int ConsecutiveFailures { get; init; }
+    public int ImportedCount { get; init; }
+    public int SkippedManualCount { get; init; }
+    public string SourceTitle { get; init; } = "";
+    public string SourceUrl { get; init; } = "";
+    public string? LastError { get; init; }
+    public string UpdatedBy { get; init; } = "system";
+    public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }
 
 public sealed record HrLeaveBalance

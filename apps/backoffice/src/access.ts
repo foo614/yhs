@@ -35,6 +35,7 @@ export type BackOfficeDataKey =
   | "hrBossCalendar"
   | "hrAttendanceNetworks"
   | "hrLeaveRequests"
+  | "hrPublicHolidays"
   | "hrLeaveBalances"
   | "hrLeavePolicies"
   | "hrLeaveAdjustments"
@@ -102,6 +103,7 @@ const allDataKeys: BackOfficeDataKey[] = [
   "hrBossCalendar",
   "hrAttendanceNetworks",
   "hrLeaveRequests",
+  "hrPublicHolidays",
   "hrLeaveBalances",
   "hrLeavePolicies",
   "hrLeaveAdjustments",
@@ -118,6 +120,7 @@ const hrSelfServiceDataKeys: BackOfficeDataKey[] = [
   "hrReminderPolicies",
   "hrBusinessTrips",
   "hrLeaveRequests",
+  "hrPublicHolidays",
   "hrLeaveBalances",
   "hrLeaveAdjustments",
   "hrPayrollProfiles",

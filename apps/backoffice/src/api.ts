@@ -1356,6 +1356,8 @@ export type HrLeaveRequest = {
   status: HrLeaveStatus;
   startDate: string;
   endDate: string;
+  startSession?: "AM" | "PM";
+  endSession?: "AM" | "PM";
   days: number;
   reason?: string;
   medicalCertificateDocumentId?: string;
@@ -1363,6 +1365,47 @@ export type HrLeaveRequest = {
   approvedAt?: string;
   decisionNotes?: string;
   createdAt: string;
+};
+
+export type HrLeaveCalculationPreview = {
+  staffUserId: string;
+  days: number;
+  scheduledDates: string[];
+  holidayDates: string[];
+};
+
+export type HrPublicHoliday = {
+  id: string;
+  stateCode: "JHR";
+  year: number;
+  date: string;
+  name: string;
+  isSubstitute: boolean;
+  sourceTitle: string;
+  sourceUrl: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+};
+
+export type HrPublicHolidayImportStatus = {
+  id: string;
+  stateCode: "JHR";
+  year: number;
+  status: "NeverRun" | "Running" | "Succeeded" | "Failed" | string;
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  nextAttemptAt?: string;
+  consecutiveFailures: number;
+  importedCount: number;
+  skippedManualCount: number;
+  sourceTitle: string;
+  sourceUrl: string;
+  lastError?: string;
+  updatedBy: string;
+  updatedAt: string;
 };
 
 export type HrLeaveBalance = {
@@ -2257,7 +2300,7 @@ export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalenda
 
 export type OperationsCalendarEvent = {
   id: string;
-  kind: "Delivery" | "Busy" | "Task" | "Inspection";
+  kind: "Delivery" | "Busy" | "Task" | "Inspection" | "Holiday";
   title: string;
   vehicleYear?: number | null;
   vehicleMake?: string | null;
@@ -2385,10 +2428,41 @@ export async function getHrLeaveRequests(): Promise<HrLeaveRequest[]> {
   return getWithNetworkFallback("/api/hr/leave-requests", fallbackHrLeaveRequests());
 }
 
+export async function getHrPublicHolidays(year = new Date().getFullYear()): Promise<HrPublicHoliday[]> {
+  return getWithNetworkFallback(`/api/hr/public-holidays?year=${year}`, []);
+}
+
+export async function getHrPublicHolidayImportStatus(year = new Date().getFullYear()): Promise<HrPublicHolidayImportStatus | null> {
+  return request<HrPublicHolidayImportStatus | null>(`/api/hr/public-holidays/import-status?year=${year}`);
+}
+
+export type HrPublicHolidayInput = Pick<HrPublicHoliday, "date" | "name" | "isSubstitute" | "sourceTitle" | "sourceUrl"> & { notes?: string };
+
+export async function createHrPublicHoliday(input: HrPublicHolidayInput): Promise<HrPublicHoliday> {
+  return request<HrPublicHoliday>("/api/hr/public-holidays", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateHrPublicHoliday(id: string, input: HrPublicHolidayInput): Promise<HrPublicHoliday> {
+  return request<HrPublicHoliday>(`/api/hr/public-holidays/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
 export async function createHrLeaveRequest(leave: HrLeaveRequest): Promise<HrLeaveRequest> {
   return request<HrLeaveRequest>("/api/hr/leave-requests", {
     method: "POST",
     body: JSON.stringify(leave)
+  });
+}
+
+export async function previewHrLeaveRequest(input: {
+  staffUserId?: string;
+  startDate: string;
+  endDate: string;
+  startSession: "AM" | "PM";
+  endSession: "AM" | "PM";
+}): Promise<HrLeaveCalculationPreview> {
+  return request<HrLeaveCalculationPreview>("/api/hr/leave-requests/preview", {
+    method: "POST",
+    body: JSON.stringify(input)
   });
 }
 
