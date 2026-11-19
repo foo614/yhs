@@ -1107,7 +1107,7 @@ const hrSelfServiceSections: readonly ModuleGuideSection[] = [
     requiredItems: ["Leave type", "Start/end dates", "AM/PM sessions", "Positive calculated days"],
     completeWhen: "The request is submitted with a visible status and the MC is attached when operationally expected.",
     handoff: "HR or Admin decides; approved leave updates the balance.",
-    warnings: ["Reason and MC are currently optional at submission.", "The current UI has no Cancel action.", "Johor public holidays are reference text, not persisted records."]
+    warnings: ["Reason and MC are currently optional at submission.", "The current UI has no Cancel action.", "Johor public holidays are sourced from persisted official records; Boss Admin maintains supplemental notices with a source URL."]
   },
   {
     key: "balances",

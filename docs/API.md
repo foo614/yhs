@@ -664,3 +664,11 @@ Back-office mutations write audit records with the authenticated staff email. Pu
 Send images/documents with caption `VOC <draft-id>` or `IC <draft-id>`. Then send `create-vehicle preview <draft-id>` and the returned `create-vehicle confirm <token>` within five minutes. File replacement invalidates the old token. Only the same currently verified Boss/Admin binding can attach or confirm. Confirmation calls the shared HTTP intake validation and atomically saves owner/vehicle/documents/audit. Repeated confirmation returns the existing completion status. No public file URL is created.
 
 The additive assistant schema includes `WhatsAppVehicleIntakeDrafts`; enable it through the existing assistant schema setup gate. Actual provider delivery and PostgreSQL rollout must be verified separately from synthetic local tests.
+
+## Johor public holidays
+
+Authenticated back-office users can read `GET /api/hr/public-holidays?year=2026`. BossAdmin can create and update holidays using `POST /api/hr/public-holidays` and `PUT /api/hr/public-holidays/{id}`. Write fields are `date`, `name`, `isSubstitute`, `sourceTitle`, `sourceUrl`, and optional `notes`. Writes retain actor audit metadata.
+
+BossAdmin can read `GET /api/hr/public-holidays/import-status?year=2026` for source, last attempt/success, next attempt, imported/manual counts and failure/conflict information. The existing enabled application worker checks the current Malaysia year, retries failed imports daily and rechecks successful imports weekly. New-year records make the next annual import due. Official date changes requiring review are surfaced as conflicts. Manual holiday edits are retained.
+
+`POST /api/hr/leave-requests/preview` accepts `staffUserId`, `startDate`, `endDate`, `startSession` and `endSession` (AM/PM). It returns calculated `days`, `scheduledDates`, and `holidayDates`. Employees preview their own requests, and HR managers may select staff. New leave submissions use the same personal schedule and Johor holiday calculation, with weekday fallback when there are no schedules in the range. Existing saved leave days retain their historical values.

@@ -9,6 +9,56 @@ namespace YSHeng.Api.Tests;
 public sealed class ApiDocumentationTests
 {
     [Fact]
+    public void Johor_holiday_writes_are_restricted_to_boss_admin_and_keep_auditable_source_metadata()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var createStart = program.IndexOf("hr.MapPost(\"/public-holidays\"", StringComparison.Ordinal);
+        var updateStart = program.IndexOf("hr.MapPut(\"/public-holidays/{id:guid}\"", StringComparison.Ordinal);
+        var nextRoute = program.IndexOf("hr.MapGet(\"/attendance-corrections\"", StringComparison.Ordinal);
+
+        Assert.True(createStart >= 0);
+        Assert.True(updateStart > createStart);
+        Assert.True(nextRoute > updateStart);
+        var holidayRoutes = program[createStart..nextRoute];
+        Assert.Contains("if (!DepartmentAccess.IsBossAdmin(context.User)) return Results.Forbid();", holidayRoutes);
+        Assert.Contains("HrRules.ValidatePublicHoliday", holidayRoutes);
+        Assert.Contains("hr.publicHoliday.created", holidayRoutes);
+        Assert.Contains("hr.publicHoliday.updated", holidayRoutes);
+        Assert.Contains("SourceTitle", holidayRoutes);
+        Assert.Contains("SourceUrl", holidayRoutes);
+    }
+
+    [Fact]
+    public void Johor_holiday_schema_upgrade_is_additive_and_seed_is_idempotent()
+    {
+        var root = FindRepositoryRoot();
+        var seedData = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Data", "SeedData.cs"));
+
+        Assert.Contains("CREATE TABLE IF NOT EXISTS \"HrPublicHolidays\"", seedData);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"StartSession\"", seedData);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"EndSession\"", seedData);
+        Assert.Contains("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_HrPublicHolidays_StateCode_Date_IsSubstitute\"", seedData);
+        Assert.Contains("HrPublicHolidays.AnyAsync(existing => existing.StateCode == \"JHR\" && existing.Date == item.Date && existing.IsSubstitute == item.IsSubstitute)", seedData);
+    }
+
+    [Fact]
+    public void Leave_preview_reuses_schedule_calculation_and_scopes_staff_selection_by_role()
+    {
+        var root = FindRepositoryRoot();
+        var program = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Program.cs"));
+        var previewStart = program.IndexOf("hr.MapPost(\"/leave-requests/preview\"", StringComparison.Ordinal);
+        var saveStart = program.IndexOf("hr.MapPost(\"/leave-requests\"", previewStart, StringComparison.Ordinal);
+        Assert.True(previewStart >= 0);
+        Assert.True(saveStart > previewStart);
+        var previewRoute = program[previewStart..saveStart];
+        Assert.Contains("HrRules.ValidateLeaveCalculationInput", previewRoute);
+        Assert.Contains("!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId is not null && request.StaffUserId != actor", previewRoute);
+        Assert.Contains("HrLeaveCalculationService.CalculateAsync", previewRoute);
+        Assert.Contains("hr.MapPost(\"/leave-requests\"", program);
+    }
+
+    [Fact]
     public void Vehicle_updates_preserve_admin_approval_for_non_admin_writes()
     {
         var root = FindRepositoryRoot();

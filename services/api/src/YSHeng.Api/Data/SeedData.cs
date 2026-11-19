@@ -502,7 +502,7 @@ public static class SeedData
         await EnsureHrSchemaAsync(db);
     }
 
-    private static async Task EnsureHrSchemaAsync(AppDbContext db)
+    public static async Task EnsureHrSchemaAsync(AppDbContext db)
     {
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS "HrAttendanceRecords" (
@@ -606,6 +606,45 @@ public static class SeedData
                 "CreatedAt" timestamp with time zone NOT NULL,
                 CONSTRAINT "PK_HrLeaveRequests" PRIMARY KEY ("Id")
             );
+            ALTER TABLE "HrLeaveRequests" ADD COLUMN IF NOT EXISTS "StartSession" text NOT NULL DEFAULT 'AM';
+            ALTER TABLE "HrLeaveRequests" ADD COLUMN IF NOT EXISTS "EndSession" text NOT NULL DEFAULT 'PM';
+
+            CREATE TABLE IF NOT EXISTS "HrPublicHolidays" (
+                "Id" uuid NOT NULL,
+                "StateCode" text NOT NULL,
+                "Year" integer NOT NULL,
+                "Date" date NOT NULL,
+                "Name" text NOT NULL,
+                "IsSubstitute" boolean NOT NULL,
+                "SourceTitle" text NOT NULL,
+                "SourceUrl" text NOT NULL,
+                "Notes" text NULL,
+                "CreatedBy" text NOT NULL,
+                "CreatedAt" timestamp with time zone NOT NULL,
+                "UpdatedBy" text NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrPublicHolidays" PRIMARY KEY ("Id")
+            );
+            CREATE TABLE IF NOT EXISTS "HrPublicHolidayImportStatuses" (
+                "Id" uuid NOT NULL,
+                "StateCode" text NOT NULL,
+                "Year" integer NOT NULL,
+                "Status" text NOT NULL,
+                "LastAttemptAt" timestamp with time zone NULL,
+                "LastAttemptId" uuid NULL,
+                "LastSuccessAt" timestamp with time zone NULL,
+                "NextAttemptAt" timestamp with time zone NULL,
+                "ConsecutiveFailures" integer NOT NULL,
+                "ImportedCount" integer NOT NULL,
+                "SkippedManualCount" integer NOT NULL,
+                "SourceTitle" text NOT NULL,
+                "SourceUrl" text NOT NULL,
+                "LastError" text NULL,
+                "UpdatedBy" text NOT NULL,
+                "UpdatedAt" timestamp with time zone NOT NULL,
+                CONSTRAINT "PK_HrPublicHolidayImportStatuses" PRIMARY KEY ("Id")
+            );
+            ALTER TABLE "HrPublicHolidayImportStatuses" ADD COLUMN IF NOT EXISTS "LastAttemptId" uuid NULL;
 
             CREATE TABLE IF NOT EXISTS "HrLeaveBalances" (
                 "Id" uuid NOT NULL,
@@ -740,12 +779,67 @@ public static class SeedData
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceReminderPolicies_Type" ON "HrAttendanceReminderPolicies" ("Type");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrAttendanceNetworks_Cidr" ON "HrAttendanceNetworks" ("Cidr");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeaveBalances_StaffUserId" ON "HrLeaveBalances" ("StaffUserId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPublicHolidays_StateCode_Date_IsSubstitute" ON "HrPublicHolidays" ("StateCode", "Date", "IsSubstitute");
+            CREATE INDEX IF NOT EXISTS "IX_HrPublicHolidays_StateCode_Year_Date" ON "HrPublicHolidays" ("StateCode", "Year", "Date");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPublicHolidayImportStatuses_StateCode_Year" ON "HrPublicHolidayImportStatuses" ("StateCode", "Year");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrLeavePolicies_Role" ON "HrLeavePolicies" ("Role");
             CREATE INDEX IF NOT EXISTS "IX_HrLeaveAdjustments_StaffUserId_CreatedAt" ON "HrLeaveAdjustments" ("StaffUserId", "CreatedAt");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPayrollProfiles_StaffUserId" ON "HrPayrollProfiles" ("StaffUserId");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPayPeriods_Name" ON "HrPayPeriods" ("Name");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_HrPayslips_StaffUserId_PayPeriodId" ON "HrPayslips" ("StaffUserId", "PayPeriodId");
         """);
+        await SeedOfficialJohorHolidaysAsync(db);
+    }
+
+    private static async Task SeedOfficialJohorHolidaysAsync(AppDbContext db)
+    {
+        const string sourceTitle = "Cuti Umum Johor 2026";
+        const string sourceUrl = "https://www.johor.gov.my/rakyat/cuti-umum-2";
+        var official = new (DateOnly Date, string Name, bool IsSubstitute, string? Notes)[]
+        {
+            (new(2026, 2, 1), "Hari Thaipusam", false, "Johor state holiday; Sunday replacement follows the official notice."),
+            (new(2026, 2, 2), "Hari Thaipusam (replacement day)", true, "Replacement for Sunday 1 February 2026."),
+            (new(2026, 2, 17), "Tahun Baru Cina", false, null),
+            (new(2026, 2, 18), "Tahun Baru Cina (Hari Kedua)", false, null),
+            (new(2026, 2, 19), "Awal Ramadhan", false, "Johor state holiday."),
+            (new(2026, 3, 21), "Hari Raya Puasa", false, "Subject to amendment in the official notice."),
+            (new(2026, 3, 22), "Hari Raya Puasa (Hari Kedua)", false, "Subject to amendment in the official notice."),
+            (new(2026, 3, 23), "Hari Keputeraan Rasmi DYMM Sultan Johor", false, "Johor state holiday."),
+            (new(2026, 3, 24), "Hari Raya Puasa (replacement day)", true, "Replacement for Sunday 22 March 2026; 23 March is also a holiday."),
+            (new(2026, 5, 1), "Hari Pekerja", false, null),
+            (new(2026, 5, 27), "Hari Raya Qurban", false, "Subject to amendment in the official notice."),
+            (new(2026, 5, 31), "Hari Wesak", false, null),
+            (new(2026, 6, 1), "Hari Keputeraan Seri Paduka Baginda Yang di-Pertuan Agong", false, null),
+            (new(2026, 6, 2), "Hari Wesak (replacement day)", true, "Replacement for Sunday 31 May 2026; 1 June is also a holiday."),
+            (new(2026, 6, 17), "Awal Muharram (Ma’al Hijrah)", false, null),
+            (new(2026, 7, 21), "Hari Hol Almarhum Sultan Iskandar", false, "Johor state holiday."),
+            (new(2026, 8, 25), "Hari Keputeraan Nabi Muhammad S.A.W. (Maulidur Rasul)", false, null),
+            (new(2026, 8, 31), "Hari Kebangsaan", false, null),
+            (new(2026, 9, 16), "Hari Malaysia", false, null),
+            (new(2026, 11, 8), "Hari Deepavali", false, "Subject to amendment in the official notice."),
+            (new(2026, 11, 9), "Hari Deepavali (replacement day)", true, "Replacement for Sunday 8 November 2026."),
+            (new(2026, 12, 25), "Hari Krismas", false, null)
+        };
+
+        foreach (var item in official)
+        {
+            if (await db.HrPublicHolidays.AnyAsync(existing => existing.StateCode == "JHR" && existing.Date == item.Date && existing.IsSubstitute == item.IsSubstitute)) continue;
+            db.HrPublicHolidays.Add(new HrPublicHoliday
+            {
+                StateCode = "JHR",
+                Year = item.Date.Year,
+                Date = item.Date,
+                Name = item.Name,
+                IsSubstitute = item.IsSubstitute,
+                SourceTitle = sourceTitle,
+                SourceUrl = sourceUrl,
+                Notes = item.Notes,
+                CreatedBy = "system",
+                UpdatedBy = "system"
+            });
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private static async Task EnsureOcrSchemaAsync(AppDbContext db)

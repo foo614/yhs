@@ -22,6 +22,10 @@ const fixtures = {
   "/api/deliveries/workboard": [{ id: "test-delivery", vehicleId: vehicle.id, plateNumber: vehicle.plateNumber, vehicleLabel: "2024 Toyota Corolla Cross Hybrid Premium", customerName: "Synthetic Customer With A Longer Display Name", picName: "Layout Test", status: "PreparingDocuments", stage: "ClearDocuments", stageLabel: "Clear documents", nextAction: "Check insurance and road tax documents", scheduledDate: "2026-09-20", deliveryType: "Standard", financeCleared: false, canRelease: false, terminal: false, missingCategories: ["Policy", "RoadTaxReceipt"], evidence: [], polishDone: true, tintedDone: true, washDone: true, documentsPrepared: false, inspectionDone: true, notificationSent: false, twoDayNoticeSent: false, insuranceHandled: false, roadTaxHandled: false, windscreenInsuranceHandled: false }],
   "/api/dashboard/summary": { totalStock: 1, pendingLoan: 1, outstandingPayment: 0, settlementDue: 0, repairCost: 1200, estimatedProfit: 16800, vehicleAging: 0, agingBuckets: [], topSupplier: "Synthetic supplier", salesPerformance: 0, stockStatusMix: [], stockOwnerMix: [], moneyRiskBreakdown: [], workflowBlockers: { byType: [], dueBuckets: [] }, salesFunnel: { stages: [], conversionRate: 0 }, topEnquiredVehicles: [], repairCostByVehicle: [], topSellingModels: [], leadTrend: [], leadsAwaitingFirstResponse: 1, repairWorkInProgress: [], realisedProfit: 0, monthlyProfitTrend: [], profitBreakdown: [], supplierSpendTop: [], totalSales: 0, actualProfit: 0, outstandingCollection: 0, settlementDueAmount: 0, refurbishment: { finalRepairSpend: 1200, vehicleCount: 1, averageSpendPerVehicle: 1200, workInProgressCount: 1, overdueWorkCount: 0, highestCostVehicles: [] } },
   "/api/hr/dashboard": { checkedInToday: 0, checkedOutToday: 0, openSessionsToday: 0, officeQrSessionsToday: 0, manualSessionsToday: 0, outstationSessionsToday: 0, pendingBusinessTripRequests: 0, activeOutstationToday: 0, upcomingApprovedTrips: 0 },
+  "/api/hr/public-holidays": [
+    { id: "holiday-1", stateCode: "JHR", year: 2026, date: "2026-09-16", name: "Hari Malaysia", isSubstitute: false, sourceTitle: "Cuti Umum Johor 2026", sourceUrl: "https://www.johor.gov.my/rakyat/cuti-umum-2", createdBy: "system", createdAt: "2026-01-01T00:00:00Z", updatedBy: "system", updatedAt: "2026-01-01T00:00:00Z" }
+  ],
+  "/api/hr/public-holidays/import-status": { id: "holiday-import-status", stateCode: "JHR", year: 2026, status: "Succeeded", lastAttemptAt: "2026-09-01T00:00:00Z", lastSuccessAt: "2026-09-01T00:01:00Z", nextAttemptAt: "2026-09-08T00:01:00Z", consecutiveFailures: 0, importedCount: 21, skippedManualCount: 0, sourceTitle: "Cuti Umum Johor 2026", sourceUrl: "https://www.johor.gov.my/rakyat/cuti-umum-2", updatedBy: "system", updatedAt: "2026-09-01T00:01:00Z" },
   "/api/admin/ai-limits/ocr": { limit: { isEnabled: true, monthlyRequestLimit: 100, perStaffDailyRequestLimit: 10, updatedAt: "2026-09-01T00:00:00Z", updatedBy: "Layout Test" }, usedThisMonth: 0, remainingThisMonth: 100 },
   "/api/sales/workboard": { soldThisMonth: 0, inProgressCount: 0, availableAgents: [], items: [] }
 };
@@ -45,7 +49,8 @@ fixtures["/api/vehicle-catalog/models"] = [
 const dashboardDate = "2026-09-01";
 fixtures["/api/operations-calendar"] = [
   { id: "test-delivery", kind: "Delivery", title: "TEST1234", vehicleYear: 2024, vehicleMake: "Toyota", vehicleModel: "Corolla Cross Hybrid Premium", startDate: dashboardDate, endDate: dashboardDate, time: "10:30", status: "PreparingDocuments", customerName: "Synthetic Customer With A Longer Display Name", customerContact: "0000000000", customerAccess: "Full" },
-  { id: "test-availability", kind: "Busy", title: "Synthetic Staff", startDate: dashboardDate, endDate: dashboardDate, time: null, status: null }
+  { id: "test-availability", kind: "Busy", title: "Synthetic Staff", startDate: dashboardDate, endDate: dashboardDate, time: null, status: null },
+  { id: "holiday-1", kind: "Holiday", title: "Hari Malaysia", startDate: dashboardDate, endDate: dashboardDate, time: null, status: null, description: "Cuti Umum Johor 2026" }
 ];
 fixtures["/api/priority-actions"] = [{ type: "SettlementDue", title: "Settlement deadline due", target: "Finance", dueDate: "2026-01-01", subject: "TEST0001", amount: 20000 }];
 // These collection endpoints intentionally exercise empty states. Unknown paths
@@ -99,6 +104,7 @@ fixtures["/api/hr/business-trips"] = [
 ].map(trip => ({ staffUserId: "responsive-test", purpose: "Synthetic customer visit", isUrgentException: false, requestedAt: "2026-09-20T00:00:00Z", ...trip }));
 fixtures["/api/hr/attendance"] = [{ id: "test-attendance", staffUserId: "responsive-test", attendanceDate: "2026-09-01", checkInAt: "2026-09-01T01:00:00Z", status: "Present", verificationMethod: "OfficeQr" }];
 fixtures["/api/hr/leave-requests"] = [{ id: "test-leave", staffUserId: "responsive-test", type: "AnnualLeave", status: "Pending", startDate: "2026-09-01", endDate: "2026-09-02", days: 2, createdAt: "2026-09-01T00:00:00Z" }];
+fixtures["/api/hr/leave-requests/preview"] = { staffUserId: "responsive-test", days: 1, scheduledDates: [], holidayDates: [] };
 fixtures["/api/hr/leave-policies"] = [{ id: "test-policy", role: "Sales", annualLeaveDays: 14, medicalLeaveDays: 14 }];
 fixtures["/api/hr/leave-balances"] = [{ id: "test-balance", staffUserId: "responsive-test", annualLeaveDays: 14, medicalLeaveDays: 14 }];
 fixtures["/api/audit-log"] = [{ id: "test-audit", actor: "Layout Test", action: "Update", entityType: "Vehicle", entityId: vehicle.id, createdAt: "2026-09-01T00:00:00Z", summary: "Synthetic audit entry with a longer description" }];
@@ -177,6 +183,11 @@ const catalogMutations = [];
 await context.route("**/api/**", async route => {
   const request = route.request();
   const path = new URL(request.url()).pathname;
+  if (path === "/api/hr/leave-requests/preview" && request.method() === "POST") {
+    const body = request.postDataJSON() ?? {};
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...fixtures[path], staffUserId: body.staffUserId ?? "responsive-test" }) });
+    return;
+  }
   if (connectionChecks && request.method() === "POST" && ["/api/whatsapp/assistant/connection", "/api/whatsapp/assistant/disconnect"].includes(path)) {
     connectionMutations.push({ path, body: request.postDataJSON() });
     const linking = path.endsWith("/connection");

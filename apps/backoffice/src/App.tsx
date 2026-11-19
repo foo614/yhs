@@ -123,6 +123,7 @@ import {
   createFinanceSale,
   createHrLeaveAdjustment,
   createHrLeaveRequest,
+  createHrPublicHoliday,
   createHrPayPeriod,
   createCustomer,
   createBrokerCommission,
@@ -179,6 +180,8 @@ import {
   getHrLeaveBalances,
   getHrLeavePolicies,
   getHrLeaveRequests,
+  getHrPublicHolidays,
+  getHrPublicHolidayImportStatus,
   getHrPayPeriods,
   getHrPayrollProfiles,
   getHrPayslips,
@@ -228,6 +231,7 @@ import {
   hrMedicalCertificateContentUrl,
   updateHrLeaveBalance,
   updateHrLeavePolicy,
+  updateHrPublicHoliday,
   updateHrAttendanceNetwork,
   updateHrPayrollProfile,
   updateBrokerCommission,
@@ -301,6 +305,8 @@ import {
   type HrLeaveBalance,
   type HrLeavePolicy,
   type HrLeaveRequest,
+  type HrPublicHoliday,
+  type HrPublicHolidayImportStatus,
   type HrLeaveStatus,
   type HrPayPeriod,
   type HrPayslipSelection,
@@ -595,6 +601,8 @@ export default function App() {
   const [hrBossCalendar, setHrBossCalendar] = useState<HrCalendarAvailability[]>([]);
   const [hrAttendanceNetworks, setHrAttendanceNetworks] = useState<HrAttendanceNetwork[]>([]);
   const [hrLeaveRequests, setHrLeaveRequests] = useState<HrLeaveRequest[]>([]);
+  const [hrPublicHolidays, setHrPublicHolidays] = useState<HrPublicHoliday[]>([]);
+  const [hrPublicHolidayImportStatus, setHrPublicHolidayImportStatus] = useState<HrPublicHolidayImportStatus | null>(null);
   const [hrLeaveBalances, setHrLeaveBalances] = useState<HrLeaveBalance[]>([]);
   const [hrLeavePolicies, setHrLeavePolicies] = useState<HrLeavePolicy[]>([]);
   const [hrLeaveAdjustments, setHrLeaveAdjustments] = useState<HrLeaveAdjustment[]>([]);
@@ -674,6 +682,8 @@ export default function App() {
   hrBossCalendarData,
   hrAttendanceNetworkData,
       hrLeaveRequestData,
+      hrPublicHolidayData,
+       hrPublicHolidayImportStatusData,
       hrLeaveBalanceData,
       hrLeavePolicyData,
       hrLeaveAdjustmentData,
@@ -746,6 +756,10 @@ export default function App() {
   canLoad("hrBossCalendar") ? getHrBossCalendar(...hrCalendarMonthRange()) : Promise.resolve([]),
   canLoad("hrAttendanceNetworks") ? getHrAttendanceNetworks() : Promise.resolve([]),
       canLoad("hrLeaveRequests") ? getHrLeaveRequests() : Promise.resolve([]),
+      canLoad("hrPublicHolidays") ? getHrPublicHolidays() : Promise.resolve([]),
+       roles?.includes("BossAdmin")
+         ? getHrPublicHolidayImportStatus().catch(() => null)
+         : Promise.resolve(null as HrPublicHolidayImportStatus | null),
       canLoad("hrLeaveBalances") ? getHrLeaveBalances() : Promise.resolve([]),
       canLoad("hrLeavePolicies") ? getHrLeavePolicies() : Promise.resolve([]),
       canLoad("hrLeaveAdjustments") ? getHrLeaveAdjustments() : Promise.resolve([]),
@@ -808,6 +822,8 @@ export default function App() {
   setHrBossCalendar(hrBossCalendarData);
   setHrAttendanceNetworks(hrAttendanceNetworkData);
     setHrLeaveRequests(hrLeaveRequestData);
+    setHrPublicHolidays(hrPublicHolidayData);
+     setHrPublicHolidayImportStatus(hrPublicHolidayImportStatusData);
     setHrLeaveBalances(hrLeaveBalanceData);
     setHrLeavePolicies(hrLeavePolicyData);
     setHrLeaveAdjustments(hrLeaveAdjustmentData);
@@ -1579,6 +1595,8 @@ export default function App() {
   bossCalendar={hrBossCalendar}
   attendanceNetworks={hrAttendanceNetworks}
               leaveRequests={hrLeaveRequests}
+              publicHolidays={hrPublicHolidays}
+               publicHolidayImportStatus={hrPublicHolidayImportStatus}
               leaveBalances={hrLeaveBalances}
               leavePolicies={hrLeavePolicies}
               leaveAdjustments={hrLeaveAdjustments}
@@ -1617,6 +1635,8 @@ export default function App() {
   )}
   onCreateLeave={(leave) => runCreateWithResult(() => createHrLeaveRequest(leave), (record) => setHrLeaveRequests((items) => [record, ...items]), "Leave request submitted")}
               onDecideLeave={(leaveId, status, decisionNotes) => runUpdate(() => decideHrLeaveRequest(leaveId, status, decisionNotes), (record) => setHrLeaveRequests((items) => replaceById(items, record)), status === "Approved" ? "Leave approved" : "Leave rejected")}
+              onCreatePublicHoliday={(input) => runCreate(() => createHrPublicHoliday(input), (record) => setHrPublicHolidays((items) => [...items, record].sort((a, b) => a.date.localeCompare(b.date))), "Public holiday added")}
+              onUpdatePublicHoliday={(id, input) => runUpdate(() => updateHrPublicHoliday(id, input), (record) => setHrPublicHolidays((items) => replaceById(items, record)), "Public holiday updated")}
               onUploadMc={async (leaveId, file) => {
                 await runUpload(() => uploadHrMedicalCertificate(leaveId, file), "MC uploaded");
                 await loadBackOfficeData(currentUser?.isAuthenticated ? currentRoles : undefined);
@@ -6760,6 +6780,7 @@ function dataKeyLabel(key: BackOfficeDataKey) {
   hrBusinessTrips: "HR business trips and outstation duty",
   hrBossCalendar: "Admin leave calendar",
   hrAttendanceNetworks: "Office attendance networks",
+    hrPublicHolidays: "Johor public holidays",
     hrLeaveRequests: "HR leave requests",
     hrLeaveBalances: "HR leave balances",
     hrLeavePolicies: "HR leave policies",

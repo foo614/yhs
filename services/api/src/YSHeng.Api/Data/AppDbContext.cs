@@ -49,6 +49,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<HrAttendanceReminderPolicy> HrAttendanceReminderPolicies => Set<HrAttendanceReminderPolicy>();
     public DbSet<HrAttendanceNetwork> HrAttendanceNetworks => Set<HrAttendanceNetwork>();
     public DbSet<HrLeaveRequest> HrLeaveRequests => Set<HrLeaveRequest>();
+    public DbSet<HrPublicHoliday> HrPublicHolidays => Set<HrPublicHoliday>();
+    public DbSet<HrPublicHolidayImportStatus> HrPublicHolidayImportStatuses => Set<HrPublicHolidayImportStatus>();
     public DbSet<HrLeaveBalance> HrLeaveBalances => Set<HrLeaveBalance>();
     public DbSet<HrLeavePolicy> HrLeavePolicies => Set<HrLeavePolicy>();
     public DbSet<HrLeaveAdjustment> HrLeaveAdjustments => Set<HrLeaveAdjustment>();
@@ -214,6 +216,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
         builder.Entity<HrLeaveBalance>().HasIndex(balance => balance.StaffUserId).IsUnique();
         builder.Entity<HrLeavePolicy>().HasIndex(policy => policy.Role).IsUnique();
         builder.Entity<HrLeaveAdjustment>().HasIndex(adjustment => new { adjustment.StaffUserId, adjustment.CreatedAt });
+        builder.Entity<HrPublicHoliday>().HasIndex(item => new { item.StateCode, item.Date, item.IsSubstitute }).IsUnique();
+        builder.Entity<HrPublicHoliday>().HasIndex(item => new { item.StateCode, item.Year, item.Date });
+        builder.Entity<HrPublicHolidayImportStatus>().HasIndex(item => new { item.StateCode, item.Year }).IsUnique();
         builder.Entity<HrPayrollProfile>().HasIndex(profile => profile.StaffUserId).IsUnique();
         builder.Entity<HrPayPeriod>().HasIndex(period => period.Name).IsUnique();
         builder.Entity<HrPayslip>().HasIndex(payslip => new { payslip.StaffUserId, payslip.PayPeriodId }).IsUnique();

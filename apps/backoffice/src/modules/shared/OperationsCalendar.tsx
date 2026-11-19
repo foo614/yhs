@@ -25,7 +25,8 @@ export function operationsCalendarEventDetail(event: OperationsCalendarEvent) {
 export function operationsCalendarCellKinds(events: OperationsCalendarEvent[]) {
   return {
     delivery: events.filter(event => event.kind === "Delivery").length,
-    busy: events.filter(event => event.kind === "Busy").length
+    busy: events.filter(event => event.kind === "Busy").length,
+    holiday: events.filter(event => event.kind === "Holiday").length
   };
 }
 
@@ -58,7 +59,7 @@ export function SelectedDayEvents({
           <List.Item key={`${event.kind}-${event.id}`} className="operationsCalendarEvent">
             <div className="operationsCalendarEventBody">
               <Space size={6} wrap>
-                <Tag color={event.kind === "Delivery" ? "blue" : event.kind === "Task" ? "purple" : "orange"}>{event.kind === "Inspection" ? "Inspection / 验车" : event.kind === "Delivery" ? "Delivery / 出车" : event.kind === "Task" ? "Task / 任务" : "Busy / 忙碌"}</Tag>
+                <Tag color={event.kind === "Delivery" ? "blue" : event.kind === "Task" ? "purple" : event.kind === "Holiday" ? "gold" : "orange"}>{event.kind === "Inspection" ? "Inspection / 验车" : event.kind === "Delivery" ? "Delivery / 出车" : event.kind === "Task" ? "Task / 任务" : event.kind === "Holiday" ? "Public holiday / 公共假期" : "Busy / 忙碌"}</Tag>
                 {detail.status && <Tag>{detail.status}</Tag>}
               </Space>
               <Space size={6} wrap>
@@ -165,13 +166,13 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
 
   return <>
     <ProCard title="Operations calendar / 工作日历" className={`operationsCalendar${compact ? " operationsCalendarCompact" : ""}`} extra={<Space wrap><>{canManageTasks && <Button type="primary" onClick={openTaskModal}>Add task / 新增任务</Button>}</><Button aria-label="Refresh calendar" loading={loading} onClick={() => setRefresh(value => value + 1)}>Refresh</Button></Space>}>
-    <Typography.Paragraph className="operationsCalendarDescription" type="secondary">Delivery, inspection appointments, assigned tasks and staff availability. / 出车、验车预约、工作任务与员工忙碌时间。</Typography.Paragraph>
+    <Typography.Paragraph className="operationsCalendarDescription" type="secondary">Delivery, inspection appointments, assigned tasks, staff availability and public holidays. / 出车、验车预约、工作任务、员工忙碌时间与公共假期。</Typography.Paragraph>
     <div className="operationsCalendarMeta">
       <DataFreshness label="Calendar" updatedAt={loadedMonth === month ? updatedAt : null} loading={loading} error={error} />
       {(compact || isMobile) && <Button className="operationsCalendarToggle" aria-expanded={monthExpanded} aria-controls="operations-month-grid" onClick={() => setMonthExpanded(value => !value)}>{monthExpanded ? "Hide month / 收起月历" : "Show month / 展开月历"}</Button>}
     </div>
     {error && <Alert type="error" showIcon message="Calendar unavailable" description={error} />}
-    {compact && <div className="operationsCalendarLegend"><span><span className="operationsCalendarLegendDelivery" aria-hidden="true" />Delivery / 出车</span><span><span className="operationsCalendarLegendBusy" aria-hidden="true" />Staff busy / 员工忙碌</span><span>Numbers show events that day / 数字为当天安排数量</span></div>}
+     {compact && <div className="operationsCalendarLegend"><span><span className="operationsCalendarLegendDelivery" aria-hidden="true" />Delivery / 出车</span><span><span className="operationsCalendarLegendBusy" aria-hidden="true" />Staff busy / 员工忙碌</span><span><span className="operationsCalendarLegendHoliday" aria-hidden="true" />Public holiday / 公共假期</span><span>Numbers show events that day / 数字为当天安排数量</span></div>}
     <Spin spinning={loading}>
       <div className="operationsCalendarLayout" ref={calendarRegionRef} tabIndex={-1} aria-label="Operations calendar">
         <div id="operations-month-grid" hidden={monthCollapsed}><Calendar fullscreen={false} value={date} onSelect={(nextDate, info) => { setDate(nextDate); if (shouldOpenCalendarDayDrawer(info.source, isMobile)) setMobileDayDrawerOpen(true); }} headerRender={() => <Space wrap className="operationsCalendarToolbar"><Button aria-label="Previous month" onClick={() => navigateMonth(-1)}>‹</Button><DatePicker picker="month" format="MMMM YYYY" allowClear={false} value={date} onChange={value => { if (value) { setDate(value); setMobileDayDrawerOpen(false); } }} /><Button aria-label="Next month" onClick={() => navigateMonth(1)}>›</Button><Button onClick={() => { setDate(dayjs()); setMobileDayDrawerOpen(false); }}>Today</Button></Space>} cellRender={(value, info) => {
@@ -179,10 +180,11 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
           const dateEvents = eventsOnDate(events, value.format("YYYY-MM-DD"));
           if (dateEvents.length === 0) return null;
           const kinds = operationsCalendarCellKinds(dateEvents);
-          return <span className="operationsCalendarCellState" role="img" aria-label={compact ? `${dateEvents.length} events: ${kinds.delivery} deliveries, ${kinds.busy} staff busy` : `${dateEvents.length} events`}>
+           return <span className="operationsCalendarCellState" role="img" aria-label={compact ? `${dateEvents.length} events: ${kinds.delivery} deliveries, ${kinds.busy} staff busy, ${kinds.holiday} public holidays` : `${dateEvents.length} events`}>
             {compact && <span className="operationsCalendarCellCount">{dateEvents.length}</span>}
             {kinds.delivery > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueDelivery" aria-hidden="true" />}
             {kinds.busy > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueBusy" aria-hidden="true" />}
+            {kinds.holiday > 0 && <span className="operationsCalendarCellCue operationsCalendarCellCueHoliday" aria-hidden="true" />}
           </span>;
         }} /></div>
         <section className={`operationsCalendarDesktopAgenda${monthCollapsed ? " operationsCalendarCollapsedAgenda" : ""}`} aria-label="Selected day events">

@@ -24,6 +24,7 @@
 .operationsCalendarCompact .operationsCalendarCellCue, .operationsCalendarLegend span > span { display: inline-block; width: 5px; height: 5px; border-radius: 50%; }
 .operationsCalendarCompact .operationsCalendarCellCueDelivery, .operationsCalendarLegendDelivery { background: #08765f; }
 .operationsCalendarCompact .operationsCalendarCellCueBusy, .operationsCalendarLegendBusy { background: #c37a20; }
+.operationsCalendarCompact .operationsCalendarCellCueHoliday, .operationsCalendarLegendHoliday { background: #d4a017; }
 .operationsCalendarLegend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; color: #657580; font-size: 12px; }
 .operationsCalendarLegend > span { display: inline-flex; align-items: center; gap: 5px; }
 .operationsCalendarCompact .operationsCalendarDesktopAgenda { border-top: 1px solid #e4ebef; padding-top: 12px; }
