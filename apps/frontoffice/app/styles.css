@@ -1905,11 +1905,19 @@ textarea:focus-visible {
 }
 
 .detailImage {
+  position: relative;
+  transform-origin: top left;
   aspect-ratio: 16 / 10;
   overflow: hidden;
   background: var(--surface-mid);
   border: 1px solid var(--outline);
   border-radius: var(--radius);
+}
+
+.arrivingVehiclePhoto {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .detailPhotoStrip {
@@ -4215,6 +4223,17 @@ textarea:focus-visible {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  main:not(.routeLoading), .showroomStep, .showroomSuccess {
+    animation: pageArrival 240ms ease-out;
+  }
+}
+
+@keyframes pageArrival {
+  from { opacity: .84; }
+  to { opacity: 1; }
 }
 
 @keyframes motionRise {

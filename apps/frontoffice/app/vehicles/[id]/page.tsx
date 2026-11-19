@@ -85,6 +85,7 @@ export default async function VehicleDetailPage({ params, searchParams }: { para
       <section className="detailGrid">
         <div className="detailGalleryColumn">
           <VehicleGallery
+            vehicleId={vehicle.id}
             photos={gallery}
             title={title}
             fallback={fallbackLetters}
