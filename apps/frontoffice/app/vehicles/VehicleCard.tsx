@@ -1,4 +1,8 @@
+"use client";
+
+import { useRef } from "react";
 import Link from "next/link";
+import { rememberCardPhoto } from "./photo-transition";
 import { CalendarDays, Tag } from "lucide-react";
 import { frontofficeCopy, hrefWithLanguage, type Language } from "../i18n";
 import { formatThousands } from "../formatters";
@@ -9,13 +13,15 @@ export function VehicleCard({ vehicle, featured = false, language = "en" }: { ve
   const t = frontofficeCopy[language].vehicleCard;
   const detailHref = hrefWithLanguage(`/vehicles/${vehicle.id}`, language);
   const statusLabel = publicStatusLabel(vehicle.status, language);
+  const card = useRef<HTMLElement>(null);
+  const rememberPhoto = () => rememberCardPhoto(vehicle.id, card.current);
   const vehicleTitle = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   const photoAlt = vehicle.isRepresentativePhoto
     ? `${vehicle.photoUrls.length > 0 ? t.representativePhotoAlt : t.photoComingSoon}: ${vehicleTitle}`
     : vehicleTitle;
   return (
-    <article className={featured ? "vehicleCard featuredVehicleCard" : "vehicleCard"}>
-      <Link href={detailHref} className="vehicleImage" aria-label={`${t.viewAria} ${vehicleTitle}`}>
+    <article ref={card} className={featured ? "vehicleCard featuredVehicleCard" : "vehicleCard"}>
+      <Link href={detailHref} onNavigate={rememberPhoto} className="vehicleImage" aria-label={`${t.viewAria} ${vehicleTitle}`}>
         <VehiclePhoto
           src={vehicle.photoUrl}
           alt={photoAlt}
@@ -45,7 +51,7 @@ export function VehicleCard({ vehicle, featured = false, language = "en" }: { ve
           <span><Tag size={16} /> {statusLabel}</span>
         </div>
         <div className="vehicleFooter">
-          <Link href={detailHref} className="secondaryAction">{t.viewDetails}</Link>
+          <Link href={detailHref} onNavigate={rememberPhoto} className="secondaryAction">{t.viewDetails}</Link>
         </div>
       </div>
     </article>

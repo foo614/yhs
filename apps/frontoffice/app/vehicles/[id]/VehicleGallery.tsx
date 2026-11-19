@@ -1,22 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { animateCardPhoto } from "../photo-transition";
 import { frontofficeCopy, type Language } from "../../i18n";
 import { VehiclePhoto } from "../VehiclePhoto";
 
 export function VehicleGallery({
+  vehicleId,
   photos,
   title,
   fallback,
   fallbackSrc,
   language = "en"
 }: {
+  vehicleId: string;
   photos: string[];
   title: string;
   fallback: string;
   fallbackSrc?: string;
   language?: Language;
 }) {
+  const frame = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    let cleanup: (() => void) | undefined;
+    const tick = requestAnimationFrame(() => {
+      if (frame.current) cleanup = animateCardPhoto(vehicleId, frame.current);
+    });
+    return () => {
+      cancelAnimationFrame(tick);
+      cleanup?.();
+    };
+  }, [vehicleId]);
   const t = frontofficeCopy[language].detail.gallery;
   const safePhotos = [...new Set(photos.filter(Boolean))];
   const [selected, setSelected] = useState(0);
@@ -30,7 +44,7 @@ export function VehicleGallery({
 
   return (
     <div className="detailGallery" aria-label={t.galleryAria.replace("{title}", title)}>
-      <div className="detailImage">
+      <div ref={frame} className="detailImage">
         <VehiclePhoto src={activePhoto} alt={title} fallback={fallback} fallbackSrc={fallbackSrc} />
       </div>
       {safePhotos.length > 1 && (

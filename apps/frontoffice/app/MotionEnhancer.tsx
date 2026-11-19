@@ -100,7 +100,7 @@ export function MotionEnhancer({ children }: { children: ReactNode }) {
         reveal(entry.target);
         revealObserver.unobserve(entry.target);
       });
-    }, { rootMargin: "0px 0px -10% 0px", threshold: 0.12 });
+    }, { rootMargin: "0px 0px 32px 0px", threshold: 0 });
 
     const statObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
