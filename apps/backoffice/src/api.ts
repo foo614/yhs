@@ -2906,6 +2906,12 @@ export type LoanBuyerIntakeInput = {
   newLoanId?: string;
 };
 
+export type LoanBuyerIntakeVehicleOption = Pick<Vehicle, "id" | "plateNumber" | "year" | "make" | "model">;
+
+export async function getEligibleLoanBuyerVehicles(): Promise<LoanBuyerIntakeVehicleOption[]> {
+  return request<LoanBuyerIntakeVehicleOption[]>("/api/loans/intake/eligible-vehicles");
+}
+
 export async function createLoanBuyerIntake(input: LoanBuyerIntakeInput, identityCard?: File): Promise<{ customer: Customer; loan?: LoanApplication }> {
   const body = new FormData();
   body.append("input", JSON.stringify(input));

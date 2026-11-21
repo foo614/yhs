@@ -2316,6 +2316,38 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Buyer_intake_vehicle_options_exclude_active_loans_and_enforce_sales_assignment()
+    {
+        const string brokerId = "broker-1";
+        var pendingVehicle = VehicleSeed.Available(publicVisible: false) with { SalesAgentUserId = brokerId };
+        var submittedVehicle = VehicleSeed.Available(publicVisible: false) with { SalesAgentUserId = brokerId };
+        var approvedVehicle = VehicleSeed.Available(publicVisible: false) with { SalesAgentUserId = brokerId };
+        var doneVehicle = VehicleSeed.Available(publicVisible: false) with { SalesAgentUserId = brokerId };
+        var assignedEligible = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "BKR1234", SalesAgentUserId = brokerId };
+        var otherBrokerEligible = VehicleSeed.Available(publicVisible: false) with { PlateNumber = "OTH5678", SalesAgentUserId = "broker-2" };
+        var soldVehicle = VehicleSeed.Available(publicVisible: false) with { Status = VehicleStatus.Sold, SalesAgentUserId = brokerId };
+        var loans = new[]
+        {
+            new LoanApplication { VehicleId = pendingVehicle.Id, Status = LoanStatus.Pending },
+            new LoanApplication { VehicleId = submittedVehicle.Id, Status = LoanStatus.Submitted },
+            new LoanApplication { VehicleId = approvedVehicle.Id, Status = LoanStatus.Approved },
+            new LoanApplication { VehicleId = doneVehicle.Id, Status = LoanStatus.Done }
+        };
+        var vehicles = new[] { pendingVehicle, submittedVehicle, approvedVehicle, doneVehicle, assignedEligible, otherBrokerEligible, soldVehicle };
+
+        var brokerOptions = LoanBuyerIntake.EligibleVehicleOptions(vehicles, loans, false, brokerId);
+        var adminOptions = LoanBuyerIntake.EligibleVehicleOptions(vehicles, loans, true, "admin");
+
+        var brokerOption = Assert.Single(brokerOptions);
+        Assert.Equal(assignedEligible.Id, brokerOption.Id);
+        Assert.Equal(assignedEligible.PlateNumber, brokerOption.PlateNumber);
+        Assert.Equal(assignedEligible.Year, brokerOption.Year);
+        Assert.Equal(assignedEligible.Make, brokerOption.Make);
+        Assert.Equal(assignedEligible.Model, brokerOption.Model);
+        Assert.Equal([assignedEligible.Id, otherBrokerEligible.Id], adminOptions.Select(option => option.Id));
+    }
+
+    [Fact]
     public void Rejected_loan_does_not_reserve_an_unassigned_vehicle_for_its_old_customer()
     {
         var firstCustomer = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789" };

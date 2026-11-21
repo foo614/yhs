@@ -190,6 +190,7 @@ import {
   getLeads,
   getLoanDocumentCheckStrict,
   getLoanBankOptions,
+  getEligibleLoanBuyerVehicles,
   getLoans,
   getOcrUsageLimit,
   getOwners,
@@ -317,6 +318,7 @@ import {
   type Lead,
   type LoanBankOption,
   type LoanApplication,
+  type LoanBuyerIntakeVehicleOption,
   type LoanDecisionStatus,
   type LoanDocumentCheck,
   type PaymentRecord,
@@ -3401,7 +3403,7 @@ const supplierInvoiceAmountRules = [{
   }
 }];
 
-function repairVehicleDescription(vehicle: VehicleLookup) {
+function repairVehicleDescription(vehicle: Pick<VehicleLookup, "year" | "make" | "model">) {
   return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
 }
 
@@ -4339,6 +4341,9 @@ export function LoanPage({
   const [uploadLoanId, setUploadLoanId] = useState(initialLoanId ?? "");
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
   const [loanIntakeForm] = Form.useForm();
+  const [eligibleBuyerVehicles, setEligibleBuyerVehicles] = useState<LoanBuyerIntakeVehicleOption[]>([]);
+  const [eligibleBuyerVehiclesLoading, setEligibleBuyerVehiclesLoading] = useState(false);
+  const [eligibleBuyerVehiclesError, setEligibleBuyerVehiclesError] = useState("");
   const [intakeFile, setIntakeFile] = useState<File>();
   const [intakeSaving, setIntakeSaving] = useState(false);
   const intakeId = useRef(newId());
@@ -4423,6 +4428,30 @@ export function LoanPage({
   };
   const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
   const loanStats = loanHeaderStats(loans);
+  const eligibleBuyerVehicleOptions = eligibleBuyerVehicles.map((vehicle) => ({
+    value: vehicle.id,
+    label: `${vehicle.plateNumber} · ${repairVehicleDescription(vehicle)}`,
+    plateNumber: vehicle.plateNumber,
+    vehicleDescription: repairVehicleDescription(vehicle)
+  }));
+
+  const loadEligibleBuyerVehicles = async () => {
+    setEligibleBuyerVehicles([]);
+    setEligibleBuyerVehiclesError("");
+    setEligibleBuyerVehiclesLoading(true);
+    try {
+      setEligibleBuyerVehicles(await getEligibleLoanBuyerVehicles());
+    } catch (error) {
+      setEligibleBuyerVehiclesError(humanizeApiError(error, "Eligible car plates could not be loaded."));
+    } finally {
+      setEligibleBuyerVehiclesLoading(false);
+    }
+  };
+
+  const openLoanBuyerIntake = () => {
+    setLoanCreateOpen(true);
+    void loadEligibleBuyerVehicles();
+  };
 
   useEffect(() => {
     if (initialLoanId) setUploadLoanId(initialLoanId);
@@ -4983,7 +5012,7 @@ export function LoanPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Loan Workflow / 贷款流程"
-        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending" || loan.status === "Submitted") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending" || loan.status === "Submitted").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Create buyer / 新增买家</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
+        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending" || loan.status === "Submitted") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending" || loan.status === "Submitted").length} pending</Tag>{canCreateManually ? <Button onClick={openLoanBuyerIntake}>Create buyer / 新增买家</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
       >
         {(dashboardFocus.loanStatus || dashboardFocus.vehicleId) && <Alert
           className="sectionIntroAlert"
@@ -5217,6 +5246,19 @@ export function LoanPage({
           description="Financed buyers receive a Pending loan case. Cash buyers are saved without a loan application. / 贷款买家建立待处理案件，现金买家无需建立贷款。"
           className="manualLoanRecordAlert"
         />
+        {eligibleBuyerVehiclesError && <Alert
+          type="error"
+          showIcon
+          message="Eligible car plates unavailable"
+          description={eligibleBuyerVehiclesError}
+          action={<Button size="small" onClick={() => void loadEligibleBuyerVehicles()}>Retry</Button>}
+        />}
+        {!eligibleBuyerVehiclesLoading && !eligibleBuyerVehiclesError && eligibleBuyerVehicles.length === 0 && <Alert
+          type="info"
+          showIcon
+          message="No vehicles are eligible"
+          description="There are no assigned vehicles without an active loan application."
+        />}
         <Form form={loanIntakeForm} name="loanCreate" layout="vertical" className="modalForm" initialValues={{ cashBuyer: false }} onValuesChange={(changed) => { if ("customerId" in changed || "icNumber" in changed || "vehicleId" in changed) setIntakeFile(undefined); }} onFinish={async (values) => {
           if (!intakeFile) { message.error("Upload the buyer IC image or PDF / 请上传买家 IC 图片或 PDF"); return; }
           setIntakeSaving(true);
@@ -5229,7 +5271,23 @@ export function LoanPage({
           } catch (error) { message.error(humanizeApiError(error, "Buyer details could not be saved.")); }
           finally { setIntakeSaving(false); }
         }}>
-          <Form.Item name="vehicleId" label="Car plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.filter((vehicle) => isBossAdmin || vehicle.salesAgentUserId === currentUser?.id).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car plate / 车牌" rules={[{ required: true }]}>
+            <Select
+              className="repairVehicleSelect"
+              showSearch
+              optionFilterProp="label"
+              loading={eligibleBuyerVehiclesLoading}
+              disabled={eligibleBuyerVehiclesLoading || Boolean(eligibleBuyerVehiclesError)}
+              placeholder={eligibleBuyerVehiclesLoading ? "Loading eligible car plates" : "Search plate, year, make, or model"}
+              notFoundContent={eligibleBuyerVehiclesLoading ? <Spin size="small" /> : "No eligible car plates"}
+              options={eligibleBuyerVehicleOptions}
+              optionRender={(option) => <div className="repairVehicleOption"><strong>{option.data.plateNumber}</strong><span>{option.data.vehicleDescription}</span></div>}
+              labelRender={(selected) => {
+                const vehicle = eligibleBuyerVehicles.find((item) => item.id === selected.value);
+                return vehicle ? <div className="repairVehicleOption"><strong>{vehicle.plateNumber}</strong><span>{repairVehicleDescription(vehicle)}</span></div> : selected.label;
+              }}
+            />
+          </Form.Item>
           <Form.Item name="cashBuyer" valuePropName="checked"><Checkbox>Cash buyer — no loan application / 现金买家，无需贷款申请</Checkbox></Form.Item>
           <Form.Item label="Customer / 客户"><Select value={newBuyer ? "new" : "existing"} onChange={(value) => { setNewBuyer(value === "new"); setIntakeFile(undefined); }} options={[{ value: "existing", label: "Existing customer / 现有客户" }, { value: "new", label: "Create new customer / 新增客户" }]} /></Form.Item>
           {!newBuyer ? <Form.Item name="customerId" label="Select customer / 选择客户" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item> : <>
@@ -5244,7 +5302,7 @@ export function LoanPage({
           <Form.Item label="Buyer IC image or PDF / 买家 IC 图片或 PDF" required>
             <Upload fileList={intakeFile ? [{ uid: "buyer-ic", name: intakeFile.name, status: "done" }] : []} accept="image/jpeg,image/png,application/pdf" maxCount={1} beforeUpload={(file) => { setIntakeFile(file); return false; }} onRemove={() => setIntakeFile(undefined)}><Button>Select IC file / 选择 IC 文件</Button></Upload>
           </Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={intakeSaving}>Save buyer / 保存买家</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={intakeSaving} disabled={eligibleBuyerVehiclesLoading || Boolean(eligibleBuyerVehiclesError) || eligibleBuyerVehicles.length === 0}>Save buyer / 保存买家</Button></Form.Item>
         </Form>
       </Modal>
     </Space>
