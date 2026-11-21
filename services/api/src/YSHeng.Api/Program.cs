@@ -5527,6 +5527,7 @@ hr.MapPost("/leave-requests/preview", async (HrLeaveCalculationPreviewRequest re
 
 hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, HttpContext context) =>
 {
+    if (!Enum.IsDefined(request.Type) || request.Type == HrLeaveType.EmergencyLeave) return Results.BadRequest(new ApiError("Select annual, medical or unpaid leave for new requests."));
     var staffUserId = StaffIdentity.CurrentUserId(context);
     if (!DepartmentAccess.IsHrManager(context.User) && request.StaffUserId != staffUserId) return Results.Forbid();
     var effectiveStaffUserId = DepartmentAccess.IsHrManager(context.User) && !string.IsNullOrWhiteSpace(request.StaffUserId) ? request.StaffUserId : staffUserId;
@@ -5537,6 +5538,7 @@ hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, Ht
     {
         StaffUserId = effectiveStaffUserId,
         Status = HrLeaveStatus.Pending,
+        MedicalCertificateDocumentId = null,
         Days = calculation.Days,
         ApprovedBy = null,
         ApprovedAt = null,
@@ -5560,6 +5562,10 @@ hr.MapPut("/leave-requests/{id:guid}/decision", async (Guid id, HrLeaveDecisionR
     if (await HrWorkflowStore.HasLockedPayrollRange(db, existing.StaffUserId, existing.StartDate, existing.EndDate)) return Results.Conflict(new ApiError("Payroll is under review or locked for these dates."));
     var decisionValidation = HrRules.ValidateLeaveDecision(existing, decision.Status);
     if (!decisionValidation.IsValid) return Results.BadRequest(decisionValidation);
+    var balance = await db.HrLeaveBalances.FirstOrDefaultAsync(item => item.StaffUserId == existing.StaffUserId);
+    var hasMedicalCertificate = existing.MedicalCertificateDocumentId is { } documentId &&
+        await db.DocumentBlobs.Where(item => item.Id == documentId && item.Category == FileCategory.MedicalCertificate)
+            .Select(item => item.Content.Length).FirstOrDefaultAsync() > 0;
     var decided = existing with
     {
         Status = decision.Status,
@@ -5567,12 +5573,12 @@ hr.MapPut("/leave-requests/{id:guid}/decision", async (Guid id, HrLeaveDecisionR
         ApprovedAt = DateTime.UtcNow,
         DecisionNotes = decision.DecisionNotes
     };
+    decided = HrRules.ResolveMedicalLeaveApproval(decided, balance, hasMedicalCertificate);
     var validation = HrRules.ValidateLeaveRequest(decided);
     if (!validation.IsValid) return Results.BadRequest(validation);
     db.Entry(existing).CurrentValues.SetValues(decided);
-    if (decision.Status == HrLeaveStatus.Approved && existing.Status != HrLeaveStatus.Approved)
+    if (decision.Status == HrLeaveStatus.Approved)
     {
-        var balance = await db.HrLeaveBalances.FirstOrDefaultAsync(item => item.StaffUserId == existing.StaffUserId);
         if (balance is not null)
         {
             db.Entry(balance).CurrentValues.SetValues(HrRules.ApplyApprovedLeave(balance, decided));

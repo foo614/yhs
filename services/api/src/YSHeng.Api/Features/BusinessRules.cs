@@ -1795,6 +1795,16 @@ public static class HrRules
         };
     }
 
+    public static HrLeaveRequest ResolveMedicalLeaveApproval(HrLeaveRequest request, HrLeaveBalance? balance, bool hasMedicalCertificate)
+    {
+        if (request.Status != HrLeaveStatus.Approved || request.Type != HrLeaveType.MedicalLeave || hasMedicalCertificate)
+            return request;
+
+        var type = balance?.AnnualLeaveDays >= request.Days ? HrLeaveType.AnnualLeave : HrLeaveType.UnpaidLeave;
+        var explanation = $"Medical leave approved without an MC document; treated as {type}.";
+        return request with { Type = type, DecisionNotes = string.IsNullOrWhiteSpace(request.DecisionNotes) ? explanation : $"{request.DecisionNotes}\n{explanation}" };
+    }
+
     public static HrPayslip GeneratePayslip(HrPayrollProfile profile, HrPayPeriod period, IEnumerable<HrLeaveRequest> leaveRequests, Guid? id = null) =>
         GeneratePayslip(profile, period, leaveRequests, [], id);
 

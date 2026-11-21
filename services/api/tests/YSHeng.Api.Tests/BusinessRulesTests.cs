@@ -2012,6 +2012,47 @@ public sealed class BusinessRulesTests
         Assert.Equal(13m, unpaid.MedicalLeaveDays);
     }
 
+    // Prevent charging MC balances or undercharging payroll when an approved medical request has no MC.
+    [Theory]
+    [InlineData(3, false, HrLeaveStatus.Approved, HrLeaveType.AnnualLeave, 1, 14, 0)]
+    [InlineData(2, false, HrLeaveStatus.Approved, HrLeaveType.AnnualLeave, 0, 14, 0)]
+    [InlineData(1.5, false, HrLeaveStatus.Approved, HrLeaveType.UnpaidLeave, 1.5, 14, 200)]
+    [InlineData(0, false, HrLeaveStatus.Approved, HrLeaveType.UnpaidLeave, 0, 14, 200)]
+    [InlineData(3, true, HrLeaveStatus.Approved, HrLeaveType.MedicalLeave, 3, 12, 0)]
+    [InlineData(3, false, HrLeaveStatus.Rejected, HrLeaveType.MedicalLeave, 3, 14, 0)]
+    public void Hr_missing_mc_approval_uses_full_annual_balance_or_full_unpaid_leave(
+        decimal annual, bool hasMc, HrLeaveStatus status, HrLeaveType expectedType, decimal remainingAnnual, decimal remainingMedical, decimal payrollDeduction)
+    {
+        var date = new DateOnly(2026, 6, 8);
+        var balance = new HrLeaveBalance { StaffUserId = "staff-1", AnnualLeaveDays = annual, MedicalLeaveDays = 14 };
+        var request = new HrLeaveRequest { StaffUserId = "staff-1", Type = HrLeaveType.MedicalLeave,
+            Status = status, Days = 2, StartDate = date, EndDate = date.AddDays(1), DecisionNotes = "Reviewed" };
+
+        var decided = HrRules.ResolveMedicalLeaveApproval(request, balance, hasMc);
+        var updated = HrRules.ApplyApprovedLeave(balance, decided);
+        var slip = HrRules.GeneratePayslip(new HrPayrollProfile { StaffUserId = "staff-1", MonthlyBaseSalary = 2000 },
+            new HrPayPeriod { StartDate = date, EndDate = date.AddDays(20), WorkingDays = 20 }, [decided]);
+
+        Assert.Equal(expectedType, decided.Type);
+        Assert.Equal(remainingAnnual, updated.AnnualLeaveDays);
+        Assert.Equal(remainingMedical, updated.MedicalLeaveDays);
+        Assert.Equal(payrollDeduction, slip.UnpaidLeaveDeduction);
+        Assert.StartsWith("Reviewed", decided.DecisionNotes);
+        if (expectedType != HrLeaveType.MedicalLeave) Assert.Contains("without an MC", decided.DecisionNotes);
+        Assert.False(HrRules.ValidateLeaveDecision(decided, HrLeaveStatus.Approved).IsValid);
+    }
+
+    [Fact]
+    public void Hr_missing_mc_without_balance_is_unpaid_and_half_days_use_exact_balance()
+    {
+        var request = new HrLeaveRequest { StaffUserId = "staff-1", Type = HrLeaveType.MedicalLeave, Status = HrLeaveStatus.Approved, Days = 0.5m };
+        Assert.Equal(HrLeaveType.UnpaidLeave, HrRules.ResolveMedicalLeaveApproval(request, null, false).Type);
+        var balance = new HrLeaveBalance { StaffUserId = "staff-1", AnnualLeaveDays = 0.5m };
+        var decided = HrRules.ResolveMedicalLeaveApproval(request, balance, false);
+        Assert.Equal(HrLeaveType.AnnualLeave, decided.Type);
+        Assert.Equal(0m, HrRules.ApplyApprovedLeave(balance, decided).AnnualLeaveDays);
+    }
+
     [Theory]
     [InlineData(HrBusinessTripStatus.Pending, -1, false)]
     [InlineData(HrBusinessTripStatus.Approved, -1, false)]
