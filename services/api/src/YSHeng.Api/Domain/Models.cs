@@ -503,6 +503,7 @@ public sealed record LoanBankOption
     public DateTime? SubmittedAt { get; init; }
     public string? RejectionReason { get; init; }
     public Guid? LouDocumentId { get; init; }
+    public Guid? EditedLouDocumentId { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; init; } = DateTime.UtcNow;
 }

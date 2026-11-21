@@ -1667,6 +1667,7 @@ public static class SeedData
             ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "SubmittedAt" timestamp with time zone NULL;
             ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "RejectionReason" text NULL;
             ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "LouDocumentId" uuid NULL;
+            ALTER TABLE "LoanBankOptions" ADD COLUMN IF NOT EXISTS "EditedLouDocumentId" uuid NULL;
             CREATE INDEX IF NOT EXISTS "IX_LoanBankOptions_LoanApplicationId_BankName"
                 ON "LoanBankOptions" ("LoanApplicationId", "BankName");
             CREATE INDEX IF NOT EXISTS "IX_LoanBankOptions_LouDocumentId"

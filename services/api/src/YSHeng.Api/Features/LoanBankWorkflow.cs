@@ -9,6 +9,10 @@ public static class LoanBankWorkflow
 {
     public static bool HasTerms(LoanBankOption bank) => !string.IsNullOrWhiteSpace(bank.BankName) && bank.LoanAmount is > 0 && bank.InterestRate is > 0 && bank.TenureMonths is > 0;
 
+    public static Task<bool> HasOriginalLouAsync(AppDbContext db, LoanApplication loan, LoanBankOption bank) =>
+        db.DocumentBlobs.AnyAsync(row => bank.LouDocumentId.HasValue && row.Id == bank.LouDocumentId &&
+            row.LoanApplicationId == loan.Id && row.VehicleId == loan.VehicleId && row.Category == FileCategory.LoanDocument);
+
     public static async Task RefreshLoanAsync(AppDbContext db, LoanApplication loan, LoanBankOption changed, ClaimsPrincipal actor, bool captureEnabled = false)
     {
         var banks = await db.LoanBankOptions.AsNoTracking().Where(row => row.LoanApplicationId == loan.Id && row.Id != changed.Id).ToListAsync();
@@ -81,7 +85,7 @@ public static class LoanBankWorkflow
             var saved = bank with { BankName = (option.BankName ?? "").Trim(), LoanAmount = option.LoanAmount, InterestRate = option.InterestRate, TenureMonths = option.TenureMonths, Terms = option.Terms?.Trim(), UpdatedAt = DateTime.UtcNow };
             var validation = LoanDecisionRules.ValidateBankOption(saved);
             if (!validation.IsValid) return Results.BadRequest(validation);
-            if (saved.LouDocumentId.HasValue) saved = saved with { Status = HasTerms(saved) ? LoanBankOptionStatus.Approved : LoanBankOptionStatus.Submitted };
+            if (saved.Status == LoanBankOptionStatus.Approved && !HasTerms(saved)) saved = saved with { Status = LoanBankOptionStatus.Submitted };
             db.Entry(bank).CurrentValues.SetValues(saved);
             await RefreshLoanAsync(db, loan, saved, context.User, context.RequestServices.GetRequiredService<IConfiguration>().GetValue("WhatsApp:CaptureEnabled", false));
             ApiAudit.Add(db, context.User, "loan.bank.updated", nameof(LoanBankOption), bankId);
@@ -102,8 +106,13 @@ public static class LoanBankWorkflow
             if (vehicle is null || vehicle.CustomerId != loan.CustomerId) return Results.Conflict(new ApiError("The loan buyer no longer matches the vehicle's confirmed buyer. Refresh the loan before saving the LOU."));
             var document = await db.DocumentBlobs.FirstOrDefaultAsync(row => row.Id == documentId && row.VehicleId == loan.VehicleId && row.LoanApplicationId == id && row.Category == FileCategory.LoanDocument);
             if (document is null) return Results.NotFound();
-            var existing = await db.LoanBankOptions.FirstOrDefaultAsync(row => row.LouDocumentId == documentId);
-            if (existing is not null) return Results.Ok(existing);
+            var existing = await db.LoanBankOptions.FirstOrDefaultAsync(row => row.LouDocumentId == documentId || row.EditedLouDocumentId == documentId);
+            if (existing is not null)
+            {
+                if (existing.LoanApplicationId != id || (request.BankOptionId.HasValue && request.BankOptionId != existing.Id))
+                    return Results.Conflict(new ApiError("This LOU is already linked to another bank option."));
+                return Results.Ok(existing);
+            }
             var bankName = (request.BankName ?? "").Trim();
             LoanBankOption? target = request.BankOptionId.HasValue
                 ? await db.LoanBankOptions.FirstOrDefaultAsync(row => row.Id == request.BankOptionId && row.LoanApplicationId == id)
@@ -116,13 +125,15 @@ public static class LoanBankWorkflow
                 target = matches.SingleOrDefault();
             }
             if (target is not null && (target.IsSelected || target.Status == LoanBankOptionStatus.Rejected)) return Results.BadRequest(new ApiError("This bank option is locked. Select another active bank option."));
+            if (target?.LouDocumentId is not null && !await HasOriginalLouAsync(db, loan, target))
+                return Results.BadRequest(new ApiError("The bank's original LOU is unavailable. Restore its original evidence before reviewing an edited LOU."));
             if (request.UseAsFinal)
             {
                 var activeOptions = await db.LoanBankOptions.Where(row => row.LoanApplicationId == id && row.Status != LoanBankOptionStatus.Rejected).ToListAsync();
                 if (activeOptions.Any(row => target is null || row.Id != target.Id))
                     return Results.Conflict(new ApiError("Another active bank option exists. Refresh and choose the final LOU explicitly."));
             }
-            var option = (target ?? new LoanBankOption { LoanApplicationId = id }) with { BankName = bankName, LoanAmount = request.LoanAmount, InterestRate = request.InterestRate, TenureMonths = request.TenureMonths, Terms = request.Terms?.Trim(), Status = LoanBankOptionStatus.Approved, LouDocumentId = documentId, IsSelected = request.UseAsFinal, RejectionReason = null, UpdatedAt = DateTime.UtcNow };
+            var option = (target ?? new LoanBankOption { LoanApplicationId = id }) with { BankName = bankName, LoanAmount = request.LoanAmount, InterestRate = request.InterestRate, TenureMonths = request.TenureMonths, Terms = request.Terms?.Trim(), Status = LoanBankOptionStatus.Approved, LouDocumentId = target?.LouDocumentId ?? documentId, EditedLouDocumentId = target?.LouDocumentId.HasValue == true ? documentId : null, IsSelected = request.UseAsFinal, RejectionReason = null, UpdatedAt = DateTime.UtcNow };
             if (!LoanBankWorkflow.HasTerms(option)) return Results.BadRequest(new ApiError("Review the bank name, amount, interest rate, and tenure before saving the LOU."));
             var validation = LoanDecisionRules.ValidateBankOption(option);
             if (!validation.IsValid) return Results.BadRequest(validation);
@@ -138,6 +149,8 @@ public static class LoanBankWorkflow
 
         routes.MapPost("/loans/{id:guid}/banks/{bankId:guid}/submit", async (Guid id, Guid bankId, AppDbContext db, HttpContext context) =>
             await MutateAsync(id, bankId, "submit", null, db, context)).RequireAuthorization("Loans");
+        routes.MapPost("/loans/{id:guid}/banks/{bankId:guid}/approve", async (Guid id, Guid bankId, AppDbContext db, HttpContext context) =>
+            await MutateAsync(id, bankId, "approve", null, db, context)).RequireAuthorization("Loans");
         routes.MapPost("/loans/{id:guid}/banks/{bankId:guid}/reject", async (Guid id, Guid bankId, LoanBankRejectionRequest request, AppDbContext db, HttpContext context) =>
             await MutateAsync(id, bankId, "reject", request.RejectionReason, db, context)).RequireAuthorization("Loans");
         routes.MapPost("/loans/{id:guid}/banks/{bankId:guid}/select-final", async (Guid id, Guid bankId, AppDbContext db, HttpContext context) =>
@@ -163,12 +176,22 @@ public static class LoanBankWorkflow
         LoanBankOption saved;
         if (action == "select")
         {
-            if (bank.Status != LoanBankOptionStatus.Approved || !HasTerms(bank) || !bank.LouDocumentId.HasValue ||
-                !await db.DocumentBlobs.AnyAsync(row => row.Id == bank.LouDocumentId && row.LoanApplicationId == id && row.VehicleId == loan.VehicleId && row.Category == FileCategory.LoanDocument))
+            if (bank.Status != LoanBankOptionStatus.Approved || !HasTerms(bank) || !await HasOriginalLouAsync(db, loan, bank))
                 return Results.BadRequest(new ApiError("Select an approved bank with complete reviewed terms and linked LOU."));
             await db.LoanBankOptions.Where(row => row.LoanApplicationId == id && row.Id != bankId).ExecuteUpdateAsync(setters => setters.SetProperty(row => row.IsSelected, false));
             saved = bank with { IsSelected = true, UpdatedAt = DateTime.UtcNow };
             db.Entry(loan).CurrentValues.SetValues(loan with { LoanBank = bank.BankName.Trim(), LoanAmount = bank.LoanAmount, InterestRate = bank.InterestRate, LoanTenureMonths = bank.TenureMonths, LoanTerms = bank.Terms?.Trim(), LastUpdatedAt = DateTime.UtcNow });
+        }
+        else if (action == "approve")
+        {
+            var vehicle = await db.Vehicles.AsNoTracking().FirstAsync(row => row.Id == loan.VehicleId);
+            if (vehicle.CustomerId != loan.CustomerId)
+                return Results.Conflict(new ApiError("The loan buyer no longer matches the vehicle's confirmed buyer. Refresh the loan before approving the bank."));
+            if (bank.Status != LoanBankOptionStatus.Submitted || bank.IsSelected || !HasTerms(bank) || !await HasOriginalLouAsync(db, loan, bank))
+                return Results.BadRequest(new ApiError("Approve a submitted bank with complete terms and its linked original LOU. An edited LOU is optional."));
+            var validation = LoanDecisionRules.ValidateBankOption(bank);
+            if (!validation.IsValid) return Results.BadRequest(validation);
+            saved = bank with { Status = LoanBankOptionStatus.Approved, RejectionReason = null, UpdatedAt = DateTime.UtcNow };
         }
         else if (action == "submit")
         {

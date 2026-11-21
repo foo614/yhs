@@ -261,6 +261,7 @@ import {
   createLoanBankOption,
   submitLoanBank,
   rejectLoanBank,
+  approveLoanBank,
   selectFinalLoanBank,
   saveReviewedLoanLou,
   createLoanBuyerIntake,
@@ -4865,6 +4866,25 @@ export function LoanPage({
                 {option.tenureMonths != null && <Typography.Text>{option.tenureMonths} months / 个月</Typography.Text>}
                 <Typography.Text>Submitted / 提交: {option.submittedAt ? formatDisplayDateTime(option.submittedAt) : "Not recorded / 未记录"}</Typography.Text>
                 {option.isSelected && <Tag color="green">Final LOU / 最终方案</Tag>}
+                {option.louDocumentId && <Button size="small" href={vehicleDocumentContentUrl(selectedLoan.vehicleId, option.louDocumentId)} target="_blank" rel="noopener noreferrer">Original LOU / 原始 LOU</Button>}
+                {option.editedLouDocumentId && <Button size="small" href={vehicleDocumentContentUrl(selectedLoan.vehicleId, option.editedLouDocumentId)} target="_blank" rel="noopener noreferrer">Edited LOU / 修改版 LOU</Button>}
+                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && (option.status === "Submitted" || option.status === "Approved") && <PreviewDocumentUpload
+                  documentLabel={option.louDocumentId ? "Edited LOU" : "Original LOU"}
+                  buttonLabel={option.louDocumentId ? "Upload edited LOU (optional) / 上传修改版（可选）" : "Upload original LOU / 上传原始 LOU"}
+                  onUpload={async (file, onProgress) => {
+                    await onUploadDocument(selectedLoan.vehicleId, file, "LoanDocument", onProgress, {
+                      ...loanDocumentUploadOwner(selectedLoan), loanBankOptionId: option.id, louEdited: Boolean(option.louDocumentId)
+                    });
+                    await refreshBanks();
+                  }}
+                />}
+                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && option.status === "Submitted" && !option.isSelected && <Popconfirm
+                  title={`Approve ${option.bankName} / 批准此银行?`}
+                  description="Use the existing original LOU and saved bank terms. Edited LOU is optional. / 采用已有原始 LOU 和已保存条款；修改版可选。"
+                  onConfirm={() => bankAction(() => approveLoanBank(option))}
+                ><Button type="primary" disabled={!option.louDocumentId || (option.loanAmount ?? 0) <= 0 || (option.interestRate ?? 0) <= 0 || (option.tenureMonths ?? 0) <= 0}>Approve / 批准</Button></Popconfirm>}
+                {canProcessLoan(selectedLoan) && option.status === "Submitted" && !option.louDocumentId && <Typography.Text type="secondary">Original LOU required to approve / 批准前须有原始 LOU</Typography.Text>}
+                {canProcessLoan(selectedLoan) && option.status === "Submitted" && option.louDocumentId && (!option.loanAmount || !option.interestRate || !option.tenureMonths) && <Typography.Text type="secondary">Enter the loan amount, interest rate and tenure before approval. / 批准前请填写贷款金额、利率和期数。</Typography.Text>}
                 {canEditLoanDetails(selectedLoan) && option.status === "Approved" && !option.isSelected && <Popconfirm title="Use this final LOU / 采用此方案?" onConfirm={() => bankAction(() => selectFinalLoanBank(option))}><Button>Select final LOU / 选择最终方案</Button></Popconfirm>}
                 {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && option.status !== "Rejected" && <Button onClick={() => { setManualBankOpen(true); loanBankForm.setFieldsValue(option); }}>Edit / 编辑</Button>}
                 {canProcessLoan(selectedLoan) && option.status === "Pending" && <Popconfirm title="Record bank submission / 记录已提交银行?" onConfirm={() => bankAction(() => submitLoanBank(option))}><Button>Submitted to bank / 已提交银行</Button></Popconfirm>}
