@@ -132,6 +132,7 @@ export type DocumentUploadOwner = {
   loanApplicationId?: string;
   loanBankOptionId?: string;
   louPreview?: boolean;
+  louEdited?: boolean;
 };
 
 export type InspectionTypeCode = 9001 | 9002 | 9003 | 9004 | 9011;
@@ -675,6 +676,7 @@ export type LoanBankOption = {
   submittedAt?: string;
   rejectionReason?: string;
   louDocumentId?: string;
+  editedLouDocumentId?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -2848,7 +2850,7 @@ export async function getLoanBankOptions(loanId: string): Promise<LoanBankOption
   return request<LoanBankOption[]>(`/api/loans/${loanId}/banks`);
 }
 
-export type LoanBankOptionInput = Omit<LoanBankOption, "id" | "createdAt" | "updatedAt" | "status" | "submittedAt" | "rejectionReason" | "louDocumentId">;
+export type LoanBankOptionInput = Omit<LoanBankOption, "id" | "createdAt" | "updatedAt" | "status" | "submittedAt" | "rejectionReason" | "louDocumentId" | "editedLouDocumentId">;
 
 export async function createLoanBankOption(loanId: string, option: LoanBankOptionInput): Promise<LoanBankOption> {
   return request<LoanBankOption>(`/api/loans/${loanId}/banks`, { method: "POST", body: JSON.stringify(option) });
@@ -2885,6 +2887,10 @@ export async function submitLoanBank(option: LoanBankOption): Promise<LoanBankOp
 
 export async function rejectLoanBank(option: LoanBankOption, rejectionReason: string): Promise<LoanBankOption> {
   return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/reject`, { method: "POST", body: JSON.stringify({ rejectionReason }) });
+}
+
+export async function approveLoanBank(option: LoanBankOption): Promise<LoanBankOption> {
+  return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/approve`, { method: "POST" });
 }
 
 export async function selectFinalLoanBank(option: LoanBankOption): Promise<LoanBankOption> {
@@ -3357,6 +3363,7 @@ function documentUploadPath(vehicleId: string, category: DocumentCategory, owner
   if (owner?.loanApplicationId) query.set("loanApplicationId", owner.loanApplicationId);
   if (owner?.loanBankOptionId) query.set("loanBankOptionId", owner.loanBankOptionId);
   if (owner?.louPreview) query.set("louPreview", "true");
+  if (owner?.louEdited) query.set("louEdited", "true");
   return `/api/vehicles/${vehicleId}/documents?${query.toString()}`;
 }
 

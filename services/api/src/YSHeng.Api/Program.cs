@@ -981,12 +981,14 @@ backOffice.MapGet("/vehicles/{id:guid}/photos/{photoId:guid}/content", async (Gu
     return photo is null ? Results.NotFound() : Results.File(photo.Content, photo.MimeType);
 });
 
-backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, Guid? loanApplicationId, Guid? loanBankOptionId, bool? louPreview, Guid? bankSettlementId, Guid? inspectionId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
+backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile file, FileCategory category, Guid? repairJobId, Guid? paymentRecordId, Guid? collectionTransactionId, Guid? deliveryScheduleId, Guid? loanApplicationId, Guid? loanBankOptionId, bool? louPreview, bool? louEdited, Guid? bankSettlementId, Guid? inspectionId, DocumentOwnershipType? ownershipType, Guid? customerId, Guid? ownerId, AppDbContext db, HttpContext context) =>
 {
     var categoryValidation = UploadPolicy.ValidateDocumentCategory(category);
     if (!categoryValidation.IsValid) return Results.BadRequest(categoryValidation);
     if (louPreview == true && (category != FileCategory.LoanDocument || loanBankOptionId.HasValue))
         return Results.BadRequest(new ApiError("LOU preview must be a new loan-scoped document without a bank option."));
+    if (louEdited == true && (category != FileCategory.LoanDocument || !loanBankOptionId.HasValue || louPreview == true))
+        return Results.BadRequest(new ApiError("An edited LOU must identify its existing bank option."));
     var isBankEvidence = category == FileCategory.BankSettlementPayment;
     if (isBankEvidence != bankSettlementId.HasValue)
         return Results.BadRequest(new ApiError("Bank payment evidence must identify its bank settlement."));
@@ -1278,6 +1280,10 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
             if (louBank is null) return Results.BadRequest(new ApiError("Select a bank belonging to this loan."));
             if (linkedLoan.Status is LoanStatus.Done or LoanStatus.Rejected || louBank.IsSelected || louBank.Status is not (LoanBankOptionStatus.Submitted or LoanBankOptionStatus.Approved))
                 return Results.BadRequest(new ApiError("Upload LOU only to an active submitted bank before final selection."));
+            if (louEdited == true && !await LoanBankWorkflow.HasOriginalLouAsync(db, linkedLoan, louBank))
+                return Results.BadRequest(new ApiError("Upload the bank's original LOU before adding an optional edited LOU."));
+            if (louEdited != true && louBank.LouDocumentId.HasValue)
+                return Results.Conflict(new ApiError("This bank already has its original LOU. Upload an optional edited LOU to retain both versions."));
         }
     }
     var document = new DocumentBlob
@@ -1306,8 +1312,9 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
         var trackedLoan = await db.LoanApplications.FirstAsync(item => item.Id == linkedLoan.Id);
         if (louBank is not null)
         {
-            var savedBank = louBank with { LouDocumentId = document.Id, RejectionReason = null, UpdatedAt = DateTime.UtcNow };
-            if (LoanBankWorkflow.HasTerms(savedBank)) savedBank = savedBank with { Status = LoanBankOptionStatus.Approved };
+            var savedBank = louEdited == true
+                ? louBank with { EditedLouDocumentId = document.Id, UpdatedAt = DateTime.UtcNow }
+                : louBank with { LouDocumentId = document.Id, Status = LoanBankOptionStatus.Submitted, RejectionReason = null, UpdatedAt = DateTime.UtcNow };
             db.Entry(louBank).CurrentValues.SetValues(savedBank);
             await LoanBankWorkflow.RefreshLoanAsync(db, trackedLoan, savedBank, context.User, whatsappCaptureEnabled);
         }
@@ -1391,8 +1398,8 @@ backOffice.MapDelete("/vehicles/{id:guid}/loan-documents/{documentId:guid}", asy
     if (document.Category == FileCategory.LoanOriginalDocument && document.LoanApplicationId is { } originalLoanId)
         await db.LoanApplications.Where(row => row.Id == originalLoanId)
             .ExecuteUpdateAsync(update => update.SetProperty(row => row.RequiresExplicitOriginal, true));
-    if (await db.LoanBankOptions.AnyAsync(bank => bank.LouDocumentId == document.Id))
-        return Results.BadRequest(new ApiError("Bank LOU evidence cannot be removed while linked to a bank option. Upload a replacement first."));
+    if (await db.LoanBankOptions.AnyAsync(bank => bank.LouDocumentId == document.Id || bank.EditedLouDocumentId == document.Id))
+        return Results.BadRequest(new ApiError("Bank LOU evidence cannot be removed while linked to a bank option."));
     var ocrJobs = await db.OcrJobs.Where(job => job.DocumentId == document.Id).ToListAsync();
     db.OcrJobs.RemoveRange(ocrJobs);
     db.DocumentBlobs.Remove(document);
