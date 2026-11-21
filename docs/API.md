@@ -651,6 +651,20 @@ Validation failures usually return one of these shapes:
 Back-office mutations write audit records with the authenticated staff email. Public lead creation writes a public actor audit record.
 
 
+## Standalone Insurance and Road Tax
+
+All `/api/insurance` routes require BackOffice and BossAdmin. Receipt and insurer-payment mutations also require the existing Finance policy (which includes BossAdmin). These records do not link into Vehicle, Customer, Delivery or Finance ledgers. See [source mappings and operational notes](INSURANCE_ROAD_TAX.md).
+
+- `GET /api/insurance`, `GET /api/insurance/{id}` return cases, attachment metadata, separate customer receipts/insurer settlement, totals and reminder flags. `POST /api/insurance` creates; `PUT /api/insurance/{id}` requires matching body ID and current version.
+- `POST /api/insurance/{id}/renew` accepts `{version, confirmed:true}`. It creates one new annual draft with a fresh ledger and stops the source policy's renewal reminders. Repeating the request returns the existing successor.
+- `GET /api/insurance/jpj-list` returns unfinished JPJ cases with plate, IC and six/twelve-month term. JPJ completion requires linked receipt evidence; eAuto carries no runner fee.
+- `POST /api/insurance/{id}/attachments` accepts multipart `file` and `kind` (Policy, RoadTaxReceipt, Windscreen, PaymentEvidence, Other). Existing 10 MB content validation applies; windscreen evidence requires an image. `GET /api/insurance/{id}/attachments/{attachmentId}` checks case ownership and returns private content with no-store/nosniff headers.
+- `POST /api/insurance/{id}/receipts/preview` accepts idempotencyKey, amount, original paymentType, actual depositAccount, receivedDate, invoiceNumber and optional evidenceAttachmentId. It creates a pending receipt only. `POST /api/insurance/{id}/receipts/{receiptId}/confirm` accepts `{confirmed:true}` and verifies current outstanding/invoice/evidence and staff authority before applying funds once.
+- `POST /api/insurance/{id}/insurer-payments` accepts idempotencyKey, amount, paidDate and reference for the final actual insurer settlement. This ledger is independent of customer receipts; bank-arranged cover cannot record an Auto insurer payment.
+- `POST /api/insurance/import/preview` accepts exact-order headers and string rows. `/import/confirm` accepts the same data plus idempotencyKey and saves all rows atomically. Invalid mappings reject the import; `R (MOTOR)` source notes are retained.
+- `GET /api/insurance/{id}/autocount?kind=...&receiptId=...` supports PurchaseInsurance, PurchaseRoadTax, PurchaseOther, CustomerSales, AutomotiveAP and Receipt. `GET /api/insurance/autocount-monthly?month=YYYY-MM` retains per-vehicle intercompany lines. Both return book, columns, rows, clipboard, blockers, headers and notes. Blocked clipboard content is empty.
+- `POST /api/insurance/{id}/send-documents` accepts `{caseVersion, customerPhone, attachmentIds}` matching the reviewed latest files. It queues policy/applicable JPJ receipt through approved templates, existing consent and outbox controls; it does not assert provider delivery. Quotation sending remains on hold.
+
 ## Bank settlement transition (slides 9 and 15)
 
 - `POST /api/bank-settlements` requires Finance and BossAdmin policies. Input: vehicleId, positive bankDebtAmount, deadline, bankName, bankAccountNumber, optional replacesSettlementId. The payable is the bank debt, independent of purchase price.

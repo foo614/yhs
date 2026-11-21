@@ -1689,7 +1689,7 @@ export function resendStaffWhatsAppInvitation(staffUserId?: string): Promise<{ m
 
 export type StaffWhatsAppPolicyCategory =
   "OutstandingDigest" | "AttendanceSummary" | "LeaveApproval" | "OcrUsage" |
-  "VehicleEvent" | "DeliveryEvent" | "FinanceEvent" | "CompanyNews" | "CalendarTasks" | "InspectionReminder";
+  "VehicleEvent" | "DeliveryEvent" | "FinanceEvent" | "CompanyNews" | "CalendarTasks" | "InspectionReminder" | "InsuranceReminder";
 export type StaffWhatsAppHistoryCategory = StaffWhatsAppPolicyCategory | "StaffInvitation";
 export type StaffWhatsAppPolicy = {
   category: StaffWhatsAppPolicyCategory;
@@ -4073,3 +4073,42 @@ export type DashboardUpdatesResponse = { news: DashboardUpdate[]; reminders: Das
 export function getDashboardUpdates(): Promise<DashboardUpdatesResponse> {
   return request("/api/dashboard/updates", {}, "Unable to load dashboard updates");
 }
+
+
+export type InsuranceCase = {
+  version: number; renewedByCaseId?: string | null; id: string; plateNumber: string; customerName: string; customerPhone?: string | null;
+  identityNumber?: string | null; caseType: "New" | "Renewal" | "BankArranged";
+  company: "Automotive" | "Auto"; insurer: string; coverage: string; ncd?: number | null;
+  remark?: string | null; expiryDate: string; coverStartDate?: string | null; policyNumber?: string | null;
+  renewalDeclined: boolean; roadTaxMethod: "None" | "JPJ" | "EAuto"; roadTaxMonths: number;
+  roadTaxExpiryDate?: string | null; roadTaxCompleted: boolean; insuranceAmount: number;
+  roadTaxAmount: number; runnerFee: number; discount: number;
+  otherCharges: { itemCode: string; description: string; amount: number }[];
+  invoiceNumber?: string | null; insurerInvoiceNumber?: string | null;
+  intercompanyInvoiceNumber?: string | null; bankCreditorName?: string | null; bankInvoiceNumber?: string | null; specialJpjSale: boolean;
+};
+export type InsuranceAttachment = { id: string; kind: "Policy" | "RoadTaxReceipt" | "Windscreen" | "PaymentEvidence" | "Other"; fileName: string; mimeType: string; uploadedAt: string };
+export type InsuranceReceiptInput = { idempotencyKey: string; amount: number; paymentType: "Cash" | "TNG" | "Transfer" | "Card"; receivedDate: string; depositAccount: "Cash" | "PBB"; evidenceAttachmentId?: string | null; invoiceNumber: string };
+export type InsuranceReceipt = InsuranceReceiptInput & { id: string; caseId: string; status: "Pending" | "Confirmed" };
+export type InsuranceInsurerPayment = { id: string; amount: number; paidDate: string; reference: string };
+export type InsuranceCaseView = { record: InsuranceCase; receipts: InsuranceReceipt[]; insurerPayments: InsuranceInsurerPayment[]; attachments: InsuranceAttachment[]; total: number; received: number; outstanding: number; renewalDue: boolean; paymentAlert: boolean; commission?: number | null };
+export type InsuranceImportInput = { headers: string[]; rows: string[][] };
+export type InsuranceImportPreview = { records: InsuranceCase[]; errors: string[] };
+export function getInsuranceCases() { return request<InsuranceCaseView[]>("/api/insurance"); }
+export function getInsuranceCase(id: string) { return request<InsuranceCaseView>(`/api/insurance/${encodeURIComponent(id)}`); }
+export function saveInsuranceCase(record: InsuranceCase, existing: boolean) { return request<InsuranceCaseView>(existing ? `/api/insurance/${encodeURIComponent(record.id)}` : "/api/insurance", { method: existing ? "PUT" : "POST", body: JSON.stringify(record) }); }
+export function previewInsuranceReceipt(id: string, receipt: InsuranceReceiptInput) { return request<InsuranceReceipt>(`/api/insurance/${encodeURIComponent(id)}/receipts/preview`, { method: "POST", body: JSON.stringify(receipt) }); }
+export function confirmInsuranceReceipt(id: string, receiptId: string) { return request<InsuranceReceipt>(`/api/insurance/${encodeURIComponent(id)}/receipts/${encodeURIComponent(receiptId)}/confirm`, { method: "POST", body: JSON.stringify({ confirmed: true }) }); }
+export function recordInsuranceInsurerPayment(id: string, payment: { idempotencyKey: string; amount: number; paidDate: string; reference: string }) { return request(`/api/insurance/${encodeURIComponent(id)}/insurer-payments`, { method: "POST", body: JSON.stringify(payment) }); }
+export function uploadInsuranceAttachment(id: string, kind: InsuranceAttachment["kind"], file: File) { return uploadFile<InsuranceAttachment>(`/api/insurance/${encodeURIComponent(id)}/attachments`, file, { kind }); }
+export function getInsuranceAttachment(id: string, attachmentId: string) { return requestBlob(`/api/insurance/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`); }
+export function previewInsuranceImport(input: InsuranceImportInput) { return request<InsuranceImportPreview>("/api/insurance/import/preview", { method: "POST", body: JSON.stringify(input) }); }
+export function confirmInsuranceImport(input: InsuranceImportInput & { idempotencyKey: string }) { return request("/api/insurance/import/confirm", { method: "POST", body: JSON.stringify(input) }); }
+
+export type InsuranceAutoCountPreview = { columns: string[]; rows: string[][]; clipboard: string; blockers: string[]; headers: Record<string, string>; book: string; notes: string[] };
+export type InsuranceAutoCountKind = "PurchaseInsurance" | "PurchaseRoadTax" | "PurchaseOther" | "CustomerSales" | "AutomotiveAP" | "Receipt";
+export function getInsuranceAutoCount(id: string, kind: InsuranceAutoCountKind, receiptId?: string) { return request<InsuranceAutoCountPreview>(`/api/insurance/${encodeURIComponent(id)}/autocount?kind=${kind}${receiptId ? `&receiptId=${encodeURIComponent(receiptId)}` : ""}`); }
+export function getInsuranceMonthlyAutoCount(month: string) { return request<InsuranceAutoCountPreview>(`/api/insurance/autocount-monthly?month=${encodeURIComponent(month)}`); }
+export function sendInsuranceDocuments(id: string, snapshot: { caseVersion: number; customerPhone: string; attachmentIds: string[] }) { return request<{ items: { id: string; state: string }[]; message: string }>(`/api/insurance/${encodeURIComponent(id)}/send-documents`, { method: "POST", body: JSON.stringify(snapshot) }); }
+
+export function renewInsuranceCase(id: string, version: number) { return request<InsuranceCaseView>(`/api/insurance/${encodeURIComponent(id)}/renew`, { method: "POST", body: JSON.stringify({ version, confirmed: true }) }); }

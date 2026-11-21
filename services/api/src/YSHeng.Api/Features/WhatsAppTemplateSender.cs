@@ -136,6 +136,7 @@ public sealed class WhatsAppApprovedTemplate
     public bool ValidName => Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z");
     public bool Valid => Approved && (Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" ||
         Key == WhatsAppInspectionAttachment.TemplateKey && HeaderFormat == "DOCUMENT" ||
+        WhatsAppInsurance.ValidManifest(this) ||
         WhatsAppReminderV2.Known(Key) && WhatsAppReminderV2.ValidManifest(this)) &&
         Language is "ms" or "en_US" && ValidName && ValidProviderLanguage &&
         WhatsAppDispatchOptions.Evidence(ApprovalEvidence);
@@ -155,21 +156,22 @@ public sealed class WhatsAppTemplateSender : IDisposable
         SendCoreAsync(options, item, null, ct);
 
     public async Task<WhatsAppSendResult> SendAttachmentAsync(WhatsAppDispatchOptions options, WhatsAppOutbox item,
-        byte[] pdf, Func<CancellationToken, Task<bool>> stillEligible, CancellationToken ct = default)
+        byte[] pdf, Func<CancellationToken, Task<bool>> stillEligible, CancellationToken ct = default, string mimeType = "application/pdf")
     {
-        if (!options.StaffSenderReady || item.Audience != "Staff") return new("Disabled");
-        if (item.TemplateVersion != WhatsAppInspectionAttachment.TemplateKey || options.TemplateFor(item)?.HeaderFormat != "DOCUMENT")
+        if (WhatsAppInsurance.IsDocument(item) ? !options.Ready : !options.StaffSenderReady || item.Audience != "Staff") return new("Disabled");
+        if ((item.TemplateVersion != WhatsAppInspectionAttachment.TemplateKey && !WhatsAppInsurance.IsDocument(item)) || options.TemplateFor(item)?.HeaderFormat != (item.TemplateVersion == WhatsAppInsurance.ImageTemplate ? "IMAGE" : "DOCUMENT"))
             return new("TemplateNotApproved");
-        if (!WhatsAppInspectionAttachment.ValidPdf(pdf)) return new("Suppressed");
+        var image = item.TemplateVersion == WhatsAppInsurance.ImageTemplate;
+        if (image ? !WhatsAppInsurance.Sendable(new InsuranceAttachment { MimeType = mimeType, FileName = mimeType == "image/png" ? "evidence.png" : "evidence.jpg", Content = pdf }) || mimeType == "application/pdf" : mimeType != "application/pdf" || !WhatsAppInspectionAttachment.ValidPdf(pdf)) return new("Suppressed");
         using var upload = new HttpRequestMessage(HttpMethod.Post,
             $"https://graph.facebook.com/{options.GraphApiVersion}/{options.PhoneNumberId}/media");
         upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", options.AccessToken);
         using var multipart = new MultipartFormDataContent();
         multipart.Add(new StringContent("whatsapp"), "messaging_product");
-        multipart.Add(new StringContent("application/pdf"), "type");
+        multipart.Add(new StringContent(mimeType), "type");
         var file = new ByteArrayContent(pdf);
-        file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
-        multipart.Add(file, "file", "appointment-slip.pdf");
+        file.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+        multipart.Add(file, "file", image ? "insurance-image" + (mimeType == "image/png" ? ".png" : ".jpg") : "document.pdf");
         upload.Content = multipart;
         try
         {
@@ -192,7 +194,7 @@ public sealed class WhatsAppTemplateSender : IDisposable
     {
         if (item.Audience switch { "Staff" => !options.StaffSenderReady, "Enrollment" => !options.InvitationSenderReady, _ => !options.Ready }) return new("Disabled");
         var template = options.TemplateFor(item);
-        if (template is null || (item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey) != (mediaId is not null) || !WhatsAppNotificationDispatcher.Supported(item) ||
+        if (template is null || (item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey || WhatsAppInsurance.IsDocument(item)) != (mediaId is not null) || !WhatsAppNotificationDispatcher.Supported(item) ||
             (item.Audience == "Customer" && !Guid.TryParseExact(item.BusinessReference, "D", out _)) || string.IsNullOrWhiteSpace(item.TemplateReference) ||
             item.TemplateReference.Length > (item.Audience is "Staff" or "Enrollment" ? 1024 : 80) || item.TemplateReference.Any(char.IsControl)) return new("TemplateNotApproved");
         var parameters = WhatsAppReminderV2.Known(item.TemplateVersion) ? WhatsAppReminderV2.Parameters(item) : [item.TemplateReference];
@@ -213,7 +215,9 @@ public sealed class WhatsAppTemplateSender : IDisposable
                 components = mediaId is null
                     ? new object[] { new { type = "body", parameters = parameters.Select(value => new { type = "text", text = value }).ToArray() } }
                     : new object[] {
-                        new { type = "header", parameters = new[] { new { type = "document", document = new { id = mediaId, filename = "appointment-slip.pdf" } } } },
+                        item.TemplateVersion == WhatsAppInsurance.ImageTemplate
+                            ? (object)new { type = "header", parameters = new[] { new { type = "image", image = new { id = mediaId } } } }
+                            : new { type = "header", parameters = new[] { new { type = "document", document = new { id = mediaId, filename = WhatsAppInsurance.IsDocument(item) ? "insurance-document.pdf" : "appointment-slip.pdf" } } } },
                         new { type = "body", parameters = parameters.Select(value => new { type = "text", text = value }).ToArray() }
                     }
             }

@@ -127,6 +127,9 @@ public static class WhatsAppStaffWebhook
         {
             var caption = (String(media, "caption") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var mediaId = String(media, "id") ?? "";
+            var insuranceCaption = String(media, "caption") ?? "";
+            if (insuranceCaption.StartsWith("INSURANCE ", StringComparison.OrdinalIgnoreCase) && insuranceCaption.Length <= 500 && !insuranceCaption.Any(char.IsControl) && WhatsAppMediaClient.ValidId(mediaId))
+                return new("insurance-evidence", insuranceCaption[10..] + "|" + mediaId);
             if (caption.Length == 2 && caption[0].ToUpperInvariant() is "VOC" or "IC" && Guid.TryParse(caption[1], out var draftId) && WhatsAppMediaClient.ValidId(mediaId))
                 return new("intake-file", $"{draftId:D}|{caption[0].ToUpperInvariant()}|{mediaId}");
             return new("usage");

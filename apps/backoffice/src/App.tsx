@@ -104,6 +104,7 @@ import { OperationsProTable as Table, operationsKeywordFromFields } from "./modu
 import { VehiclePage } from "./modules/vehicles/VehiclePage";
 import { ResponsiveSectionTabs } from "./modules/shared/ResponsiveSectionTabs";
 import { DeliveryWorkboardPage } from "./modules/delivery/DeliveryWorkboardPage";
+import { InsurancePage } from "./modules/insurance/InsurancePage";
 import { InspectionPage } from "./modules/inspection/InspectionPage";
 import { SalesMyCarsPanel } from "./modules/leads/SalesMyCarsPanel";
 import { markModuleGuideTourSeen, moduleGuideForPath, shouldShowModuleGuideTour } from "./moduleGuides";
@@ -401,6 +402,7 @@ const allRoutes: { path: AppRoutePath; name: string; icon: ReactNode }[] = [
   { path: "/loans", name: bilingual.loans, icon: <FileDoneOutlined /> },
   { path: "/delivery", name: bilingual.delivery, icon: <AuditOutlined /> },
   { path: "/inspection", name: bilingual.inspection, icon: <SafetyCertificateOutlined /> },
+  { path: "/insurance", name: "Insurance & Road Tax / 保险路税", icon: <SafetyCertificateOutlined /> },
   { path: "/finance", name: bilingual.finance, icon: <BankOutlined /> },
   { path: "/customer-360", name: "Customer 360", icon: <UserOutlined /> },
   { path: "/leads", name: bilingual.leads, icon: <UserOutlined /> },
@@ -1485,6 +1487,7 @@ export default function App() {
               onOpenCustomer={(customerId) => navigateTo(`/customer-360?customerId=${customerId}`)}
             />
           )}
+          {pathname === "/insurance" && <InsurancePage />}
           {pathname === "/inspection" && <InspectionPage vehicles={vehicleLookup} canExportAutoCount={currentRoles.includes("BossAdmin")} />}
           {pathname === "/finance" && (
             <FinancePage
@@ -2099,6 +2102,7 @@ function moduleStats(pathname: string, data: {
         { label: "reminders", value: data.reminders.filter((reminder) => reminder.type === "LoanFollowUp").length }
       ];
     case "/delivery":
+    case "/insurance":
       return [];
     case "/finance":
       return [

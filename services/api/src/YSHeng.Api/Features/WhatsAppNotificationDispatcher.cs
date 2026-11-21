@@ -15,7 +15,8 @@ public static class WhatsAppNotificationDispatcher
           item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey && WhatsAppInspectionAttachment.Required(item) ||
           WhatsAppReminderV2.Known(item.TemplateVersion) && WhatsAppReminderV2.KeyFor(item) == item.TemplateVersion) &&
           WhatsAppStaffNotifications.Categories.Contains(item.MessageKind)
-        : item.Audience == "Customer" && (item.EventKind, item.TemplateVersion) is
+        : WhatsAppInsurance.IsDocument(item) || WhatsAppInsurance.IsPayment(item) ||
+          item.Audience == "Customer" && (item.EventKind, item.TemplateVersion) is
           ("enquiry.created", "enquiry_ack_v1") or ("loan.status_changed", "business_update_v1") or ("receipt.issued", "receipt_ready_v1");
 
     public static async Task<bool> DispatchOneAsync(AppDbContext db, WhatsAppDispatchOptions options,
@@ -236,6 +237,8 @@ public static class WhatsAppNotificationDispatcher
 
     private static async Task<bool> ReceiptEligibleAsync(AppDbContext db, WhatsAppOutbox item, CancellationToken ct, bool lockReceipt = false)
     {
+        if (WhatsAppInsurance.IsDocument(item) || WhatsAppInsurance.IsPayment(item))
+            return await WhatsAppInsurance.EligibleAsync(db, item, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct, lockCase: lockReceipt);
         if (item.EventKind != "receipt.issued") return true;
         if (!Guid.TryParseExact(item.BusinessReference, "D", out var id)) return false;
         if (lockReceipt)
@@ -262,7 +265,7 @@ public sealed class WhatsAppNotificationWorker(IServiceScopeFactory scopes, What
                 await using var scope = scopes.CreateAsyncScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options,
-                    sender.SendAsync, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken,
+                    (dispatchOptions, row, token) => WhatsAppInsurance.SendAsync(db, sender, dispatchOptions, row, token), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), stoppingToken,
                     assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }

@@ -1,6 +1,6 @@
 import type { StaffRole } from "./api";
 
-export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/inspection" | "/finance" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
+export type AppRoutePath = "/dashboard" | "/vehicles" | "/repairs" | "/loans" | "/delivery" | "/inspection" | "/insurance" | "/finance" | "/customer-360" | "/leads" | "/audit-log" | "/hr-salary" | "/admin";
 export type BackOfficeDataKey =
   | "dashboard"
   | "reminders"
@@ -57,6 +57,7 @@ export const routeAccess: RouteAccess[] = [
   { path: "/loans", roles: ["BossAdmin", "Loan", "Sales"] },
   { path: "/delivery", roles: ["BossAdmin", "Delivery"] },
   { path: "/inspection", roles: ["BossAdmin", "Delivery"] },
+  { path: "/insurance", roles: ["BossAdmin"] },
   { path: "/finance", roles: ["BossAdmin", "Sales", "Finance"] },
   { path: "/customer-360", roles: ["BossAdmin", "Sales", "Loan", "Delivery", "Finance"] },
   { path: "/leads", roles: ["BossAdmin", "Sales"] },

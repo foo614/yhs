@@ -9,6 +9,51 @@ namespace YSHeng.Api.Tests;
 
 public sealed class AutoCountExportTests
 {
+    // Prevents silent wrong-book accounts, missing clipboard placeholders and unverified money exports.
+    [Fact]
+    public void Insurance_copy_uses_exact_screenshot_columns_and_blocks_unconfirmed_money_or_accounts()
+    {
+        var record = new InsuranceCase { PlateNumber = "TEST123", CustomerName = "Synthetic", InsuranceAmount = 1230.23m, RoadTaxAmount = 90m,
+            RoadTaxMethod = "JPJ", RunnerFee = 20m, PolicyNumber = "SYNTH-POL", CoverStartDate = new(2026, 11, 1), Company = "Auto", InvoiceNumber = "SYNTH-IV" };
+        Assert.Empty(InsuranceAutoCount.Build(record, "PurchaseInsurance").Clipboard);
+        var purchase = InsuranceAutoCount.Build(record, "PurchaseInsurance", 1117.25m, true);
+        Assert.Empty(purchase.Blockers);
+        Assert.Equal(new[] { "INS-MV", "4001-I002", "INSURANCE FOR M/V - TEST123", "", "UNIT", "1", "1230.23", "", "1230.23" }, purchase.Rows[0]);
+        Assert.Equal("5C00-0000", purchase.Rows[1][1]); Assert.Equal("-112.98", purchase.Rows[1][6]);
+        Assert.All(purchase.Clipboard.Split('\n'), row => Assert.Equal(9, row.Split('\t').Length));
+        var auto = InsuranceAutoCount.Build(record, "CustomerSales");
+        Assert.Equal("5020-001", auto.Rows[2][1]); Assert.Empty(auto.Blockers);
+        var automotive = InsuranceAutoCount.Build(record with { Company = "Automotive" }, "CustomerSales");
+        Assert.Equal("006", automotive.Rows[0][8]); Assert.Equal("INSURANCE (MV)", automotive.Rows[0][0]);
+        Assert.Empty(automotive.Rows[2][1]); Assert.Empty(automotive.Clipboard); Assert.NotEmpty(automotive.Blockers);
+        var eauto = InsuranceAutoCount.Build(record with { Company = "Automotive", RoadTaxMethod = "EAuto" }, "CustomerSales");
+        Assert.Equal(2, eauto.Rows.Length); Assert.Empty(eauto.Blockers);
+        var receipt = new InsuranceReceipt { CaseId = record.Id, Company = "Auto", InvoiceNumber = "SYNTH-IV", Amount = 30, PaymentType = "TNG", DepositAccount = "PBB", ReceivedDate = new(2026, 11, 1) };
+        Assert.Empty(InsuranceAutoCount.Build(record, "Receipt", receipt: receipt).Clipboard);
+        var confirmed = receipt with { Status = "Confirmed", ConfirmedAt = DateTimeOffset.UtcNow, ConfirmedBy = "synthetic-admin" };
+        var payment = InsuranceAutoCount.Build(record, "Receipt", receipt: confirmed);
+        Assert.Equal("YS Heng Auto", payment.Book);
+        Assert.Equal(new[] { "PBB", "-", "30.00", "0.00", "1", "", "False", "" }, payment.Rows.Single());
+        Assert.Empty(InsuranceAutoCount.Build(record, "Receipt", receipt: confirmed with { CaseId = Guid.NewGuid() }).Clipboard);
+    }
+
+    [Fact]
+    public void Insurance_intercompany_retains_plates_and_ap_requires_supplier_invoice_with_exact_accounts()
+    {
+        var first = new InsuranceCase { PlateNumber = "SYNTH1", Company = "Automotive", InsuranceAmount = 100, RoadTaxAmount = 90, RunnerFee = 0,
+            OtherCharges = [new("STMS/E-SERAHAN", "Ownership", 50), new("INTERCHANGE NUMBER", "Interchange", 205)] };
+        var second = first with { Id = Guid.NewGuid(), PlateNumber = "SYNTH2" };
+        var monthly = InsuranceAutoCount.Monthly([first, second], "2026-11");
+        Assert.Empty(monthly.Blockers); Assert.Equal(8, monthly.Rows.Length);
+        Assert.Equal("4001-M001", monthly.Rows[2][1]); Assert.Contains("SYNTH2", monthly.Rows[4][2]);
+        Assert.Empty(InsuranceAutoCount.Build(first, "AutomotiveAP").Clipboard);
+        var ap = InsuranceAutoCount.Build(first with { IntercompanyInvoiceNumber = "SYNTH-AUTO-IV" }, "AutomotiveAP");
+        Assert.Empty(ap.Blockers); Assert.Equal("SYNTH-AUTO-IV", ap.Headers["Supplier IV No."]);
+        Assert.Equal("SYNTH1", ap.Headers["Ref. No. 2"]); Assert.Equal("<<New>>", ap.Headers["Invoice No."]);
+        Assert.Equal(new[] { "4001-I002", "4001-R002", "6000-0000", "4001-M002" }, ap.Rows.Select(row => row[0]));
+        Assert.All(ap.Rows, row => Assert.Equal(3, row.Length));
+    }
+
     [Fact]
     public void Export_creates_valid_xlsx_with_manifest_categories_and_remarks()
     {

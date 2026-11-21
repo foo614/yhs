@@ -17,7 +17,7 @@ public static class WhatsAppStaffQueue
         var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleOrDefaultAsync(item =>
             item.PhoneNumberId == options.PhoneNumberId && item.Recipient == recipient && item.RevokedAt == null, ct);
         if (binding is null || await WhatsAppStaffBindings.ResolveAsync(db, options, binding.Id, now, ct) is not { } identity) return false;
-        if (intent.Name is "create-vehicle" or "intake-file" && !identity.Roles.Contains("BossAdmin")) return false;
+        if (intent.Name is "create-vehicle" or "intake-file" or "insurance-pay" or "insurance-evidence" && !identity.Roles.Contains("BossAdmin")) return false;
         var dayStart = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8)).Date;
         var from = new DateTimeOffset(dayStart, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
         var workspace = await db.WhatsAppStaffRequests.CountAsync(item => item.CreatedAt >= from, ct);
@@ -79,6 +79,8 @@ public static class WhatsAppStaffQueue
         }
         var permitted = WhatsAppStaffQueries.Permitted(intent, identity.Value.Roles);
         string? mediaReply = null;
+        if (permitted && intent.Name == "insurance-evidence")
+            mediaReply = mediaClient is null ? "Evidence processing is unavailable." : await WhatsAppInsurance.StoreEvidenceAsync(db, intent.Argument, request.BindingId, request.Id, identity.Value.Binding.StaffUserId, options, mediaClient, now, ct);
         if (permitted && intent.Name == "intake-file")
         {
             var parts = intent.Argument.Split('|');

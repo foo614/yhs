@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { backOfficeDataKeysForRoles, canAccessRoute, canApproveVehicles, canAssignStaffRoles, firstAccessiblePath, isRouteVisibleInNavigation } from "./access";
 
 describe("backoffice role access", () => {
+  it("restricts standalone insurance financial and identity records to Boss/Admin", () => {
+    expect(canAccessRoute(["BossAdmin"], "/insurance")).toBe(true);
+    for (const role of ["Sales", "Loan", "Delivery", "Finance", "Repair", "HrSalary"]) expect(canAccessRoute([role], "/insurance")).toBe(false);
+    expect(canAccessRoute([], "/insurance")).toBe(false);
+  });
   it("opens operational Dashboard without loading management finance data", () => {
     for (const role of ["Sales", "Loan", "Delivery", "Finance", "Repair", "HrSalary"]) {
       expect(canAccessRoute([role], "/dashboard")).toBe(true);

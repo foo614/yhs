@@ -2336,3 +2336,44 @@ describe("backoffice api client", () => {
     await expect(getVehiclePhotosStrict("vehicle-1")).rejects.toThrow("Photo list unavailable");
   });
 });
+
+
+describe("standalone insurance receipt boundary", () => {
+  it("keeps receipt preview separate from explicit actual-funds confirmation", async () => {
+    const { previewInsuranceReceipt, confirmInsuranceReceipt } = await import("./api");
+    const input = { idempotencyKey: "test-idempotency", amount: 25.50, paymentType: "TNG" as const, receivedDate: "2026-11-21", depositAccount: "PBB" as const, invoiceNumber: "SYNTHETIC-IV", evidenceAttachmentId: "evidence-1" };
+    const fetchMock = mockFetch({ id: "receipt-1", status: "Pending" });
+    await previewInsuranceReceipt("case-1", input);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/insurance/case-1/receipts/preview", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(input) }));
+    mockFetch({ id: "receipt-1", status: "Confirmed" });
+    await confirmInsuranceReceipt("case-1", "receipt-1");
+    expect(fetch).toHaveBeenCalledWith("http://localhost:5000/api/insurance/case-1/receipts/receipt-1/confirm", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ confirmed: true }) }));
+  });
+  it("surfaces insurance payment validation errors without mutation fallbacks", async () => {
+    const { confirmInsuranceReceipt } = await import("./api");
+    mockFetch({ message: "Receipt exceeds remaining outstanding." }, false, 409);
+    await expect(confirmInsuranceReceipt("case-1", "receipt-1")).rejects.toThrow("Receipt exceeds remaining outstanding.");
+  });
+});
+
+
+describe("insurance customer document send snapshot", () => {
+  it("sends the reviewed case version, recipient and exact document IDs for server revalidation", async () => {
+    const { sendInsuranceDocuments } = await import("./api");
+    const snapshot = { caseVersion: 3, customerPhone: "0000000000", attachmentIds: ["policy-2", "jpj-2"] };
+    const fetchMock = mockFetch({ items: [], message: "Queued" });
+    await sendInsuranceDocuments("case-1", snapshot);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/insurance/case-1/send-documents", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify(snapshot) }));
+  });
+});
+
+
+describe("insurance renewal ledger boundary", () => {
+  it("creates the next cover case only with explicit confirmation and the reviewed version", async () => {
+    const { renewInsuranceCase } = await import("./api");
+    const fetchMock = mockFetch({ record: { id: "next-renewal" } });
+    await renewInsuranceCase("previous-case", 4);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/insurance/previous-case/renew", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ version: 4, confirmed: true }) }));
+  });
+});

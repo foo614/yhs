@@ -152,6 +152,12 @@ fixtures["/api/dashboard/collection-ageing"] = {
   asOfDate: "2026-09-01", timeZone: "Asia/Singapore", totalAmount: 15000, totalCount: 2,
   buckets: ["NotYetDue", "Overdue1To7", "Overdue8To30", "OverdueOver30", "UnknownDueDate"].map(key => ({ key, amount: key === "UnknownDueDate" ? 15000 : 0, count: key === "UnknownDueDate" ? 2 : 0 }))
 };
+fixtures["/api/insurance"] = [{
+  record: { id: "insurance-layout-case", version: 1, plateNumber: "TEST1234", customerName: "Synthetic Customer With A Longer Display Name / 测试客户", customerPhone: "0000000000", identityNumber: "SYNTHETIC-IC", caseType: "Renewal", company: "Automotive", insurer: "Synthetic Insurer", coverage: "Comprehensive", expiryDate: "2026-12-10", coverStartDate: "2026-11-01", policyNumber: "SYNTHETIC-POLICY", roadTaxMethod: "JPJ", roadTaxMonths: 12, roadTaxCompleted: false, insuranceAmount: 1230.23, roadTaxAmount: 90, runnerFee: 20, discount: 0, otherCharges: [], invoiceNumber: "SYNTHETIC-IV", renewalDeclined: false, specialJpjSale: false },
+  receipts: [{ id: "synthetic-pending-receipt", caseId: "insurance-layout-case", amount: 100, status: "Pending", paymentType: "TNG", depositAccount: "PBB", receivedDate: "2026-11-21", invoiceNumber: "SYNTHETIC-IV" }],
+  insurerPayments: [{ id: "synthetic-insurer-payment", amount: 1117.25, paidDate: "2026-11-10", reference: "SYNTHETIC-PAYMENT" }],
+  attachments: [{ id: "synthetic-policy", kind: "Policy", fileName: "Synthetic long insurance policy filename for responsive review.pdf", mimeType: "application/pdf", uploadedAt: "2026-11-21T00:00:00Z" }], total: 1340.23, received: 0, outstanding: 1340.23, renewalDue: true, paymentAlert: true, commission: 112.98
+}];
 export const fixtureTemplate = fixtures;
 export const emptyCollectionTemplate = emptyCollections;
 
@@ -749,6 +755,31 @@ try {
       }
       const checkInteractions = process.env.RESPONSIVE_INTERACTIONS === "1" || (process.env.RESPONSIVE_INTERACTIONS !== "0" && [360, 820, 1440].includes(width));
       if (checkInteractions) {
+        if (route === "insurance") {
+          await page.getByRole("button", { name: "Details / 详情", exact: true }).filter({ visible: true }).first().click();
+          await inspect("insurance-populated-details", width);
+          for (const section of ["Customer receipts / 客户收款", "Insurer payments / 保险公司付款", "AutoCount copy", "Documents / 文件"]) {
+            await activateSection(section);
+            await inspect(`insurance-section-${section.split(" /")[0].replaceAll(" ", "-")}`, width);
+          }
+          await page.getByRole("button", { name: "Customer receipt / 客户收款", exact: true }).click();
+          await inspect("insurance-receipt-preview-form", width);
+          await page.locator(".ant-modal-close:visible").last().click();
+          await expect(page.locator(".ant-modal-wrap:visible")).toHaveCount(0);
+          await page.getByRole("button", { name: "Edit case / 编辑个案", exact: true }).click();
+          await inspect("insurance-case-editor", width);
+          await page.locator(".ant-drawer-close:visible").last().click();
+          await expect(page.locator(".ant-drawer-open")).toHaveCount(1);
+          await closeOverlay();
+          await page.getByRole("button", { name: "Import listing / 导入旧名单", exact: true }).click();
+          await inspect("insurance-import-preview", width);
+          await closeOverlay();
+          await page.getByRole("button", { name: "New case / 新增个案", exact: true }).click();
+          await page.getByRole("button", { name: "Review & save / 检查保存", exact: true }).click();
+          await page.locator(".ant-form-item-explain-error").first().waitFor();
+          await inspect("insurance-case-validation", width);
+          await closeOverlay();
+        }
         if (route === "repairs") await verifyRepairReviewTotal();
         if (route === "leads") await verifyLeadRecovery();
         if (route === "loans") await verifyLoanCompletion();

@@ -17,6 +17,69 @@ namespace YSHeng.Api.Tests;
 
 public sealed class WhatsAppStaffAssistantTests
 {
+    [Fact]
+    public async Task Insurance_staff_policy_supports_scheduled_internal_renewal_without_phone_once_per_expiry()
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin"); Assert.True(await fixture.Verify(await fixture.Issue("boss"))); await fixture.DispatchAccepted();
+        var today = WhatsAppStaffNotifications.LocalDate(fixture.Now);
+        var record = new InsuranceCase { PlateNumber = "SYNTH123", CustomerName = "Synthetic", CustomerPhone = null, ExpiryDate = today.AddDays(20) };
+        fixture.Db.InsuranceCases.Add(record); await fixture.Db.SaveChangesAsync();
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(fixture.Db, WhatsAppInsurance.Category, new(true, 540, 0, 0), "synthetic-admin", fixture.Now));
+        Assert.False(await WhatsAppStaffNotifications.UpdatePolicyAsync(fixture.Db, WhatsAppInsurance.Category, new(true, 540, 0, 0, 5), "synthetic-admin", fixture.Now));
+        Assert.Equal(1, await WhatsAppInsurance.EnqueueAsync(fixture.Db, fixture.Options, fixture.Now, default));
+        Assert.Equal(0, await WhatsAppInsurance.EnqueueAsync(fixture.Db, fixture.Options, fixture.Now + 86400, default));
+        var queued = await fixture.Db.WhatsAppOutbox.SingleAsync(x => x.MessageKind == WhatsAppInsurance.Category);
+        Assert.NotNull(await WhatsAppInsurance.RefreshReminderAsync(fixture.Db, queued, fixture.Now, default));
+        await fixture.Db.InsuranceCases.Where(x => x.Id == record.Id).ExecuteUpdateAsync(set => set.SetProperty(x => x.RenewalDeclined, true));
+        Assert.Null(await WhatsAppInsurance.RefreshReminderAsync(fixture.Db, queued, fixture.Now, default));
+    }
+
+    // Prevents a forwarded slip or unprivileged/expired confirmation settling customer debt.
+    [Fact]
+    public async Task Insurance_payment_command_requires_owned_live_preview_and_explicit_amount_confirmation()
+    {
+        await using var fixture = await Fixture.Create();
+        await fixture.AddStaff("boss", "BossAdmin");
+        Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        await fixture.DispatchAccepted();
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        var record = new InsuranceCase { PlateNumber = "SYNTH123", CustomerName = "Synthetic", InvoiceNumber = "SYNTH-IV", InsuranceAmount = 100, RunnerFee = 0, ExpiryDate = new(2027, 11, 1) };
+        var receipt = new InsuranceReceipt { CaseId = record.Id, Amount = 30, InvoiceNumber = "SYNTH-IV", IdempotencyKey = "test-insurance", ReceivedDate = InsuranceRules.Today };
+        fixture.Db.InsuranceCases.Add(record); fixture.Db.InsuranceReceipts.Add(receipt); await fixture.Db.SaveChangesAsync();
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse($"insurance-pay {receipt.Id:D} 30.00"));
+        Assert.False(WhatsAppStaffQueries.Permitted(intent, ["Sales", "Finance"]));
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, intent, "insurance-preview", fixture.Now));
+        var reply = await fixture.DispatchAccepted();
+        Assert.Contains("SYNTH-IV", reply); Assert.Contains("30.00", reply);
+        Assert.Equal("Pending", (await fixture.Db.InsuranceReceipts.AsNoTracking().SingleAsync()).Status);
+        var preview = await fixture.Db.WhatsAppStaffRequests.SingleAsync(x => x.Intent == "insurance-pay");
+        Assert.Contains("expired", await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {preview.Id:D}", binding.Id, Guid.NewGuid(), "boss", fixture.Options, fixture.Now + 301, default));
+        Assert.Contains("required", await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {preview.Id:D}", Guid.NewGuid(), Guid.NewGuid(), "boss", fixture.Options, fixture.Now, default));
+        var confirmed = await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {preview.Id:D}", binding.Id, Guid.NewGuid(), "boss", fixture.Options, fixture.Now, default);
+        Assert.Contains("Funds verified", confirmed);
+        Assert.Equal(70, (await InsuranceModule.LoadView(fixture.Db, record)).Outstanding);
+        await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {preview.Id:D}", binding.Id, Guid.NewGuid(), "boss", fixture.Options, fixture.Now, default);
+        Assert.Single(await fixture.Db.AuditLogs.Where(x => x.Action == "insurance.receiptConfirmed").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Insurance_documents_fail_closed_on_consent_case_ownership_and_superseded_evidence()
+    {
+        await using var fixture = await Fixture.Create();
+        var record = new InsuranceCase { PlateNumber = "SYNTH123", CustomerName = "Synthetic", CustomerPhone = fixture.Options.TestRecipient, ExpiryDate = new(2027, 11, 1) };
+        var pdf = new InsuranceAttachment { CaseId = record.Id, Kind = "Policy", MimeType = "application/pdf", Content = "%PDF-synthetic"u8.ToArray() };
+        fixture.Db.InsuranceCases.Add(record); fixture.Db.InsuranceAttachments.Add(pdf); await fixture.Db.SaveChangesAsync();
+        var row = new WhatsAppOutbox { Recipient = fixture.Options.TestRecipient, Audience = "Customer", EventKind = "insurance.document", TemplateVersion = WhatsAppInsurance.DocumentTemplate,
+            Language = "en_US", BusinessReference = record.Id.ToString("D"), BusinessEventKey = $"insurance:{record.Id:N}:document:{pdf.Id:N}", ExpiresAt = fixture.Now + 100 };
+        Assert.False(await WhatsAppInsurance.EligibleAsync(fixture.Db, row, fixture.Now, default));
+        await WhatsAppOutboxStore.SetConsentAsync(fixture.Db, fixture.Options.TestRecipient, true, "synthetic opt-in", fixture.Now, language: "en_US");
+        Assert.True(await WhatsAppInsurance.EligibleAsync(fixture.Db, row, fixture.Now, default));
+        Assert.False(await WhatsAppInsurance.EligibleAsync(fixture.Db, row with { BusinessReference = Guid.NewGuid().ToString("D") }, fixture.Now, default));
+        fixture.Db.InsuranceAttachments.Add(pdf with { Id = Guid.NewGuid(), UploadedAt = pdf.UploadedAt.AddMinutes(1) }); await fixture.Db.SaveChangesAsync();
+        Assert.False(await WhatsAppInsurance.EligibleAsync(fixture.Db, row, fixture.Now, default));
+    }
+
     [Theory]
     [InlineData("valid", 2)]
     [InlineData("untrusted-host", 1)]

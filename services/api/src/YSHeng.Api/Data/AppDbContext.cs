@@ -76,9 +76,21 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<WhatsAppVehicleIntakeDraft> WhatsAppVehicleIntakeDrafts => Set<WhatsAppVehicleIntakeDraft>();
     public DbSet<WhatsAppSettlementUpdateDraft> WhatsAppSettlementUpdateDrafts => Set<WhatsAppSettlementUpdateDraft>();
 
+    public DbSet<InsuranceCase> InsuranceCases => Set<InsuranceCase>();
+    public DbSet<InsuranceAttachment> InsuranceAttachments => Set<InsuranceAttachment>();
+    public DbSet<InsuranceReceipt> InsuranceReceipts => Set<InsuranceReceipt>();
+    public DbSet<InsuranceInsurerPayment> InsuranceInsurerPayments => Set<InsuranceInsurerPayment>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<InsuranceCase>().Property(x => x.Version).IsConcurrencyToken();
+        builder.Entity<InsuranceCase>().HasIndex(x => x.ImportKey).IsUnique().HasFilter("\"ImportKey\" IS NOT NULL");
+        builder.Entity<InsuranceAttachment>().HasOne<InsuranceCase>().WithMany().HasForeignKey(x => x.CaseId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<InsuranceReceipt>().HasOne<InsuranceCase>().WithMany().HasForeignKey(x => x.CaseId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<InsuranceInsurerPayment>().HasOne<InsuranceCase>().WithMany().HasForeignKey(x => x.CaseId).OnDelete(DeleteBehavior.Restrict);
+        builder.Entity<InsuranceReceipt>().HasIndex(x => new { x.CaseId, x.IdempotencyKey }).IsUnique();
+        builder.Entity<InsuranceInsurerPayment>().HasIndex(x => new { x.CaseId, x.IdempotencyKey }).IsUnique();
         builder.Entity<SettlementReminder>().HasIndex(x => x.ReplacesSettlementId).IsUnique().HasFilter("\"ReplacesSettlementId\" IS NOT NULL").HasDatabaseName("UX_SettlementReplacement");
         builder.Entity<SettlementReminder>().HasIndex(x => x.PaymentDocumentId).IsUnique().HasFilter("\"PaymentDocumentId\" IS NOT NULL").HasDatabaseName("UX_SettlementPaymentDocument");
         builder.Entity<WhatsAppStaffBinding>().HasIndex(item => item.StaffUserId).IsUnique().HasFilter("\"RevokedAt\" IS NULL");

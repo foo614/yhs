@@ -478,7 +478,7 @@ public sealed class WhatsAppOutboxTests
             if (submitted.Count == 3) complete.TrySetResult();
         })));
         await using var services = new ServiceCollection().AddScoped(_ => fixture.Open()).BuildServiceProvider();
-        using var scheduler = new WhatsAppStaffProactiveWorker(services.GetRequiredService<IServiceScopeFactory>(), assistant,
+        using var scheduler = new WhatsAppStaffProactiveWorker(services.GetRequiredService<IServiceScopeFactory>(), assistant, dispatch,
             NullLogger<WhatsAppStaffProactiveWorker>.Instance);
         using var worker = new WhatsAppNotificationWorker(services.GetRequiredService<IServiceScopeFactory>(), dispatch,
             assistant, sender, NullLogger<WhatsAppNotificationWorker>.Instance);
@@ -536,7 +536,32 @@ public sealed class WhatsAppOutboxTests
         Assert.Equal("TemplateNotApproved", (await sender.SendAsync(StaffDispatch(AttachmentTemplate()), row)).Outcome);
     }
 
-    private sealed class AttachmentHandler : HttpMessageHandler
+    // Prevents wrong media headers or a failed final consent check sending private evidence.
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task Insurance_approved_media_uses_matching_header_and_rechecks_before_customer_send(bool image, bool eligible)
+    {
+        var key = image ? WhatsAppInsurance.ImageTemplate : WhatsAppInsurance.DocumentTemplate;
+        var options = new WhatsAppDispatchOptions { CaptureEnabled = true, SendingEnabled = true, WebhookEnabled = true, SenderApproved = true,
+            SenderApprovalEvidence = "synthetic approval", GraphApiVersion = "v25.0", PhoneNumberId = "12345", BusinessAccountId = "45678",
+            AccessToken = "synthetic-token", AppSecret = "synthetic-secret", VerifyToken = "synthetic-verify", DailyAttemptLimit = 10,
+            Templates = [new() { Key = key, Name = "approved_insurance_media", Language = "ms", Approved = true, ApprovalEvidence = "synthetic template approval", HeaderFormat = image ? "IMAGE" : "DOCUMENT" }] };
+        var handler = new AttachmentHandler(image ? "image" : "document");
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        var row = new WhatsAppOutbox { Audience = "Customer", EventKind = "insurance.document", TemplateVersion = key, Language = "ms",
+            Recipient = Recipient, BusinessReference = Guid.NewGuid().ToString("D"), TemplateReference = "SYNTH123" };
+        byte[] content;
+        if (image) { using var bitmap = new SkiaSharp.SKBitmap(2, 2); using var picture = SkiaSharp.SKImage.FromBitmap(bitmap); using var encoded = picture.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100); content = encoded.ToArray(); }
+        else content = "%PDF-synthetic"u8.ToArray();
+        var result = await sender.SendAttachmentAsync(options, row, content, _ => Task.FromResult(eligible), mimeType: image ? "image/png" : "application/pdf");
+        Assert.Equal(eligible ? "Accepted" : "Suppressed", result.Outcome);
+        Assert.Equal(eligible ? 2 : 1, handler.Requests);
+        Assert.Equal("TemplateNotApproved", (await sender.SendAsync(options, row)).Outcome);
+    }
+
+    private sealed class AttachmentHandler(string mediaKind = "document") : HttpMessageHandler
     {
         public int Requests { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -551,9 +576,9 @@ public sealed class WhatsAppOutboxTests
             using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             var components = json.RootElement.GetProperty("template").GetProperty("components");
             var media = components[0].GetProperty("parameters")[0];
-            Assert.Equal("document", media.GetProperty("type").GetString());
-            Assert.Equal("123456789", media.GetProperty("document").GetProperty("id").GetString());
-            Assert.False(media.GetProperty("document").TryGetProperty("link", out _));
+            Assert.Equal(mediaKind, media.GetProperty("type").GetString());
+            Assert.Equal("123456789", media.GetProperty(mediaKind).GetProperty("id").GetString());
+            Assert.False(media.GetProperty(mediaKind).TryGetProperty("link", out _));
             return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { messages = new[] { new { id = "wamid.synthetic.document" } } }) };
         }
     }
