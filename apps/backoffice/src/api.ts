@@ -2301,6 +2301,7 @@ export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalenda
 export type OperationsCalendarEvent = {
   id: string;
   kind: "Delivery" | "Busy" | "Task" | "Inspection" | "Holiday";
+  availabilityKind?: "Leave" | "BusinessTrip" | null;
   title: string;
   vehicleYear?: number | null;
   vehicleMake?: string | null;

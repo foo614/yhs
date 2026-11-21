@@ -59,7 +59,7 @@ export function SelectedDayEvents({
           <List.Item key={`${event.kind}-${event.id}`} className="operationsCalendarEvent">
             <div className="operationsCalendarEventBody">
               <Space size={6} wrap>
-                <Tag color={event.kind === "Delivery" ? "blue" : event.kind === "Task" ? "purple" : event.kind === "Holiday" ? "gold" : "orange"}>{event.kind === "Inspection" ? "Inspection / 验车" : event.kind === "Delivery" ? "Delivery / 出车" : event.kind === "Task" ? "Task / 任务" : event.kind === "Holiday" ? "Public holiday / 公共假期" : "Busy / 忙碌"}</Tag>
+                <Tag color={event.kind === "Delivery" ? "blue" : event.kind === "Task" ? "purple" : event.kind === "Holiday" ? "gold" : "orange"}>{event.kind === "Inspection" ? "Inspection / 验车" : event.kind === "Delivery" ? "Delivery / 出车" : event.kind === "Task" ? "Task / 任务" : event.kind === "Holiday" ? "Public holiday / 公共假期" : event.availabilityKind === "Leave" ? "On Leave / 休假" : event.availabilityKind === "BusinessTrip" ? "Business Trip / 出差" : "Busy / 忙碌"}</Tag>
                 {detail.status && <Tag>{detail.status}</Tag>}
               </Space>
               <Space size={6} wrap>
