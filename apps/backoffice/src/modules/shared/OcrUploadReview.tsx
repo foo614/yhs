@@ -6,6 +6,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { UploadProps } from "antd";
 type UploadRequestOption = Parameters<NonNullable<UploadProps["customRequest"]>>[0];
 import { formatMoneyInputWithTwoDecimals, parseMoneyInput } from "../../money";
+import { LoanBankNameInput } from "../../LoanBankNameInput";
 import {
   getOcrJob,
   getVehicleDocumentContent,
@@ -26,7 +27,7 @@ import { OperationsProTable } from "./OperationsProTable";
 export type OcrFieldConfig = {
   name: string;
   label: string;
-  type?: "text" | "number" | "select";
+  type?: "text" | "number" | "select" | "bank";
   options?: { value: string; label: string }[];
   section?: OcrFieldSection;
   fullWidth?: boolean;
@@ -539,6 +540,8 @@ export function OcrUploadReview({
                         <InputNumber className="fullWidth" min={0} precision={isMoneyField(field.name) ? 2 : undefined} formatter={isMoneyField(field.name) ? formatMoneyInputWithTwoDecimals : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
                       ) : field.type === "select" ? (
                         <Select showSearch optionFilterProp="label" options={field.options ?? []} />
+                      ) : field.type === "bank" ? (
+                        <LoanBankNameInput />
                       ) : (
                         <Input />
                       )}

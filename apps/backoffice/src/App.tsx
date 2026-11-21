@@ -4362,6 +4362,8 @@ export function LoanPage({
   const [completionError, setCompletionError] = useState("");
   const completionPending = useRef(false);
   const [loanDetailForm] = Form.useForm<Partial<LoanApplication>>();
+  const windscreenSelected = Form.useWatch("windscreenCovered", loanDetailForm) === true;
+  const ncdDetailsVisible = (Form.useWatch("ncdPercentage", loanDetailForm) ?? 0) > 0;
   const [louTarget, setLouTarget] = useState<string>();
   const [manualBankOpen, setManualBankOpen] = useState(false);
   const [finalDealEditing, setFinalDealEditing] = useState(false);
@@ -4766,7 +4768,7 @@ export function LoanPage({
         buttonLabel={option ? `Upload LOU for ${option.bankName}` : "Upload LOU and review / 上传 LOU 并复核"}
         applyLabel={useAsFinal ? "Confirm and use this LOU / 确认采用此 LOU" : "Confirm bank and terms / 确认银行与条款"}
         fields={[
-          { name: "loanBank", label: "Bank / 银行" },
+          { name: "loanBank", label: "Bank / 银行", type: "bank" },
           { name: "loanAmount", label: "Loan amount / 贷款金额", type: "number" },
           { name: "interestRate", label: "Interest rate / 利率 (%)", type: "number" },
           { name: "loanTenureMonths", label: "Tenure / 期限 (months)", type: "number" },
@@ -4917,10 +4919,12 @@ export function LoanPage({
                   <Descriptions.Item label="Contra / 抵扣金额">{selectedLoan.contraAmount == null ? "-" : `RM ${selectedLoan.contraAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
                   <Descriptions.Item label="Trade-in plate / 旧车车牌">{selectedLoan.tradeInPlateNumber || "-"}</Descriptions.Item>
                   <Descriptions.Item label="NCD percentage / NCD 百分比">{selectedLoan.ncdPercentage == null ? "-" : `${selectedLoan.ncdPercentage}%`}</Descriptions.Item>
-                  <Descriptions.Item label="NCD vehicle plate / NCD 车牌">{selectedLoan.ncdVehiclePlate || "-"}</Descriptions.Item>
-                  <Descriptions.Item label="NCD insurer / NCD 保险公司">{selectedLoan.ncdInsurer || "-"}</Descriptions.Item>
+                  {(selectedLoan.ncdPercentage ?? 0) > 0 && <>
+                    <Descriptions.Item label="NCD vehicle plate / NCD 车牌">{selectedLoan.ncdVehiclePlate || "-"}</Descriptions.Item>
+                    <Descriptions.Item label="NCD insurer / NCD 保险公司">{selectedLoan.ncdInsurer || "-"}</Descriptions.Item>
+                  </>}
                   <Descriptions.Item label="Windscreen / 挡风玻璃保险">{selectedLoan.windscreenCovered == null ? "-" : selectedLoan.windscreenCovered ? "Yes / 是" : "No / 否"}</Descriptions.Item>
-                  <Descriptions.Item label="Windscreen cover / 挡风玻璃保险">{selectedLoan.windscreenCover == null ? "-" : `RM ${selectedLoan.windscreenCover.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
+                  {selectedLoan.windscreenCovered === true && <Descriptions.Item label="Windscreen cover / 挡风玻璃保险">{selectedLoan.windscreenCover == null ? "-" : `RM ${selectedLoan.windscreenCover.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>}
                   <Descriptions.Item label="Warranty insurance / 保修保险">{selectedLoan.warrantyInsuranceSelected == null ? "-" : selectedLoan.warrantyInsuranceSelected ? "Yes / 有" : "No / 无"}</Descriptions.Item>
                   <Descriptions.Item label="Agreement signed / 签约日期">{selectedLoan.agreementSignedAt ? formatDisplayDate(selectedLoan.agreementSignedAt) : "-"}</Descriptions.Item>
                   <Descriptions.Item label="LOU terms / LOU 条款" span={3}>{selectedLoan.loanTerms || "-"}</Descriptions.Item>
@@ -4935,7 +4939,17 @@ export function LoanPage({
                 if (finalDealSaving) return;
                 setFinalDealSaving(true);
                 try {
-                  await onUpdate({ ...selectedLoan, ...values });
+                  const includeWindscreen = values.windscreenCovered === true;
+                  const includeNcdDetails = (values.ncdPercentage ?? 0) > 0;
+                  await onUpdate({
+                    ...selectedLoan,
+                    ...values,
+                    ncdVehiclePlate: includeNcdDetails ? values.ncdVehiclePlate : selectedLoan.ncdVehiclePlate,
+                    ncdInsurer: includeNcdDetails ? values.ncdInsurer : selectedLoan.ncdInsurer,
+                    windscreenCovered: includeWindscreen,
+                    windscreenCover: includeWindscreen ? values.windscreenCover : undefined,
+                    warrantyInsuranceSelected: values.warrantyInsuranceSelected === true
+                  });
                   setFinalDealEditing(false);
                 } finally {
                   setFinalDealSaving(false);
@@ -4953,11 +4967,13 @@ export function LoanPage({
                 <Form.Item name="contraAmount" label="Contra / 抵扣金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
                 <Form.Item name="tradeInPlateNumber" label="Trade-in plate / 旧车车牌"><Input /></Form.Item>
                 <Form.Item name="ncdPercentage" label="NCD percentage / NCD 百分比"><InputNumber className="fullWidth" min={0} max={100} precision={2} /></Form.Item>
-                <Form.Item name="ncdVehiclePlate" label="NCD vehicle plate / NCD 车牌"><Input /></Form.Item>
-                <Form.Item name="ncdInsurer" label="NCD insurer / NCD 保险公司"><Input /></Form.Item>
-                <Form.Item name="windscreenCovered" label="Windscreen / 挡风玻璃保险"><Select options={[{ value: true, label: "Yes / 是" }, { value: false, label: "No / 否" }]} /></Form.Item>
-                <Form.Item name="windscreenCover" label="Windscreen cover / 挡风玻璃保险"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-                <Form.Item name="warrantyInsuranceSelected" label="Warranty insurance / 保修保险"><Select allowClear options={[{ value: true, label: "Yes / 有" }, { value: false, label: "No / 无" }]} /></Form.Item>
+                {ncdDetailsVisible && <>
+                  <Form.Item name="ncdVehiclePlate" label="NCD vehicle plate / NCD 车牌"><Input /></Form.Item>
+                  <Form.Item name="ncdInsurer" label="NCD insurer / NCD 保险公司"><Input /></Form.Item>
+                </>}
+                <Form.Item name="windscreenCovered" valuePropName="checked"><Checkbox>Windscreen / 挡风玻璃保险</Checkbox></Form.Item>
+                {windscreenSelected && <Form.Item name="windscreenCover" label="Windscreen cover / 挡风玻璃保险" rules={[{ required: true, message: "Enter the windscreen amount when windscreen cover is selected." }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>}
+                <Form.Item name="warrantyInsuranceSelected" valuePropName="checked"><Checkbox>Warranty insurance / 保修保险</Checkbox></Form.Item>
                 <Form.Item name="agreementSignedAt" label="Date signed agreement / 签约日期 (optional)" getValueProps={(value) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD")}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
               </div>
               <Space wrap>
