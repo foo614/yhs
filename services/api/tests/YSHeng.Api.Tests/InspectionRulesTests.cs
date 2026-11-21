@@ -23,14 +23,12 @@ public sealed class InspectionRulesTests
     {
         var inspectionDate = new DateOnly(2026, 1, 15);
 
-        var dates = InspectionRules.ReminderDates(inspectionDate, isLorry: true);
+        var dates = InspectionRules.ReminderDates(inspectionDate);
 
         Assert.Equal(new DateOnly(2026, 5, 15), InspectionRules.ReportExpiryDate(inspectionDate));
         Assert.Equal(new DateOnly(2026, 3, 15), dates.BookingReminderDate);
         Assert.Equal(new DateOnly(2026, 1, 14), dates.AppointmentReminderDate);
         Assert.Equal(new DateOnly(2026, 5, 8), dates.ReportExpiryReminderDate);
-        Assert.Equal(new DateOnly(2026, 1, 8), dates.LorryAppointmentReminderDate);
-        Assert.Null(InspectionRules.ReminderDates(inspectionDate, isLorry: false).LorryAppointmentReminderDate);
     }
 
     [Fact]
@@ -243,8 +241,10 @@ public sealed class InspectionRulesTests
             AppointmentDate = new DateOnly(2026, 1, 15)
         };
 
-        Assert.Equal(["lorry-7days"], WhatsAppInspectionReminders.DueFor(bookedLorry, VehicleStatus.Available, new DateOnly(2026, 1, 8)).Select(item => item.Kind));
+        Assert.Empty(WhatsAppInspectionReminders.DueFor(bookedLorry, VehicleStatus.Available, new DateOnly(2026, 1, 8)));
         Assert.Equal(["appointment-1day"], WhatsAppInspectionReminders.DueFor(bookedLorry, VehicleStatus.Available, new DateOnly(2026, 1, 14)).Select(item => item.Kind));
+
+        Assert.Equal(["appointment-1day"], WhatsAppInspectionReminders.DueFor(bookedLorry with { IsLorry = false }, VehicleStatus.Available, new DateOnly(2026, 1, 14)).Select(item => item.Kind));
 
         var completed = bookedLorry with { Status = InspectionStatus.Completed };
         Assert.Equal(["expiry-2months"], WhatsAppInspectionReminders.DueFor(completed, VehicleStatus.Available, new DateOnly(2026, 3, 15)).Select(item => item.Kind));
@@ -279,7 +279,10 @@ public sealed class InspectionRulesTests
         await db.SaveChangesAsync();
         var row = await db.WhatsAppOutbox.SingleAsync();
 
-        Assert.NotNull(await WhatsAppInspectionReminders.RefreshAsync(db, row, now));
+        Assert.DoesNotContain("(Lorry)", Assert.IsType<string>(await WhatsAppInspectionReminders.RefreshAsync(db, row, now)));
+        db.Entry(inspection).CurrentValues.SetValues(inspection with { IsLorry = true });
+        await db.SaveChangesAsync();
+        Assert.Contains("INSPECT1 (Lorry)", Assert.IsType<string>(await WhatsAppInspectionReminders.RefreshAsync(db, row, now)));
         db.Entry(vehicle).CurrentValues.SetValues(vehicle with { Status = VehicleStatus.Sold });
         await db.SaveChangesAsync();
         Assert.Null(await WhatsAppInspectionReminders.RefreshAsync(db, row, now));
