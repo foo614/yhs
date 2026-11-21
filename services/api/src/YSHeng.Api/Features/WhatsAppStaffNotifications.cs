@@ -34,6 +34,7 @@ public static class WhatsAppStaffNotifications
     {
         string? body = item.MessageKind switch
         {
+            "InsuranceReminder" => await WhatsAppInsurance.RefreshReminderAsync(db, item, now, ct),
             "InspectionReminder" => await WhatsAppInspectionReminders.RefreshAsync(db, item, now, ct),
             "CalendarTasks" => await WhatsAppCalendarTasks.RefreshAsync(db, item, now, ct),
             "OutstandingDigest" => (await WhatsAppDueDigest.RefreshForDispatchAsync(db, item, now, ct: ct,
@@ -57,6 +58,7 @@ public static class WhatsAppStaffNotifications
         ["LeaveApproval"] = ["BossAdmin", "HrSalary"],
         ["OcrUsage"] = ["BossAdmin"],
         ["LoanFollowUp"] = ["Loan"],
+        ["InsuranceReminder"] = ["BossAdmin"],
         ["InspectionReminder"] = ["BossAdmin"],
         ["CalendarTasks"] = ["BossAdmin", "Sales", "Loan", "Delivery", "Repair", "Finance", "HrSalary"],
         ["CompanyNews"] = ["BossAdmin", "Sales", "Loan", "Delivery", "Repair", "Finance", "HrSalary"],
@@ -99,7 +101,7 @@ public static class WhatsAppStaffNotifications
         var binding = resolved.Value.Binding;
         // Daily user/category/date keys survive phone rebinds. The database unique index
         // arbitrates concurrent schedulers; event categories retain binding scope.
-        var daily = category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder";
+        var daily = category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" or "InsuranceReminder";
         if (!daily) dueAt += policy.DelayMinutes * 60L;
         if (dueAt >= expiresAt) return null;
         object recipientScope = daily ? binding.StaffUserId : binding.Id;
@@ -178,7 +180,7 @@ public static class WhatsAppStaffNotifications
             var row = rows.SingleOrDefault(item => item.Category == category);
             var templateKeys = category == "InspectionReminder"
                 ? new[] { "staff_notice_v1", WhatsAppInspectionAttachment.TemplateKey } : new[] { "staff_notice_v1" };
-            var minute = category is "OutstandingDigest" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" ? 540 : category == "AttendanceSummary" ? 600 : 0;
+            var minute = category is "OutstandingDigest" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" or "InsuranceReminder" ? 540 : category == "AttendanceSummary" ? 600 : 0;
             var templateReady = templateKeys.All(key => dispatch.TemplateFor(key, "ms") is not null || dispatch.TemplateFor(key, "en_US") is not null);
             return new WhatsAppStaffPolicyView(category, row?.Enabled ?? false, row?.LocalMinuteOfDay ?? minute,
                 row?.LeadDays ?? (category == "OutstandingDigest" ? 2 : category == "CalendarTasks" ? 1 : 0),
@@ -221,9 +223,9 @@ public static class WhatsAppStaffNotifications
         string actor, long now, CancellationToken ct = default)
     {
         if (request.DelayMinutes is < 0 or > 1440 ||
-            (category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" && request.DelayMinutes != 0) ||
+            (category is "OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" or "InsuranceReminder" && request.DelayMinutes != 0) ||
             !AllowedRoles.ContainsKey(category) || request.LocalMinuteOfDay is < 0 or >= 1440 ||
-            (category is not ("OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder") && request.LocalMinuteOfDay != 0) ||
+            (category is not ("OutstandingDigest" or "AttendanceSummary" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" or "InsuranceReminder") && request.LocalMinuteOfDay != 0) ||
             (category is "OutstandingDigest" or "CalendarTasks" ? request.LeadDays is < 1 or > 30 : request.LeadDays != 0) ||
             (category == "OcrUsage" ? request.ThresholdPercent is < 1 or > 100 : request.ThresholdPercent != 0)) return false;
         await using var transaction = await db.Database.BeginTransactionAsync(ct);

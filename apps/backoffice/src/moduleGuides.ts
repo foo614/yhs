@@ -1411,6 +1411,11 @@ const guidesByPath: Record<AppRoutePath, ModuleGuideDefinition> = {
   "/loans": loanGuide,
   "/delivery": deliveryGuide,
   "/inspection": inspectionGuide,
+  "/insurance": {
+    path: "/insurance", title: "Insurance & Road Tax / 保险路税", roleLabel: "Boss/Admin / 老板管理", summary: "Manage standalone cover, renewals, evidence and collections.",
+    quickSteps: [{ title: "Create or import a case / 新增或导入", description: "Enter the plate and customer directly. Review imported listing rows before confirming." }, { title: "Record cover and evidence / 记录保障文件", description: "Keep policy dates, JPJ receipt and windscreen photos together. Prepare renewal values one month before expiry." }, { title: "Verify money separately / 核实收付款", description: "Confirm customer receipts only after checking actual funds. Record actual insurer payments independently." }],
+    sections: [{ key: "cases", label: "Cases / 个案", kind: "section", audience: "Boss/Admin", purpose: "Keep each cover period and its documents traceable.", actions: ["Review renewal and outstanding alerts.", "Upload evidence before confirming a receipt.", "Review AutoCount rows before copying."], requiredItems: ["Plate, customer name and expiry date"], completeWhen: "Cover, documents and verified receipts are current.", warnings: ["Quotation sending is on hold pending the client sample.", "Declining a renewal stops future renewal reminders.", "AutoCount invoice knock-off remains manual."] }], completionReminder: "Verify the case, invoice and amount before confirming actual funds."
+  },
   "/finance": financeManagementGuide,
   "/customer-360": customerGuide,
   "/leads": leadsGuide,

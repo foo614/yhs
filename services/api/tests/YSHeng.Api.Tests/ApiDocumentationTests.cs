@@ -353,6 +353,15 @@ public sealed class ApiDocumentationTests
             foreach (Match match in Regex.Matches(source, @"(?:routes|endpoints)\.Map(?:Get|Post|Put|Delete)\(""(?<path>/[^""]+)"""))
                 mappedRoutes.Add(NormalizeRoute($"/api{match.Groups["path"].Value}"));
         }
+        foreach (var feature in new[] { "InsuranceModule", "InsuranceAutoCount", "WhatsAppInsurance" })
+        {
+            Assert.Contains($"{feature}.MapRoutes(backOffice)", program);
+            var source = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", feature + ".cs"));
+            foreach (Match match in Regex.Matches(source, @"group\.Map(?:Get|Post|Put|Delete)\(""(?<path>[^""]*)"""))
+                mappedRoutes.Add(NormalizeRoute($"/api/insurance{match.Groups["path"].Value}"));
+            foreach (Match match in Regex.Matches(source, @"api\.Map(?:Get|Post|Put|Delete)\(""(?<path>/[^""]+)"""))
+                mappedRoutes.Add(NormalizeRoute($"/api{match.Groups["path"].Value}"));
+        }
         var implicitIdentityRoutes = new HashSet<string> { NormalizeRoute("/api/auth/login") };
 
         var missing = documentedPaths

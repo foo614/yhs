@@ -63,6 +63,13 @@ describe("backoffice API contract types", () => {
       const source = readFileSync(join(root, "services", "api", "src", "YSHeng.Api", "Features", `${feature}.cs`), "utf8");
       for (const route of extractBackendRoutes(source.replaceAll("routes.Map", "backOffice.Map"))) backendRoutes.add(route);
     }
+    for (const feature of ["InsuranceModule", "InsuranceAutoCount", "WhatsAppInsurance"]) {
+      const featurePath = join(root, "services", "api", "src", "YSHeng.Api", "Features", `${feature}.cs`);
+      expect(program).toContain(`${feature}.MapRoutes(backOffice)`);
+      const source = readFileSync(featurePath, "utf8");
+      for (const match of source.matchAll(/(?:group|insurance)\.Map(?:Get|Post|Put|Delete)\("(?<path>[^"\n]*)"/g)) backendRoutes.add(normalizeRoute(`/api/insurance${match.groups!.path}`));
+      for (const route of extractBackendRoutes(source.replaceAll("api.Map", "backOffice.Map"))) backendRoutes.add(route);
+    }
     const identityRoutes = new Set(["/api/auth/login"]);
 
     const missingRoutes = extractClientApiPaths(apiClient)

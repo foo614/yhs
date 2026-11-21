@@ -22,6 +22,12 @@ public static class WhatsAppStaffQueries
             return command.Length == 2 && command[0] is "preview" or "confirm" && Guid.TryParse(command[1], out var id)
                 ? new("create-vehicle", $"{command[0]} {id:D}") : new("create-vehicle");
         }
+        if (text.StartsWith("insurance-pay ", StringComparison.OrdinalIgnoreCase))
+        {
+            var value = text[14..].Trim();
+            return value.StartsWith("confirm ", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(value[8..], out _) ||
+                WhatsAppInsurance.TryParsePayment(value, out _, out _) ? new("insurance-pay", value) : null;
+        }
         if (text.Length is 0 or > 120 || text.Any(char.IsControl)) return null;
         var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
         var name = parts[0].ToLowerInvariant();
@@ -71,7 +77,7 @@ public static class WhatsAppStaffQueries
             "settlement" => roles.Contains("BossAdmin"),
             "profit" or "dashboard" => roles.Contains("BossAdmin"),
             "price" or "create-vehicle" or "intake-file" => roles.Contains("BossAdmin"),
-            "settlement-update" => roles.Contains("BossAdmin"),
+            "settlement-update" or "insurance-pay" or "insurance-evidence" => roles.Contains("BossAdmin"),
             "due" => roles.Contains("BossAdmin") || roles.Contains("Sales"),
             "service" => WhatsAppStaffCommandHelp.Services.Any(item => item.Name == intent.Argument &&
                 Permitted(new(item.Name), roles)),
@@ -100,6 +106,10 @@ public static class WhatsAppStaffQueries
         if (intent.Name == "create-vehicle")
             return bindingId is { } binding && requestId is { } request && assistantOptions is not null
                 ? await WhatsAppVehicleIntake.ReplyAsync(db, intent.Argument, binding, request, assistantOptions, now, ct)
+                : "A verified Boss/Admin connection is required.";
+        if (intent.Name == "insurance-pay")
+            return bindingId is { } insuranceBinding && requestId is { } insuranceRequest && staffUserId is not null && assistantOptions is not null
+                ? await WhatsAppInsurance.PaymentReplyAsync(db, intent.Argument, insuranceBinding, insuranceRequest, staffUserId, assistantOptions, now, ct)
                 : "A verified Boss/Admin connection is required.";
         var bm = language == "ms";
         var culture = CultureInfo.GetCultureInfo(bm ? "ms-MY" : "en-MY");

@@ -63,6 +63,8 @@ public static class WhatsAppStaffCommandHelp
         {
             lines.Add("");
             lines.Add(bm ? "• Daftar kereta, muat naik VOC/IC dan sahkan → create-vehicle" : "• Create a vehicle with VOC/IC and confirmation → create-vehicle");
+            lines.Add("Insurance evidence: forward a slip with caption INSURANCE <case-id> | <amount> | Cash/TNG/Transfer/Card | Cash/PBB | yyyy-mm-dd | <invoice-no>. Check actual funds, then use the preview confirmation command.");
+            lines.Add("Existing pending receipt: insurance-pay <receipt-id> <amount>. Confirmation expires after five minutes.");
             lines.Add(bm ? "💼 Harga stok" : "💼 Stock price");
             lines.Add(bm ? "• Pratonton dan kemas kini harga jualan → price ABC1234 50000" :
                 "• Preview and update asking price → price ABC1234 50000");

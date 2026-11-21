@@ -1,0 +1,34 @@
+.insurancePage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
+.insuranceToolbar { margin-bottom: 16px; }
+.insuranceSecondary { color: var(--ant-color-text-secondary, #666); font-size: 12px; overflow-wrap: anywhere; }
+.insuranceDrawer .ant-drawer-body { overflow-wrap: anywhere; }
+.insuranceDrawer .ant-alert { margin-bottom: 16px; }
+.insuranceDrawer .formGrid { margin-top: 16px; }
+.insuranceFile { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--ant-color-border-secondary, #eee); }
+.insuranceFile > div { min-width: 0; overflow-wrap: anywhere; }
+.insuranceCharge { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 12px; align-items: end; }
+.insuranceCharge > button { margin-bottom: 24px; }
+.insuranceImportReview { max-height: 280px; overflow: auto; }
+.insuranceImportReview > div { padding: 8px 0; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
+.insuranceCopyTable { max-width: 100%; overflow-x: auto; }
+.insuranceCopyTable table { border-collapse: collapse; white-space: nowrap; }
+.insuranceCopyTable th, .insuranceCopyTable td { text-align: left; border: 1px solid #ddd; padding: 8px 12px; }
+@media (max-width: 767px) {
+  .insurancePage { gap: 16px; }
+  .insurancePage .ant-card-head { flex-wrap: wrap; gap: 8px; }
+  .insuranceToolbar { display: flex; }
+  .insuranceToolbar > .ant-space-item { max-width: 100%; }
+  .insuranceToolbar button, .insuranceDrawer button { min-height: 44px; white-space: normal; }
+  .insuranceDrawer .ant-drawer-footer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .insuranceCharge { grid-template-columns: 1fr; gap: 0; border-bottom: 1px solid #eee; }
+  .insuranceCharge > button { justify-self: end; }
+}
+
+.insurancePage > *, .insurancePage .ant-card-body { min-width: 0; max-width: 100%; }
+.insurancePage .ant-space { max-width: 100%; }
+.insuranceMobileRecords { display: grid; gap: 12px; }
+.insuranceMobileRecords .mobileRecordCard { display: grid; gap: 8px; padding: 16px; border: 1px solid #e5e7e5; border-radius: 8px; overflow-wrap: anywhere; }
+.insuranceMobileRecords .mobileRecordCardActions { display: flex; justify-content: flex-end; }
+.insuranceMobileRecords .mobileRecordCardActions button { min-height: 44px; }
+
+.insurancePage .ant-card-head-title { white-space: normal; overflow-wrap: anywhere; }

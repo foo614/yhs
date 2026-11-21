@@ -296,6 +296,9 @@ app.MapPost("/api/public/showroom-enquiries", async (ShowroomEnquiryRequest requ
 });
 
 var backOffice = app.MapGroup("/api").RequireAuthorization("BackOffice");
+InsuranceModule.MapRoutes(backOffice);
+InsuranceAutoCount.MapRoutes(backOffice);
+WhatsAppInsurance.MapRoutes(backOffice);
 backOffice.MapLoanBuyerIntake();
 backOffice.MapGet("/whatsapp/assistant/connection", async (HttpContext context, AppDbContext db, string? staffUserId, CancellationToken ct) =>
     await WhatsAppStaffApi.StatusAsync(context, db, whatsappAssistant, await WhatsAppDispatchBudget.OptionsAsync(db, whatsappDispatch, ct), staffUserId, ct));
@@ -6051,6 +6054,7 @@ else
     await SeedData.EnsureVehicleIntakeTimestampSchemaAsync(app);
 }
 
+await InsuranceSchema.EnsureAsync(app);
 await SeedData.EnsureWhatsAppSchemaAsync(app);
 await WhatsAppWorkflowEvents.EnsureSchemaAsync(app);
 if (whatsappAssistant.Ready)

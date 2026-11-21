@@ -5,7 +5,7 @@ namespace YSHeng.Api.Features;
 // Recovery runs independently of provider sending. Policies and sender flags default off;
 // each adapter uses durable database keys so replicas and restarts cannot duplicate a day.
 public sealed class WhatsAppStaffProactiveWorker(IServiceScopeFactory scopes,
-    WhatsAppAssistantOptions assistant, ILogger<WhatsAppStaffProactiveWorker> logger) : BackgroundService
+    WhatsAppAssistantOptions assistant, WhatsAppDispatchOptions dispatch, ILogger<WhatsAppStaffProactiveWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -17,6 +17,7 @@ public sealed class WhatsAppStaffProactiveWorker(IServiceScopeFactory scopes,
                 db, assistant, now, "whatsapp-proactive", ct: stoppingToken), stoppingToken);
             await TryRunAsync("loan-follow-up", async db => await WhatsAppLoanFollowUps.EnqueueForVerifiedBindingsAsync(
                 db, assistant, now, "whatsapp-proactive", stoppingToken), stoppingToken);
+            await TryRunAsync("insurance", db => WhatsAppInsurance.EnqueueAsync(db, assistant, now, stoppingToken, dispatch), stoppingToken);
             await TryRunAsync("inspection", db => WhatsAppInspectionReminders.EnqueueAsync(db, assistant, now, stoppingToken), stoppingToken);
             await TryRunAsync("calendar", db => WhatsAppCalendarTasks.EnqueueAsync(db, assistant, now, stoppingToken), stoppingToken);
             await TryRunAsync("hr", async db => await WhatsAppHrNotifications.EnqueueCurrentDayAsync(
