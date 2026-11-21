@@ -29,7 +29,7 @@ export function formatMoneyInputWithTwoDecimals(
   value: string | number | undefined,
   info?: { userTyping: boolean; input: string }
 ) {
-  if (info?.userTyping) return formatMoneyInput(info.input);
+  if (info?.userTyping) return formatMoneyInput(parseMoneyInput(info.input));
   if (value === undefined || value === "") return "";
 
   const numeric = Number(parseMoneyInput(String(value)));
