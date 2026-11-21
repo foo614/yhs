@@ -1042,7 +1042,6 @@ export function VehiclePage({
   }, []);
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false);
   const [customerCreateForLoanVehicleId, setCustomerCreateForLoanVehicleId] = useState("");
-  const [customerCreateForVehicleIntake, setCustomerCreateForVehicleIntake] = useState(false);
   const [customerCreateForVehicleDetails, setCustomerCreateForVehicleDetails] = useState(false);
   const [customerCreating, setCustomerCreating] = useState(false);
   const [ownerCreateOpen, setOwnerCreateOpen] = useState(false);
@@ -3427,31 +3426,6 @@ export function VehiclePage({
                 )}
               </div>
             </Form.Item>
-            <Form.Item name="customerId" label="Confirmed buyer / 已确认买家" extra="Optional. Leave blank when the vehicle has no confirmed buyer yet.">
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="Select confirmed buyer"
-                options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))}
-                dropdownRender={(menu) => (
-                  <>
-                    {menu}
-                    <Button
-                      type="text"
-                      block
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        setCustomerCreateForVehicleIntake(true);
-                        setCustomerCreateOpen(true);
-                      }}
-                    >
-                      Register new customer
-                    </Button>
-                  </>
-                )}
-              />
-            </Form.Item>
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="stock"
@@ -3994,7 +3968,6 @@ export function VehiclePage({
         onCancel={() => {
           setCustomerCreateOpen(false);
           setCustomerCreateForLoanVehicleId("");
-          setCustomerCreateForVehicleIntake(false);
           setCustomerCreateForVehicleDetails(false);
         }}
         footer={null}
@@ -4025,15 +3998,10 @@ export function VehiclePage({
           try {
             await onCreateCustomer(customer);
             const loanVehicleId = customerCreateForLoanVehicleId;
-            const vehicleIntake = customerCreateForVehicleIntake;
             const vehicleDetails = customerCreateForVehicleDetails;
             setCustomerCreateForLoanVehicleId("");
-            setCustomerCreateForVehicleIntake(false);
             setCustomerCreateForVehicleDetails(false);
             setCustomerCreateOpen(false);
-            if (vehicleIntake) {
-              vehicleCreateFormRef.current?.setFieldValue("customerId", customer.id);
-            }
             if (loanVehicleId) {
               selectVehicle(loanVehicleId);
               setLoanHandoffCustomerId(customer.id);
