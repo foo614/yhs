@@ -14,6 +14,25 @@ namespace YSHeng.Api.Tests;
 
 public sealed class InsurancePostgresTests
 {
+    // API and worker can create the new tables together on the first production start.
+    // PostgreSQL CREATE TABLE IF NOT EXISTS alone does not serialize catalog insertion.
+    [InsurancePostgresFact]
+    public async Task Concurrent_first_startups_create_schema_without_catalog_conflicts()
+    {
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            await using var app = await CreateIsolatedAppAsync(new SchemaCreationBarrier());
+            await Task.WhenAll(InsuranceSchema.EnsureAsync(app), InsuranceSchema.EnsureAsync(app))
+                .WaitAsync(TimeSpan.FromSeconds(20));
+            using var scope = app.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.Empty(await db.InsuranceCases.AsNoTracking().ToListAsync());
+            Assert.Empty(await db.InsuranceReceipts.AsNoTracking().ToListAsync());
+            Assert.Empty(await db.InsuranceInsurerPayments.AsNoTracking().ToListAsync());
+            Assert.Empty(await db.InsuranceAttachments.AsNoTracking().ToListAsync());
+        }
+    }
+
     // Real PostgreSQL coverage prevents schema/parameter type failures hidden by SQLite.
     [InsurancePostgresFact]
     public async Task Startup_schema_is_idempotent_and_preserves_standalone_records()
@@ -104,7 +123,7 @@ public sealed class InsurancePostgresTests
     private static string? TestConnection => Environment.GetEnvironmentVariable("INSURANCE_TEST_POSTGRES")
         ?? Environment.GetEnvironmentVariable("WHATSAPP_TEST_POSTGRES");
 
-    private static async Task<WebApplication> CreateIsolatedAppAsync()
+    private static async Task<WebApplication> CreateIsolatedAppAsync(IInterceptor? interceptor = null)
     {
         var config = new NpgsqlConnectionStringBuilder(TestConnection) { Pooling = false };
         Assert.Contains(config.Host, new[] { "127.0.0.1", "localhost" });
@@ -121,8 +140,31 @@ public sealed class InsurancePostgresTests
         config.SearchPath = schema;
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.Logging.ClearProviders();
-        builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(config.ConnectionString));
+        builder.Services.AddDbContext<AppDbContext>(options =>
+        {
+            options.UseNpgsql(config.ConnectionString);
+            if (interceptor != null) options.AddInterceptors(interceptor);
+        });
         return builder.Build();
+    }
+
+    private sealed class SchemaCreationBarrier : DbCommandInterceptor
+    {
+        private int arrivals;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> startedContexts = new();
+        private readonly TaskCompletionSource ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            System.Data.Common.DbCommand command, CommandEventData eventData,
+            InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            // Align the first command from each startup context: currently lock acquisition.
+            // If locking regresses, this aligns the competing DDL instead. Never block
+            // a later DDL command after the first startup has acquired the lock.
+            if (eventData.Context == null || !startedContexts.TryAdd(eventData.Context.ContextId.InstanceId, 0)) return result;
+            if (Interlocked.Increment(ref arrivals) == 2) ready.TrySetResult();
+            await ready.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            return result;
+        }
     }
 
     private sealed class ConfirmationBarrier : SaveChangesInterceptor
