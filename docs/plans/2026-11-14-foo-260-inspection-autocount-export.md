@@ -12,8 +12,15 @@ add AutoCount import, posting, WhatsApp, or other inspection workflow changes.
 
 | Company | Creditor | Item | Account | UOM |
 | --- | --- | --- | --- | --- |
-| YSHeng Automotive | `4T00-P004` / PUSPAKOM SDN BHD | `INSPECTION (PUSPAKOM)` | `6100-0000` | `UNIT` |
-| YSHeng Auto | `4001-P002` / PUSPAKOM SDN BHD | `INSPECTION (PUSPAKOM)` | `6020-001` | `JOB` |
+| YSHeng Automotive | `4T00-P004` / PUSPAKOM SDN BHD | `INSPECTION (PUSPAKOM)` | `6I00-0000` | `UNIT` |
+| YSHeng Auto | `4001-P002` / PUSPAKOM SDN BHD | `INSPECTION (PUSPAKOM)` | `6020-O01` | `JOB` |
+
+The 21 November clarification replaces booking company selection with an
+independent Special inspection checkbox: checked routes to Auto, unchecked to
+Automotive, regardless of inspection type. Account codes above retain the literal
+letters I and O supplied in that clarification. Historical company assignments
+remain unchanged. Auto header descriptions use the selected type in title case,
+with `9011 - Pertukaran Hak`; Automotive retains the existing uppercase format.
 
 The inspection type code is retained in the review listing (`9001`, `9002`,
 `9003`, `9004`, `9011`) and the native header Description uses

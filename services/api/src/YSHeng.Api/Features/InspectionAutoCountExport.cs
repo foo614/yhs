@@ -21,8 +21,8 @@ public static class InspectionAutoCountRules
 {
     public static InspectionAutoCountMapping Mapping(InspectionCompany company) => company switch
     {
-        InspectionCompany.YSHengAutomotive => new(company, "4T00-P004", "PUSPAKOM SDN BHD", "INSPECTION (PUSPAKOM)", "6100-0000", "UNIT"),
-        InspectionCompany.YSHengAuto => new(company, "4001-P002", "PUSPAKOM SDN BHD", "INSPECTION (PUSPAKOM)", "6020-001", "JOB"),
+        InspectionCompany.YSHengAutomotive => new(company, "4T00-P004", "PUSPAKOM SDN BHD", "INSPECTION (PUSPAKOM)", "6I00-0000", "UNIT"),
+        InspectionCompany.YSHengAuto => new(company, "4001-P002", "PUSPAKOM SDN BHD", "INSPECTION (PUSPAKOM)", "6020-O01", "JOB"),
         _ => throw new ArgumentOutOfRangeException(nameof(company), company, "Unsupported inspection company.")
     };
 
@@ -84,7 +84,10 @@ public static partial class AutoCountExcel
 
             var invoiceNumber = inspection.SupplierInvoiceReference;
             var amount = Money(inspection.AllocatedAmount);
-            var typeDescription = $"{(int)inspection.Type} - {InspectionAutoCountRules.TypeName(inspection.Type).ToUpperInvariant()}";
+            var typeName = InspectionAutoCountRules.TypeName(inspection.Type);
+            var typeDescription = inspection.Company == InspectionCompany.YSHengAuto
+                ? $"{(int)inspection.Type} - {(inspection.Type == InspectionType.PertukaranHakMilik ? "Pertukaran Hak" : typeName)}"
+                : $"{(int)inspection.Type} - {typeName.ToUpperInvariant()}";
             string sheetName = "";
             string copyRange = "";
             if (problems.Count == 0)

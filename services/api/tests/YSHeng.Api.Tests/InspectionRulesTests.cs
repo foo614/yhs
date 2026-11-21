@@ -86,7 +86,7 @@ public sealed class InspectionRulesTests
         Assert.Equal("4T00-P004", row["CreditorCode"]);
         Assert.Equal("PUSPAKOM SDN BHD", row["CreditorName"]);
         Assert.Equal("INSPECTION (PUSPAKOM)", row["ItemCode"]);
-        Assert.Equal("6100-0000", row["AccountCode"]);
+        Assert.Equal("6I00-0000", row["AccountCode"]);
         Assert.Equal("UNIT", row["UOM"]);
         Assert.Equal("RECEIPT-SHARED", row["SourceReceiptNumber"]);
         Assert.Equal("INV-101 (2)", row["SupplierInvoiceReference"]);
@@ -117,6 +117,29 @@ public sealed class InspectionRulesTests
         Assert.Equal(["70.00", "50.00"], rows.Select(row => row["AllocatedAmount"]));
         Assert.DoesNotContain(rows, row => row["SupplierInvoiceReference"] == "INV-113");
         Assert.Equal(2, SheetRows(archive, "PasteGuide").Count);
+    }
+
+    [Theory]
+    [InlineData(InspectionCompany.YSHengAuto, InspectionType.Awalan, "6020-O01", "9001 - Awalan")]
+    [InlineData(InspectionCompany.YSHengAuto, InspectionType.Berkala, "6020-O01", "9002 - Berkala")]
+    [InlineData(InspectionCompany.YSHengAuto, InspectionType.Khas, "6020-O01", "9003 - Khas")]
+    [InlineData(InspectionCompany.YSHengAuto, InspectionType.BerkalaSemula, "6020-O01", "9004 - Berkala Semula")]
+    [InlineData(InspectionCompany.YSHengAuto, InspectionType.PertukaranHakMilik, "6020-O01", "9011 - Pertukaran Hak")]
+    [InlineData(InspectionCompany.YSHengAutomotive, InspectionType.Khas, "6I00-0000", "9003 - KHAS")]
+    public void Inspection_native_pi_uses_saved_company_account_and_header(
+        InspectionCompany company, InspectionType type, string account, string description)
+    {
+        var vehicle = new Vehicle { PlateNumber = "TEST123" };
+        var inspection = Inspection(vehicle, company, "INV-77", 100m) with { Type = type };
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new(
+            [inspection], [vehicle], company))), ZipArchiveMode.Read);
+        var rows = NativeRows(archive, "PI_0001");
+        Assert.Contains(rows, row => row.Count == 2 && row[0] == "Description" && row[1] == description);
+        var header = rows.Single(row => row.Contains("ItemCode") && row.Contains("AccNo"));
+        var line = rows.Single(row => row.Count == header.Count && row[header.IndexOf("ItemCode")] == "INSPECTION (PUSPAKOM)");
+        Assert.Equal(account, line[header.IndexOf("AccNo")]);
+        Assert.Equal("INSPECTION FEE - TEST123", line[header.IndexOf("Description")]);
+        Assert.Equal(account, Assert.Single(SheetRows(archive, "InspectionBookings"))["AccountCode"]);
     }
 
     [Fact]
