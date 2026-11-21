@@ -637,7 +637,7 @@ const inspectionGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Admin and Delivery",
       purpose: "Plan lorry inspection follow-up with the agreed reminder windows.",
-      actions: ["Review records whose report expires in two months.", "Book the next inspection before expiry.", "Check the one-week-before appointment reminder.", "Use the appointment slip when preparing the lorry."],
+      actions: ["Review records whose report expires in two months.", "Book the next inspection before expiry.", "Check the WhatsApp reminder one day before the appointment.", "Use the appointment slip when preparing the lorry."],
       requiredItems: ["Report expiry", "Appointment date for lorry", "Appointment confirmation"],
       completeWhen: "The next booking is arranged before the current validity expires.",
       warnings: ["Reminder dates are calculated from the stored inspection date and must not be treated as proof of payment."]
