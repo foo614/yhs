@@ -9,6 +9,10 @@ public static class InsuranceSchema
     {
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        // API and worker can encounter the new tables together during deployment.
+        // Serialize the complete schema batch to avoid PostgreSQL catalog races.
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(28201122)");
         await db.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS "InsuranceCases" (
                 "Id" uuid PRIMARY KEY,
@@ -91,5 +95,6 @@ public static class InsuranceSchema
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_InsuranceReceipts_CaseId_IdempotencyKey" ON "InsuranceReceipts" ("CaseId", "IdempotencyKey");
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_InsuranceInsurerPayments_CaseId_IdempotencyKey" ON "InsuranceInsurerPayments" ("CaseId", "IdempotencyKey");
             """);
+        await transaction.CommitAsync();
     }
 }

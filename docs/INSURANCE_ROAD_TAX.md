@@ -81,3 +81,5 @@ Implemented from `origin/main` revision `da5792f` on `codex/foo-282-standalone-i
 - Existing PKCS dependency advisories and npm audit warnings remain outside this change. No dependency versions were changed.
 
 Release review: the independent source/security review found no remaining merge blockers. The Codex CLI review was attempted but the configured gpt-6.1-sol model is unavailable for this ChatGPT account; no model was silently substituted. The existing API documentation route scanner was extended to follow the new endpoint files.
+
+Release startup gate: concurrent API/worker first-time schema setup reproduced PostgreSQL23505 (duplicate catalog entry), so production workflow44925012328 was cancelled before rollout. Insurance schema creation now holds a transaction-scoped advisory lock across its complete DDL batch. The PostgreSQL regression aligns both startup contexts before lock acquisition and checks five fresh schemas; together with schema preservation and concurrent payment confirmation, all three checks pass locally. The follow-up PR must pass fresh CI before another production dispatch.
