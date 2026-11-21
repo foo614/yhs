@@ -5,8 +5,7 @@ namespace YSHeng.Api.Features;
 public sealed record InspectionReminderDates(
     DateOnly BookingReminderDate,
     DateOnly AppointmentReminderDate,
-    DateOnly ReportExpiryReminderDate,
-    DateOnly? LorryAppointmentReminderDate);
+    DateOnly ReportExpiryReminderDate);
 
 public sealed record InspectionReceiptAllocation(Guid VehicleId, decimal Amount);
 
@@ -170,14 +169,13 @@ public static class InspectionRules
 
     public static DateOnly ReportExpiryDate(DateOnly inspectionDate) => inspectionDate.AddMonths(4);
 
-    public static InspectionReminderDates ReminderDates(DateOnly inspectionDate, bool isLorry)
+    public static InspectionReminderDates ReminderDates(DateOnly inspectionDate)
     {
         var expiry = ReportExpiryDate(inspectionDate);
         return new InspectionReminderDates(
             expiry.AddMonths(-2),
             inspectionDate.AddDays(-1),
-            expiry.AddDays(-7),
-            isLorry ? inspectionDate.AddDays(-7) : null);
+            expiry.AddDays(-7));
     }
 
     public static ValidationResult ValidateReceiptAllocations(

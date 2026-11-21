@@ -10,19 +10,17 @@ public static class WhatsAppInspectionReminders
 {
     public const string Category = "InspectionReminder";
     private const string AppointmentReminder = "appointment-1day";
-    private const string LorryAppointmentReminder = "lorry-7days";
     private const string BookingReminder = "expiry-2months";
     private const string ExpiryReminder = "expiry-7days";
 
     public static IReadOnlyList<InspectionReminderCandidate> DueFor(InspectionRecord inspection, VehicleStatus vehicleStatus, DateOnly today)
     {
         if (inspection.Status == InspectionStatus.Cancelled || vehicleStatus == VehicleStatus.Sold) return [];
-        var dates = InspectionRules.ReminderDates(inspection.AppointmentDate, inspection.IsLorry);
+        var dates = InspectionRules.ReminderDates(inspection.AppointmentDate);
         var candidates = new List<InspectionReminderCandidate>();
         if (inspection.Status == InspectionStatus.Booked)
         {
             if (dates.AppointmentReminderDate == today) candidates.Add(new(AppointmentReminder, today));
-            if (dates.LorryAppointmentReminderDate == today) candidates.Add(new(LorryAppointmentReminder, today));
         }
         else if (inspection.Status == InspectionStatus.Completed)
         {
@@ -103,7 +101,7 @@ public static class WhatsAppInspectionReminders
         targetDate = default;
         var parts = key.Split(':', StringSplitOptions.None);
         return parts.Length == 4 && parts[0] == "inspection" && Guid.TryParseExact(parts[1], "N", out inspectionId) &&
-            parts[2] is AppointmentReminder or LorryAppointmentReminder or BookingReminder or ExpiryReminder &&
+            parts[2] is AppointmentReminder or BookingReminder or ExpiryReminder &&
             DateOnly.TryParseExact(parts[3], "yyyy-MM-dd", out targetDate) && (kind = parts[2]).Length > 0;
     }
 
@@ -112,14 +110,12 @@ public static class WhatsAppInspectionReminders
         var malay = language == "ms";
         var plate = WhatsAppStaffSalesQueries.Clean(vehicle.PlateNumber);
         var date = inspection.AppointmentDate.ToString("dd/MM/yyyy");
+        var remark = inspection.IsLorry ? " (Lorry)" : "";
         return kind switch
         {
             AppointmentReminder => malay
-                ? $"Peringatan pemeriksaan esok: {plate}, {date}, rujukan {inspection.BookingReference}. Appointment slip dilampirkan."
-                : $"Inspection tomorrow: {plate}, {date}, reference {inspection.BookingReference}. Appointment slip attached.",
-            LorryAppointmentReminder => malay
-                ? $"Peringatan lorry inspection 7 hari lagi: {plate}, {date}, rujukan {inspection.BookingReference}. Sila prepare awal."
-                : $"Lorry inspection in 7 days: {plate}, {date}, reference {inspection.BookingReference}. Please prepare early.",
+                ? $"Peringatan pemeriksaan esok: {plate}{remark}, {date}, rujukan {inspection.BookingReference}. Appointment slip dilampirkan."
+                : $"Inspection tomorrow: {plate}{remark}, {date}, reference {inspection.BookingReference}. Appointment slip attached.",
             BookingReminder => malay
                 ? $"Peringatan booking inspection: report {plate} akan expire pada {inspection.ReportExpiryDate:dd/MM/yyyy}. Sila arrange booking baru."
                 : $"Inspection booking reminder: {plate} report expires on {inspection.ReportExpiryDate:dd/MM/yyyy}. Please arrange a new booking.",
