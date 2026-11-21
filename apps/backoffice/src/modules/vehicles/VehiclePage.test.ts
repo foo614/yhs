@@ -378,17 +378,17 @@ describe("approved vehicle selling price controls", () => {
 });
 
 describe("previous owner identity review", () => {
-  it("creates a trimmed owner draft and formats a 12-digit IC number", () => {
+  it("creates a trimmed owner draft and stores a 12-digit IC number without separators", () => {
     expect(ownerFromIdentityCardReview({
       name: "  Lim Owner  ",
       phone: " 019-888 7777 ",
-      icNumber: "900101011234",
+      icNumber: "900101-01-1234",
       address: "  12 Jalan Demo  "
     }, "owner-new")).toEqual({
       id: "owner-new",
       name: "Lim Owner",
       phone: "019-888 7777",
-      icNumber: "900101-01-1234",
+      icNumber: "900101011234",
       address: "12 Jalan Demo"
     });
   });
