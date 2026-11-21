@@ -118,8 +118,9 @@ This is an integration checkpoint, not a completion or release declaration. Chan
 
 ## Inspection supplier invoice entry clarification (FOO-253)
 
-- Each booking contains one vehicle. The original supplier receipt number remains separate for shared receipt allocation checks.
+- Each booking contains one vehicle. Create booking asks only for Supplier Invoice No. The original supplier receipt number remains in the API for shared receipt allocation checks: a final numeric bracket suffix is removed for new receipt groups, while matching historical invoice groups retain their saved original receipt. Conflicting historical receipt links block creation for Admin review; existing records are not rewritten.
 - Staff manually enter Supplier Invoice No, including any confirmed bracket suffix. The system does not assign or rewrite the number.
 - On field blur, check availability and suggest the next unused bracket suffix for duplicates. Submission checks again under a transaction lock; historical numbers remain reserved and unchanged.
 - Comparison trims outer whitespace and ignores case across inspection records, consistent with the existing globally unique supplier reference. AutoCount's own purchase invoice number is a different number.
-- Existing attachment ownership and company selection are unchanged. Inspection Excel export remains a separate unfinished item; this change does not claim an AutoCount import/export implementation.
+- Create booking uses an independent Special inspection checkbox, regardless of inspection type. Checked saves `YSHengAuto`; unchecked saves `YSHengAutomotive`. Existing saved company values are unchanged. Export uses the saved company: Auto account `6020-O01`, Automotive account `6I00-0000` (literal letters O and I as supplied). Auto PI header descriptions use `9001 - Awalan`, `9002 - Berkala`, `9003 - Khas`, `9004 - Berkala Semula`, or `9011 - Pertukaran Hak`; Automotive descriptions retain their existing format.
+- Existing attachment ownership is unchanged. The separate read-only Inspection Excel export is documented in the FOO-260 plan; it uses saved company routing and does not post to AutoCount.

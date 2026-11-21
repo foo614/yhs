@@ -3,6 +3,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import {
   Button,
   Card,
+  Checkbox,
   DatePicker,
   Descriptions,
   Drawer,
@@ -32,9 +33,11 @@ import {
   updateInspection
 } from "../../api";
 import { inspectionTypeLabel, inspectionTypeOptions } from "./inspectionTypes";
+import { inspectionReceiptNumber } from "./inspectionReceipt";
 import { OperationsProTable as Table } from "../shared/OperationsProTable";
 
-type InspectionFormValues = Omit<CreateInspectionRequest, "appointmentDate" | "appointmentTime"> & {
+type InspectionFormValues = Omit<CreateInspectionRequest, "appointmentDate" | "appointmentTime" | "sourceReceiptNumber" | "company"> & {
+  specialInspection: boolean;
   appointmentDate: Dayjs;
   appointmentTime?: Dayjs;
 };
@@ -45,8 +48,8 @@ type InspectionPageProps = {
 };
 
 const companyOptions: { value: InspectionCompany; label: string }[] = [
-  { value: "YSHengAuto", label: "YSHeng Auto" },
-  { value: "YSHengAutomotive", label: "YSHeng Automotive" }
+  { value: "YSHengAuto", label: "YS Heng Auto" },
+  { value: "YSHengAutomotive", label: "YS Heng Automotive Sdn Bhd" }
 ];
 
 const documentUploads = [
@@ -94,8 +97,12 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
   async function submit(values: InspectionFormValues) {
     setSaving(true);
     try {
+      const { specialInspection, ...booking } = values;
+      const sourceReceiptNumber = inspectionReceiptNumber(values.supplierInvoiceReference, await getInspections());
       const created = await createInspection({
-        ...values,
+        ...booking,
+        company: specialInspection ? "YSHengAuto" : "YSHengAutomotive",
+        sourceReceiptNumber,
         appointmentDate: values.appointmentDate.format("YYYY-MM-DD"),
         appointmentTime: values.appointmentTime?.format("HH:mm") ?? null
       });
@@ -180,7 +187,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
         open={bookingOpen}
         onOpenChange={(open) => { if (!saving) setBookingOpen(open); }}
         onFinish={submit}
-        initialValues={{ company: "YSHengAuto", isLorry: false, receiptTotal: 0, allocatedAmount: 0 }}
+        initialValues={{ specialInspection: false, isLorry: false, receiptTotal: 0, allocatedAmount: 0 }}
         modalProps={{ forceRender: true, maskClosable: false, closable: !saving, keyboard: !saving }}
         submitter={{ searchConfig: { submitText: "Create booking / 新增预约", resetText: "Cancel / 取消" }, resetButtonProps: { disabled: saving }, submitButtonProps: { loading: saving } }}
       >
@@ -188,11 +195,10 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
           <div className="formGrid formGrid--three">
             <Form.Item name="vehicleId" label="Vehicle / 车辆" rules={[{ required: true, message: "Select a vehicle. / 请选择车辆。" }]}><Select showSearch optionFilterProp="label" options={vehicleOptions} placeholder="Select plate / 选择车牌" /></Form.Item>
             <Form.Item name="type" label="Inspection type / 验车类型" rules={[{ required: true, message: "Select inspection type. / 请选择验车类型。" }]}><Select options={inspectionTypeOptions.map(option => ({ value: option.value, label: option.label }))} /></Form.Item>
-            <Form.Item name="company" label="Company / 公司" rules={[{ required: true }]}><Select options={companyOptions} /></Form.Item>
+            <Form.Item name="specialInspection" label="Special inspection / 特殊验车" valuePropName="checked" extra="Checked: YS Heng Auto. Unchecked: YS Heng Automotive Sdn Bhd. / 勾选：YS Heng Auto；未勾选：YS Heng Automotive Sdn Bhd。"><Checkbox>Special inspection / 特殊验车</Checkbox></Form.Item>
             <Form.Item name="appointmentDate" label="Appointment date / 预约日期" rules={[{ required: true, message: "Select appointment date. / 请选择预约日期。" }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="appointmentTime" label="Appointment time / 预约时间"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
             <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="sourceReceiptNumber" label="Supplier receipt number / 供应商收据编号" rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="supplierInvoiceReference" label="Supplier Invoice No / 供应商发票编号" validateTrigger="onBlur" rules={[
               { required: true, whitespace: true, message: "Enter supplier invoice number. / 请填写供应商发票编号。" },
               { validator: async (_, value: string) => {
@@ -201,7 +207,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
                 if (form.getFieldValue("supplierInvoiceReference") !== value) return;
                 if (!result.available) throw new Error(`Number already used. Suggested: ${result.suggestedInvoiceNumber}. Please edit and confirm. / 编号已使用，建议改为 ${result.suggestedInvoiceNumber}，请自行修改确认。`);
               } }
-            ]} extra="Use the original number or your confirmed bracket suffix. / 填原编号或自行确认的括号编号。"><Input /></Form.Item>
+            ]} extra="Enter the original number or your confirmed bracket suffix, e.g. INV123 (1). Allocations share the original receipt; the suffix does not create a new receipt. / 填原编号或自行确认的括号编号，如 INV123 (1)。分配金额仍合计到原收据，括号编号不另开收据。"><Input /></Form.Item>
             <Form.Item name="receiptTotal" label="Receipt total (RM) / 收据总额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="allocatedAmount" label="Allocated amount (RM) / 本车分配金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="isLorry" label="Vehicle type / 车辆类型"><Select options={[{ value: false, label: "Car / 轿车" }, { value: true, label: "Lorry / 罗里" }]} /></Form.Item>
