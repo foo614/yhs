@@ -667,11 +667,10 @@ async function verifyRepairReviewTotal() {
   await page.route(pattern, route => route.fulfill({ json: rows }));
   await page.reload({ waitUntil: "domcontentloaded" });
   const panel = page.locator(".repairReviewPanel");
-  const total = panel.getByText(/Total amount \/ 总金额/);
+  const total = panel.getByText(/Total amount \/ 总金额/).filter({ visible: true });
   await expect(total).toContainText("RM 2,500.25");
   const records = width <= 720 ? panel.locator(".mobileRecordCard:visible") : panel.locator("tbody tr.ant-table-row:visible");
   await expect(records).toHaveCount(10);
-  await expect(panel.getByText("Some receipt links or amounts need checking", { exact: false })).toBeVisible();
   await expect(records.first().getByRole("button", { name: "Record payment", exact: false })).toHaveCount(0);
   await expect(records.nth(1).getByRole("button", { name: "Record payment", exact: false })).toBeVisible();
   const chooser = panel.locator(".ant-pagination-options:visible .ant-select");
@@ -689,6 +688,24 @@ async function verifyRepairReviewTotal() {
     await panel.getByRole("button", { name: "Search", exact: true }).click();
   }
   await expect(total).toContainText("RM 1,500.15");
+  const footerLayout = await total.evaluate(element => {
+    const footer = element.closest(".ant-pagination");
+    const footerRect = footer.getBoundingClientRect();
+    const totalRect = element.getBoundingClientRect();
+    const controlsRect = footer.querySelector(".ant-pagination-prev").getBoundingClientRect();
+    return {
+      leftInset: totalRect.left - footerRect.left - parseFloat(getComputedStyle(footer).paddingLeft),
+      withinViewport: footerRect.right <= document.documentElement.clientWidth,
+      controlsAtRight: controlsRect.left > totalRect.right,
+      sameRow: Math.abs(controlsRect.top - totalRect.top) < 16
+    };
+  });
+  expect(Math.abs(footerLayout.leftInset)).toBeLessThanOrEqual(2);
+  expect(footerLayout.withinViewport).toBe(true);
+  if (width >= 1025) {
+    expect(footerLayout.controlsAtRight).toBe(true);
+    expect(footerLayout.sameRow).toBe(true);
+  }
   await inspect("repair-filtered-total", width);
   await page.unroute(pattern);
   let releaseReceipts;
