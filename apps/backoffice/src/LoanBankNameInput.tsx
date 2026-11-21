@@ -23,7 +23,8 @@ export function LoanBankNameInput({ value, onChange, id }: {
         id={isManual ? undefined : id}
         aria-label={isManual ? "Choose bank / 选择银行" : undefined}
         className="fullWidth"
-        showSearch={{ optionFilterProp: "label" }}
+        showSearch
+        optionFilterProp="label"
         placeholder="Select bank / 选择银行"
         value={isManual ? otherBank : value}
         options={[...bankOptions, { value: otherBank, label: "Other / enter manually / 其他银行" }]}

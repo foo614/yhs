@@ -575,7 +575,7 @@ describe("workflow list query controls", () => {
       vehicles, dashboardFocus: {}, onClearDashboardFocus: () => {}, onOpenCustomer: () => {}
     }));
 
-    expect(loanMarkup).toContain("Search plate, customer, phone, status");
+    expect(loanMarkup).toContain('aria-label="Search loans by plate"');
     expect(deliveryMarkup).toContain("Search plate, customer or PIC");
     expect(loanMarkup).toContain("pageFilterMobileOnly");
     expect(loanMarkup).toContain("nativeSearchDesktopOnly");
