@@ -119,7 +119,7 @@ export async function submitHrDecision(action: () => Promise<void>, onError: (me
   }
 }
 
-const leaveTypes: HrLeaveType[] = ["AnnualLeave", "MedicalLeave", "EmergencyLeave", "UnpaidLeave"];
+const leaveTypes: HrLeaveType[] = ["AnnualLeave", "MedicalLeave", "UnpaidLeave"];
 const adjustmentTypes = [
   { value: "AnnualLeave", label: "AL / Annual Leave / 年假" },
   { value: "MedicalLeave", label: "MC / Medical Leave / 病假" }
@@ -392,6 +392,7 @@ export function HrSalaryPage({
   const leaveEndHalf = Form.useWatch("endHalf", leaveForm) as "AM" | "PM" | undefined;
   const leaveType = Form.useWatch("type", leaveForm) as HrLeaveType | undefined;
   const leaveStaffUserId = String(Form.useWatch("staffUserId", leaveForm) || selfId);
+  const selectedLeaveBalance = leaveBalances.find(balance => balance.staffUserId === leaveStaffUserId);
   const calculatedLeaveDays = useMemo(
     () => leaveCalculationPreview?.days ?? calculateLeaveDays(leaveStartDate || today, leaveEndDate || today, leaveStartHalf || "AM", leaveEndHalf || "PM", new Set(publicHolidays.map(item => item.date))),
     [leaveCalculationPreview, leaveEndDate, leaveEndHalf, leaveStartDate, leaveStartHalf, publicHolidays, today]
@@ -579,8 +580,9 @@ export function HrSalaryPage({
   const leaveDecisionButtons = (record: HrLeaveRequest, compact = false) => {
     const approveAction = `leave:${record.id}:Approved`;
     const rejectAction = `leave:${record.id}:Rejected`;
+    const approveButton = <Button size={compact ? "small" : undefined} type="primary" loading={decisionSubmitting === approveAction} disabled={Boolean(decisionSubmitting)}>Approve / 批准</Button>;
     return <>
-      <Button size={compact ? "small" : undefined} type="primary" loading={decisionSubmitting === approveAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(approveAction, () => onDecideLeave(record.id, "Approved")); }}>Approve / 批准</Button>
+      {record.type === "MedicalLeave" && !record.medicalCertificateDocumentId ? <Popconfirm title="Approve without MC? / 无病假单仍批准？" description="Annual leave will cover the full request if sufficient at approval; otherwise the full request is unpaid leave. / 批准时年假足够则全额扣年假，否则全额按无薪假处理。" onConfirm={() => runDecision(approveAction, () => onDecideLeave(record.id, "Approved"))}>{approveButton}</Popconfirm> : <Button size={compact ? "small" : undefined} type="primary" loading={decisionSubmitting === approveAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(approveAction, () => onDecideLeave(record.id, "Approved")); }}>Approve / 批准</Button>}
       <Button size={compact ? "small" : undefined} danger loading={decisionSubmitting === rejectAction} disabled={Boolean(decisionSubmitting)} onClick={() => { void runDecision(rejectAction, () => onDecideLeave(record.id, "Rejected")); }}>Reject / 拒绝</Button>
     </>;
   };
@@ -846,6 +848,7 @@ export function HrSalaryPage({
             <Typography.Text className="mobileRecordLabel">Reason / 原因</Typography.Text>
             <div className="mobileRecordTextBlock"><span>{record.reason || "-"}</span></div>
           </div>
+          {record.decisionNotes && <Typography.Text type="secondary">{record.decisionNotes}</Typography.Text>}
           <div className="mobileRecordFooter hrMobileActions">
             {record.medicalCertificateDocumentId ? <DocumentPreviewButton
               fileName="Medical certificate / 病假单"
@@ -1182,7 +1185,7 @@ export function HrSalaryPage({
                   >
                     <div className="leaveIdentityGrid">
                       {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工"><Select options={staffOptions} /></Form.Item>}
-                      <Form.Item name="type" label="Leave Type / 请假类型" rules={[{ required: true }]}><Select options={leaveTypes.map((value) => ({ value, label: leaveTypeLabel(value) }))} /></Form.Item>
+                      <Form.Item name="type" label="Leave Type / 请假类型" rules={[{ required: true }]}><Select options={leaveTypes.map((value) => ({ value, label: `${leaveTypeLabel(value)}${value === "AnnualLeave" ? ` · ${selectedLeaveBalance?.annualLeaveDays ?? 0} days left` : value === "MedicalLeave" ? ` · ${selectedLeaveBalance?.medicalLeaveDays ?? 0} days left` : ""}` }))} /></Form.Item>
                     </div>
                     <div className="leaveDatePanel">
                       <Typography.Text className="leaveSectionTitle">Leave Period / 请假日期</Typography.Text>
@@ -1193,19 +1196,12 @@ export function HrSalaryPage({
                         <Form.Item name="endHalf" label="End Session / 结束时段" rules={[{ required: true }]}><Select options={halfDayOptions} /></Form.Item>
                       </div>
                     </div>
-                    <div className="leaveDetailsGrid">
-                      <Form.Item label="Calculated Days / 自动计算天数">
-                        <div className="leaveCalculatedDays">
-                          <strong>{calculatedLeaveDays > 0 ? calculatedLeaveDays : "-"}</strong>
-                          <span>{leaveCalculationPreview?.scheduledDates.length ? "days / 天. Personal work schedule applied / 已套用个人班表." : "days / 天. Weekdays used when no personal schedule is set / 没有个人班表时按工作日计算."}</span>
-                        </div>
-                        {leaveCalculationPreviewBusy && <Typography.Text type="secondary">Checking saved schedule and holidays… / 正在检查已保存班表和假期…</Typography.Text>}
-                        {leaveCalculationPreviewError && <Alert type="warning" showIcon message="Leave preview unavailable / 请假预览暂不可用" description={leaveCalculationPreviewError} />}
-                      </Form.Item>
+                    <div className="fullWidth">
                       <Form.Item name="reason" label="Reason / 原因"><Input.TextArea rows={3} /></Form.Item>
                     </div>
+                    {leaveCalculationPreviewError && <Alert type="warning" showIcon message="Leave preview unavailable / 请假预览暂不可用" description={leaveCalculationPreviewError} />}
                     {shouldShowOptionalMcUpload(leaveType) && (
-                      <Form.Item label="MC document (optional) / 病假单（可选）" extra="Upload a PDF or image now, or submit first and upload it later. Maximum 10 MB.">
+                      <Form.Item label="MC document (optional) / 病假单（可选）" extra="Upload a PDF or image before approval. Without an MC at approval, annual leave is used if it covers the full request; otherwise the full request is unpaid leave. Maximum 10 MB.">
                         <Space direction="vertical" size={4}>
                           <Upload
                             accept=".pdf,image/png,image/jpeg,image/webp"
