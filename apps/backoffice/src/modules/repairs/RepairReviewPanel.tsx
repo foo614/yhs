@@ -18,7 +18,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
 }) {
   const [rows, setRows] = useState<RepairReviewRow[]>([]);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [filters, setFilters] = useState<RepairReviewFilters>({ plate: "", supplier: "", invoice: "" });
   const [page, setPage] = useState(1);
@@ -78,7 +78,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
       { title: "Status / 状态", dataIndex: "status", render: value => <Tag>{value}</Tag> },
       { title: "Action / 操作", fixed: "right", render: (_, row) => actions(row) }
     ]} />
-    <Typography.Paragraph strong>Total amount / 总金额：{(error || filtered.some(row => row.needsReview)) ? "Unavailable — check receipt links / 请先核对单据关联" : money(total)}</Typography.Paragraph>
+    <Typography.Paragraph strong>Total amount / 总金额：{loading ? "Loading… / 读取中…" : error ? "Unavailable / 暂不可用" : money(total)}</Typography.Paragraph>
     <Modal title="Record completed payment / 记录已付款" open={Boolean(payment)} onCancel={() => setPayment(null)} confirmLoading={saving} onOk={async () => {
       if (!payment || !paidAt) return;
       setSaving(true);

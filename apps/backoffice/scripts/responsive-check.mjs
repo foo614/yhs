@@ -662,20 +662,23 @@ async function verifyDashboardClarity() {
 
 async function verifyRepairReviewTotal() {
   const pattern = "**/api/repair-review";
-  const rows = Array.from({ length: 25 }, (_, index) => ({ ...fixtures["/api/repair-review"][0], id: `review-${index}`, supplierInvoiceId: `invoice-${index}`, plateNumber: index < 15 ? "GROUPA" : "GROUPB", amount: 100 }));
+  const rows = Array.from({ length: 25 }, (_, index) => ({ ...fixtures["/api/repair-review"][0], id: `review-${index}`, supplierInvoiceId: `invoice-${index}`, plateNumber: index < 15 ? "GROUPA" : "GROUPB", amount: 100.01, needsReview: index === 0 }));
   await page.route(pattern, route => route.fulfill({ json: rows }));
   await page.reload({ waitUntil: "domcontentloaded" });
   const panel = page.locator(".repairReviewPanel");
   const total = panel.getByText(/Total amount \/ 总金额/);
-  await expect(total).toContainText("RM 2,500.00");
+  await expect(total).toContainText("RM 2,500.25");
   const records = width <= 720 ? panel.locator(".mobileRecordCard:visible") : panel.locator("tbody tr.ant-table-row:visible");
   await expect(records).toHaveCount(10);
+  await expect(panel.getByText("Some receipt links or amounts need checking", { exact: false })).toBeVisible();
+  await expect(records.first().getByRole("button", { name: "Record payment", exact: false })).toHaveCount(0);
+  await expect(records.nth(1).getByRole("button", { name: "Record payment", exact: false })).toBeVisible();
   const chooser = panel.locator(".ant-pagination-options:visible .ant-select");
   await expect(chooser).toBeVisible();
   await chooser.click();
   await page.locator(".ant-select-item-option").filter({ hasText: /^20 \/ page$/ }).click();
   await expect(records).toHaveCount(20);
-  await expect(total).toContainText("RM 2,500.00");
+  await expect(total).toContainText("RM 2,500.25");
   await chooser.click();
   await page.locator(".ant-select-item-option").filter({ hasText: /^10 \/ page$/ }).click();
   await expect(records).toHaveCount(10);
@@ -684,9 +687,25 @@ async function verifyRepairReviewTotal() {
     await panel.locator('input[id$="plate"]').fill("GROUPA");
     await panel.getByRole("button", { name: "Search", exact: true }).click();
   }
-  await expect(total).toContainText("RM 1,500.00");
+  await expect(total).toContainText("RM 1,500.15");
   await inspect("repair-filtered-total", width);
   await page.unroute(pattern);
+  let releaseReceipts;
+  const receiptsPending = new Promise(resolve => { releaseReceipts = resolve; });
+  await page.route(pattern, async route => {
+    await receiptsPending;
+    await route.fulfill({ status: 503, json: { message: "Synthetic receipt load failure" } });
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(total).toContainText("Loading");
+  releaseReceipts();
+  await expect(panel.getByText("Unable to load repair receipts", { exact: false })).toBeVisible();
+  await expect(total).toContainText("Unavailable");
+  await expect(total).not.toContainText("RM");
+  diagnostics.repairTotalFailureCheck = true;
+  await page.unroute(pattern);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(total).toContainText("RM 1,200.00");
 }
 
 try {
@@ -1126,7 +1145,7 @@ const knownAntd6DeprecationWarnings = new Set([
   "Warning: [antd: Steps] `direction` is deprecated. Please use `orientation` instead.",
   "Warning: [antd: Steps] `items.description` is deprecated. Please use `items.content` instead."
 ]);
-const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !knownAntd6DeprecationWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
+const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !knownAntd6DeprecationWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation || diagnostics.repairTotalFailureCheck) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
 const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
 console.log(JSON.stringify(summary, null, 2));
 if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {
