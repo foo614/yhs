@@ -5,13 +5,11 @@ import { getRepairReview, recordRepairPayment, rejectRepair, type RepairReviewRo
 import { OperationsProTable } from "../shared/OperationsProTable";
 
 const money = (value: number) => `RM ${value.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-export type RepairReviewFilters = { plate: string; supplier: string; invoice: string; status?: string; from?: string; to?: string };
+export type RepairReviewFilters = { plate: string; supplier: string; invoice: string; status?: string };
 export function filterRepairReview(rows: RepairReviewRow[], filters: RepairReviewFilters) {
   const contains = (value: string | undefined, query: string) => !query.trim() || (value ?? "").toLowerCase().includes(query.trim().toLowerCase());
   return rows.filter(row => contains(row.plateNumber, filters.plate) && contains(row.supplierName, filters.supplier) && contains(row.invoiceNumber, filters.invoice)
-    && (!filters.status || row.status === filters.status)
-    && (!filters.from || Boolean(row.receiptDate && row.receiptDate >= filters.from))
-    && (!filters.to || Boolean(row.receiptDate && row.receiptDate <= filters.to)));
+    && (!filters.status || row.status === filters.status));
 }
 export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onChanged }: {
   canApprove: boolean; revision: unknown; onOpen: (row: RepairReviewRow) => void; onApprove: (id: string) => Promise<void>; onChanged: () => void;
@@ -35,6 +33,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
   const filtered = filterRepairReview(rows, filters);
   const current = Math.min(page, Math.max(1, Math.ceil(filtered.length / pageSize)));
   const total = filtered.reduce((sum, row) => sum + Math.round(row.amount * 100), 0) / 100;
+  const totalSummary = () => <Typography.Text strong>Total amount / 总金额：{loading ? "Loading… / 读取中…" : error ? "Unavailable / 暂不可用" : money(total)}</Typography.Text>;
   const changed = () => { setReload(value => value + 1); onChanged(); };
   const confirm = (row: RepairReviewRow, reject: boolean) => Modal.confirm({
     title: reject ? "Reject receipt / 拒绝单据" : "Approve receipt / 批准单据",
@@ -49,28 +48,25 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
   const update = (next: Partial<RepairReviewFilters>) => { setFilters(value => ({ ...value, ...next })); setPage(1); };
   return <section className="repairReviewPanel">
     {error && <Alert type="error" title={error} action={<Button onClick={() => setReload(value => value + 1)}>Retry / 重试</Button>} />}
-    {rows.some(row => row.needsReview) && <Alert type="warning" title="Some receipt links or amounts need checking / 部分单据关联或金额需要核对" description="Payment is unavailable for these records. Open Details to check the original receipt." />}
     <Space wrap className="toolbarForm mobileRecordList">
       <Input aria-label="Car plate" placeholder="Car plate / 车牌" value={filters.plate} onChange={event => update({ plate: event.target.value })} />
       <Input aria-label="Supplier" placeholder="Supplier / 供应商" value={filters.supplier} onChange={event => update({ supplier: event.target.value })} />
       <Input aria-label="Invoice number" placeholder="Invoice / 单号" value={filters.invoice} onChange={event => update({ invoice: event.target.value })} />
       <Select aria-label="Status" placeholder="Status / 状态" allowClear style={{ minWidth: 150 }} value={filters.status} onChange={status => update({ status })} options={["Submitted", "Approved", "Paid", "Rejected"].map(value => ({ value, label: value }))} />
-      <DatePicker.RangePicker aria-label="Receipt date range" onChange={dates => update({ from: dates?.[0]?.format("YYYY-MM-DD"), to: dates?.[1]?.format("YYYY-MM-DD") })} />
     </Space>
     <div className="mobileRecordList">
       {filtered.slice((current - 1) * pageSize, current * pageSize).map(row => <article className="mobileRecordCard" key={row.id}>
         <div className="mobileRecordHeader"><strong>{row.invoiceNumber || "No receipt number / 未填单号"}</strong><Tag>{row.status}</Tag></div>
         <p>{row.plateNumber} · {row.receiptDate || "—"}</p><p>{money(row.amount)}</p><div className="mobileRecordFooter">{actions(row)}</div>
       </article>)}
-      <Pagination current={current} total={filtered.length} pageSize={pageSize} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(next, size) => { setPage(next); setPageSize(size); }} />
+      <Pagination current={current} total={filtered.length} pageSize={pageSize} showTotal={totalSummary} showSizeChanger pageSizeOptions={[10, 20, 30]} onChange={(next, size) => { setPage(next); setPageSize(size); }} />
     </div>
-    <div className="desktopDataTable"><DatePicker.RangePicker aria-label="Receipt date range" onChange={dates => update({ from: dates?.[0]?.format("YYYY-MM-DD"), to: dates?.[1]?.format("YYYY-MM-DD") })} /></div>
     <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" loading={loading} nativeSearch={{
       fields: [{ name: "plate", label: "Car plate / 车牌" }, { name: "supplier", label: "Supplier / 供应商" }, { name: "invoice", label: "Invoice / 单号" }, { name: "status", label: "Status / 状态", options: ["Submitted", "Approved", "Paid", "Rejected"].map(value => ({ value, label: value })) }],
       values: filters,
       onSubmit: values => update({ plate: String(values.plate ?? ""), supplier: String(values.supplier ?? ""), invoice: String(values.invoice ?? ""), status: values.status ? String(values.status) : undefined }),
       onReset: () => update({ plate: "", supplier: "", invoice: "", status: undefined })
-    }} dataSource={filtered} scroll={{ x: 850 }} pagination={{ current, pageSize, showSizeChanger: true, onChange: (next, size) => { setPage(next); setPageSize(size); } }} columns={[
+    }} dataSource={filtered} scroll={{ x: 850 }} pagination={{ current, pageSize, showTotal: totalSummary, showSizeChanger: true, onChange: (next, size) => { setPage(next); setPageSize(size); } }} columns={[
       { title: "Invoice No / 单号", dataIndex: "invoiceNumber", render: value => value || "—" },
       { title: "Receipt date / 收据日期", dataIndex: "receiptDate", render: value => value || "—" },
       { title: "Car plate / 车牌", dataIndex: "plateNumber" },
@@ -78,7 +74,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
       { title: "Status / 状态", dataIndex: "status", render: value => <Tag>{value}</Tag> },
       { title: "Action / 操作", fixed: "right", render: (_, row) => actions(row) }
     ]} />
-    <Typography.Paragraph strong>Total amount / 总金额：{loading ? "Loading… / 读取中…" : error ? "Unavailable / 暂不可用" : money(total)}</Typography.Paragraph>
+    {filtered.length === 0 && <div className="desktopDataTable repairReviewEmptyFooter">{totalSummary()}</div>}
     <Modal title="Record completed payment / 记录已付款" open={Boolean(payment)} onCancel={() => setPayment(null)} confirmLoading={saving} onOk={async () => {
       if (!payment || !paidAt) return;
       setSaving(true);

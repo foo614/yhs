@@ -7882,6 +7882,29 @@ button .navActionBadge .navActionBadgeUrgent {
 }
 
 /* Keep table footers inset even when ProTable removes card body padding. */
+.repairReviewEmptyFooter {
+  padding: 16px 24px;
+}
+
+.repairReviewPanel .ant-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.repairReviewPanel .ant-pagination .ant-pagination-total-text {
+  height: auto;
+  margin-inline-end: auto;
+  text-align: left;
+  white-space: normal;
+}
+
+@media (max-width: 720px) {
+  .repairReviewPanel .ant-pagination .ant-pagination-total-text {
+    flex-basis: 100%;
+  }
+}
+
 .operationsProTable .ant-table-pagination.ant-pagination {
   margin: 0;
   /* Leave the fixed floating menu clear of the page-size selector. */
