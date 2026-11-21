@@ -4223,6 +4223,16 @@ public static class DeliveryDocumentRules
             ? RequiredCategories.Where(category => category != FileCategory.RoadTaxReceipt).ToArray()
             : RequiredCategories;
 
+    public static ValidationResult ValidateRoadTaxConfirmation(DeliverySchedule existing, DeliverySchedule update, IEnumerable<DocumentBlob> documents)
+    {
+        var confirming = update.RoadTaxHandled && (!existing.RoadTaxHandled || existing.RoadTaxPaidViaEAuto == true);
+        if (!confirming || update.RoadTaxPaidViaEAuto == true) return new ValidationResult([]);
+        var check = CheckCompleteness(update, documents);
+        return check.MissingCategories.Contains(FileCategory.RoadTaxReceipt)
+            ? new ValidationResult([new ValidationError("delivery_road_tax_receipt_required", "Upload a JPJ receipt for this delivery and buyer before confirming road tax, or select renewed via eAuto.")])
+            : new ValidationResult([]);
+    }
+
     public static ValidationResult ValidateReadyDocuments(DeliverySchedule delivery, IEnumerable<DocumentBlob> documents)
     {
         if (delivery.Status is not (DeliveryStatus.ReadyForRelease or DeliveryStatus.Released))
