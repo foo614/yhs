@@ -91,6 +91,7 @@ import {
   getHrStaffUsers,
   getLoanDocumentCheck,
   getLoanDocumentCheckStrict,
+  getEligibleLoanBuyerVehicles,
   getLoans,
   getOperationsCalendar,
   getOwners,
@@ -431,6 +432,21 @@ describe("backoffice api client", () => {
     await expect(getVehicleLookup()).resolves.toEqual([lookup]);
 
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/vehicle-lookup", { credentials: "include" });
+  });
+
+  it("loads buyer-intake vehicle choices from the dedicated eligible endpoint", async () => {
+    const eligible = {
+      id: "vehicle-eligible",
+      plateNumber: "ABC1234",
+      year: 2020,
+      make: "BMW",
+      model: "2 Series"
+    };
+    const fetchMock = mockFetch([eligible]);
+
+    await expect(getEligibleLoanBuyerVehicles()).resolves.toEqual([eligible]);
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/loans/intake/eligible-vehicles", { credentials: "include" });
   });
 
   it("loads Finance-only vehicle defaults separately and merges them into invoice options", async () => {

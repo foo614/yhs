@@ -25,6 +25,8 @@ public sealed record LoanBuyerIntakeInput(
 
 public sealed record LoanBuyerIntakeResult(Customer Customer, LoanApplication? Loan);
 
+public sealed record LoanBuyerIntakeVehicleOption(Guid Id, string PlateNumber, int Year, string Make, string Model);
+
 public sealed record LoanBuyerIntakeOutcome(
     LoanBuyerIntakeResult? Result,
     ValidationResult Validation,
@@ -37,12 +39,55 @@ public sealed record LoanBuyerIntakeOutcome(
 /// </summary>
 public static class LoanBuyerIntake
 {
-    public static IEndpointRouteBuilder MapLoanBuyerIntake(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapLoanBuyerIntake(this IEndpointRouteBuilder routes)
     {
-        endpoints.MapPost("/loans/intake", HandleHttpAsync)
+        routes.MapGet("/loans/intake/eligible-vehicles", HandleEligibleVehiclesAsync)
+            .RequireAuthorization("LoanCreate");
+        routes.MapPost("/loans/intake", HandleHttpAsync)
             .DisableAntiforgery()
             .RequireAuthorization("LoanCreate");
-        return endpoints;
+        return routes;
+    }
+
+    public static async Task<IResult> HandleEligibleVehiclesAsync(
+        HttpContext context,
+        AppDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var isAdmin = context.User.IsInRole("BossAdmin");
+        if (!isAdmin && !context.User.IsInRole("Sales")) return Results.Forbid();
+
+        var actorId = StaffIdentity.CurrentUserId(context);
+        var vehicles = await db.Vehicles.AsNoTracking().ToListAsync(cancellationToken);
+        var loans = await db.LoanApplications.AsNoTracking().ToListAsync(cancellationToken);
+        return Results.Ok(EligibleVehicleOptions(vehicles, loans, isAdmin, actorId));
+    }
+
+    public static IReadOnlyList<LoanBuyerIntakeVehicleOption> EligibleVehicleOptions(
+        IEnumerable<Vehicle> vehicles,
+        IEnumerable<LoanApplication> loans,
+        bool isAdmin,
+        string actorId)
+    {
+        var activeLoanVehicleIds = loans
+            .Where(WorkflowStatusRules.IsActiveLoan)
+            .Select(loan => loan.VehicleId)
+            .ToHashSet();
+
+        return vehicles
+            .Where(vehicle =>
+                vehicle.Status != VehicleStatus.Sold &&
+                !activeLoanVehicleIds.Contains(vehicle.Id) &&
+                (isAdmin || (!string.IsNullOrWhiteSpace(actorId) &&
+                    string.Equals(vehicle.SalesAgentUserId, actorId, StringComparison.Ordinal))))
+            .OrderBy(vehicle => vehicle.PlateNumber)
+            .Select(vehicle => new LoanBuyerIntakeVehicleOption(
+                vehicle.Id,
+                vehicle.PlateNumber,
+                vehicle.Year,
+                vehicle.Make,
+                vehicle.Model))
+            .ToList();
     }
 
     public static async Task<IResult> HandleHttpAsync(HttpContext context, AppDbContext db, CancellationToken cancellationToken)

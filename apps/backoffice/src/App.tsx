@@ -1,5 +1,6 @@
 import { RepairReviewPanel } from "./modules/repairs/RepairReviewPanel";
-import { formatDisplayDate } from "./dateDisplay";
+import { LoanBankNameInput } from "./LoanBankNameInput";
+import { formatDisplayDate, formatDisplayDateTime } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { DashboardUpdatesPanel } from "./modules/dashboard/DashboardUpdatesPanel";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
@@ -189,6 +190,7 @@ import {
   getLeads,
   getLoanDocumentCheckStrict,
   getLoanBankOptions,
+  getEligibleLoanBuyerVehicles,
   getLoans,
   getOcrUsageLimit,
   getOwners,
@@ -316,6 +318,7 @@ import {
   type Lead,
   type LoanBankOption,
   type LoanApplication,
+  type LoanBuyerIntakeVehicleOption,
   type LoanDecisionStatus,
   type LoanDocumentCheck,
   type PaymentRecord,
@@ -3400,7 +3403,7 @@ const supplierInvoiceAmountRules = [{
   }
 }];
 
-function repairVehicleDescription(vehicle: VehicleLookup) {
+function repairVehicleDescription(vehicle: Pick<VehicleLookup, "year" | "make" | "model">) {
   return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
 }
 
@@ -4338,6 +4341,9 @@ export function LoanPage({
   const [uploadLoanId, setUploadLoanId] = useState(initialLoanId ?? "");
   const [loanCreateOpen, setLoanCreateOpen] = useState(false);
   const [loanIntakeForm] = Form.useForm();
+  const [eligibleBuyerVehicles, setEligibleBuyerVehicles] = useState<LoanBuyerIntakeVehicleOption[]>([]);
+  const [eligibleBuyerVehiclesLoading, setEligibleBuyerVehiclesLoading] = useState(false);
+  const [eligibleBuyerVehiclesError, setEligibleBuyerVehiclesError] = useState("");
   const [intakeFile, setIntakeFile] = useState<File>();
   const [intakeSaving, setIntakeSaving] = useState(false);
   const intakeId = useRef(newId());
@@ -4361,6 +4367,7 @@ export function LoanPage({
   const [finalDealEditing, setFinalDealEditing] = useState(false);
   const [finalDealSaving, setFinalDealSaving] = useState(false);
   const [loanBankForm] = Form.useForm<Partial<LoanBankOption>>();
+  const editingBankId = Form.useWatch("id", loanBankForm);
   const [loanBankOptions, setLoanBankOptions] = useState<LoanBankOption[]>([]);
   const [loanBankOptionsLoading, setLoanBankOptionsLoading] = useState(false);
   const selectedLoan: LoanApplication | undefined = loans.find((loan) => loan.id === uploadLoanId);
@@ -4379,7 +4386,6 @@ export function LoanPage({
     depositAmount: loan.depositAmount,
     contraAmount: loan.contraAmount,
     tradeInPlateNumber: loan.tradeInPlateNumber,
-    ncdAmount: loan.ncdAmount,
     ncdPercentage: loan.ncdPercentage,
     ncdVehiclePlate: loan.ncdVehiclePlate,
     ncdInsurer: loan.ncdInsurer,
@@ -4422,6 +4428,30 @@ export function LoanPage({
   };
   const loanEmptyText = loans.length > 0 ? "No loans match the current filters." : "No loan records yet.";
   const loanStats = loanHeaderStats(loans);
+  const eligibleBuyerVehicleOptions = eligibleBuyerVehicles.map((vehicle) => ({
+    value: vehicle.id,
+    label: `${vehicle.plateNumber} · ${repairVehicleDescription(vehicle)}`,
+    plateNumber: vehicle.plateNumber,
+    vehicleDescription: repairVehicleDescription(vehicle)
+  }));
+
+  const loadEligibleBuyerVehicles = async () => {
+    setEligibleBuyerVehicles([]);
+    setEligibleBuyerVehiclesError("");
+    setEligibleBuyerVehiclesLoading(true);
+    try {
+      setEligibleBuyerVehicles(await getEligibleLoanBuyerVehicles());
+    } catch (error) {
+      setEligibleBuyerVehiclesError(humanizeApiError(error, "Eligible car plates could not be loaded."));
+    } finally {
+      setEligibleBuyerVehiclesLoading(false);
+    }
+  };
+
+  const openLoanBuyerIntake = () => {
+    setLoanCreateOpen(true);
+    void loadEligibleBuyerVehicles();
+  };
 
   useEffect(() => {
     if (initialLoanId) setUploadLoanId(initialLoanId);
@@ -4479,18 +4509,10 @@ export function LoanPage({
     Done: "blue"
   };
 
-  const renderLoanDocumentSummary = (check?: LoanDocumentCheck) => {
-    if (documentChecksError) return <Tag color="warning">Check unavailable</Tag>;
-    if (!check) return <Tag>Checking</Tag>;
-    if (check.isComplete) return <Tag color="green">Complete</Tag>;
-
-    const missingLabel = check.missingCategories.map(documentCategoryLabel).join(", ");
-    return (
-      <Tooltip title={`Missing: ${missingLabel}`}>
-        <Tag color="red">{check.missingCategories.length} missing</Tag>
-      </Tooltip>
-    );
-  };
+  const renderApprovedBanks = (loan: LoanApplication) => loan.status !== "Approved" ? "-" :
+    loan.approvedBanks?.length ? <Space direction="vertical" size={4}>
+      {loan.approvedBanks.map(bank => <span key={bank.id}>{bank.bankName}{bank.isSelected && <Tag color="green">Selected / 已选</Tag>}</span>)}
+    </Space> : "Not recorded / 未记录";
 
   const loanCompletionBlockReason = (loanId: string) => {
     if (documentChecksError) return "The document check could not be loaded. Retry it before marking the loan done.";
@@ -4519,13 +4541,16 @@ export function LoanPage({
 
     if (loan.status === "Pending" || loan.status === "Submitted") {
       if (!loan.takenByUserId) {
-        if (roles.includes("Sales")) {
-          return <Typography.Text type="secondary">Waiting for Admin/Loan to take case</Typography.Text>;
+        if (loan.status !== "Pending") {
+          return <Typography.Text type="secondary">Loan handler not recorded / 未记录贷款经办人</Typography.Text>;
+        }
+        if (!roles.includes("Loan") && !isBossAdmin) {
+          return <Typography.Text type="secondary">Waiting for Loan to take case</Typography.Text>;
         }
         return <Button size="small" onClick={() => onTake(loan.id)}>Take case</Button>;
       }
       if (!canProcessLoan(loan)) {
-        return <Typography.Text type="secondary">Taken by {loan.takenByName || "another processor"}</Typography.Text>;
+        return <Typography.Text type="secondary">Taken by {loan.takenByName || "another Loan team member"}</Typography.Text>;
       }
       return (
         <Space size={6} wrap>
@@ -4661,7 +4686,7 @@ export function LoanPage({
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
-        <Alert type="warning" showIcon message="Take this loan case before opening details" description="A Loan processor must take ownership before viewing or changing the case. Admin can review all cases." />
+        <Alert type="warning" showIcon message="Take this loan case before opening details" description="A Loan team member must take ownership before viewing or changing the case. Boss/Admin can review all cases." />
         {selectedLoan.status === "Pending" && !selectedLoan.takenByUserId && roles.includes("Loan") && <Button type="primary" onClick={() => onTake(selectedLoan.id)}>Take case / 接手</Button>}
       </Space>
     );
@@ -4671,37 +4696,23 @@ export function LoanPage({
     {
       title: "Car Plate / 车牌",
       dataIndex: "vehicleId",
-      width: 220,
+      width: 135,
       render: (vehicleId) => <VehicleIdentity vehicles={vehicles} vehicleId={vehicleId} />
     },
     {
       title: "Customer / 客户",
       dataIndex: "customerId",
-      width: 240,
+      width: 170,
       render: (customerId) => contactFor(customers, customerId)
     },
-    { title: "Status / 状态", dataIndex: "status", width: 130, render: (status: LoanApplication["status"]) => <Tag color={loanStatusColor[status]}>{status}</Tag> },
-    {
-      title: "LOU",
-      width: 180,
-      render: (_, row) => (
-        <Space size={8}>
-          <Badge status={row.louApproved ? "success" : "default"} text="Approved" />
-          <Badge status={row.louDone ? "success" : "warning"} text="Completed" />
-        </Space>
-      )
-    },
-    {
-      title: "Documents / 文件",
-      width: 150,
-      render: (_, row) => renderLoanDocumentSummary(documentChecks[row.id])
-    },
-    { title: "Created / 创建", dataIndex: "submittedAt", width: 140, render: (value) => formatDisplayDate(value) },
-    { title: "Follow Up / 跟进", width: 140, render: (_, row) => <Tag color={(row.status === "Pending" || row.status === "Submitted") ? "orange" : "default"}>{(row.status === "Pending" || row.status === "Submitted") ? "2-day reminder" : "No reminder"}</Tag> },
+    { title: "Status / 状态", dataIndex: "status", width: 95, render: (status: LoanApplication["status"]) => <Tag color={loanStatusColor[status]}>{status}</Tag> },
+    { title: "Approved banks / 获批银行", width: 180, render: (_, row) => renderApprovedBanks(row) },
+    { title: "Created by / 创建人", dataIndex: "createdBy", width: 125, render: (_, row) => row.createdBy || "Not recorded / 未记录" },
+    { title: "Created / 创建", dataIndex: "createdAt", width: 170, render: (_, row) => row.createdAt ? formatDisplayDateTime(row.createdAt) : "Not recorded / 未记录" },
     {
       title: "Next Action / 操作",
       fixed: "right",
-      width: 240,
+      width: 170,
       render: (_, row) => (
         <Space className="tableActionGroup loanActionCell" wrap size={6}>
           <Button size="small" type="primary" disabled={!canOpenLoanDetails(row)} onClick={() => setUploadLoanId(row.id)}>Details</Button>
@@ -4794,7 +4805,10 @@ export function LoanPage({
             <Descriptions.Item label="Car Plate / 车牌">{plateFor(vehicles, selectedLoan.vehicleId)}</Descriptions.Item>
             <Descriptions.Item label="Customer / 客户">{contactFor(customers, selectedLoan.customerId)}</Descriptions.Item>
             <Descriptions.Item label="Status / 状态"><Tag color={loanStatusColor[selectedLoan.status]}>{selectedLoan.status === "Done" ? "Loan file complete" : selectedLoan.status}</Tag></Descriptions.Item>
-            <Descriptions.Item label="Created / 创建">{formatDisplayDate(selectedLoan.submittedAt)}</Descriptions.Item>
+            <Descriptions.Item label="Created by / 创建人">{selectedLoan.createdBy || "Not recorded / 未记录"}</Descriptions.Item>
+            <Descriptions.Item label="Created date / 创建日期">{selectedLoan.createdAt ? formatDisplayDateTime(selectedLoan.createdAt) : "Not recorded / 未记录"}</Descriptions.Item>
+            <Descriptions.Item label="Proceed by / 接手人">{selectedLoan.takenByName || "Not recorded / 未记录"}</Descriptions.Item>
+            <Descriptions.Item label="Proceed date / 接手日期">{selectedLoan.takenAt ? formatDisplayDateTime(selectedLoan.takenAt) : "Not recorded / 未记录"}</Descriptions.Item>
             <Descriptions.Item label="LOU approval recorded / LOU 已批准">{selectedLoan.louApproved ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="LOU completed / LOU 已完成">{selectedLoan.louDone ? "Yes" : "No"}</Descriptions.Item>
             <Descriptions.Item label="Document Check / 文件检查">
@@ -4802,7 +4816,7 @@ export function LoanPage({
             </Descriptions.Item>
             {check && <Descriptions.Item label="Original / 原件">{check.originalDocumentCount ?? 0} received · {check.missingCategories.length} missing</Descriptions.Item>}
             {check && <Descriptions.Item label="Edited / 修改件">{check.editedDocumentCount ?? 0} optional</Descriptions.Item>}
-            {check && <Descriptions.Item label="LOU / LOU">{check.louDocumentCount ?? 0} received</Descriptions.Item>}
+            {check && <Descriptions.Item label="LOU">{check.louDocumentCount ?? 0} received</Descriptions.Item>}
             {selectedLoan.decisionBy && <Descriptions.Item label="Decision by / 决定人">{selectedLoan.decisionBy}</Descriptions.Item>}
             {selectedLoan.decisionAt && <Descriptions.Item label="Decision time / 决定时间">{String(selectedLoan.decisionAt).replace("T", " ").slice(0, 16)}</Descriptions.Item>}
           </Descriptions>
@@ -4847,7 +4861,7 @@ export function LoanPage({
                 <Typography.Text>{option.loanAmount != null ? `RM ${option.loanAmount.toLocaleString("en-MY")}` : "Amount pending / 待填金额"}</Typography.Text>
                 {option.interestRate != null && <Typography.Text>{option.interestRate}%</Typography.Text>}
                 {option.tenureMonths != null && <Typography.Text>{option.tenureMonths} months / 个月</Typography.Text>}
-                {option.submittedAt && <Typography.Text>Submitted / 提交: {option.submittedAt.slice(0, 10)}</Typography.Text>}
+                <Typography.Text>Submitted / 提交: {option.submittedAt ? formatDisplayDateTime(option.submittedAt) : "Not recorded / 未记录"}</Typography.Text>
                 {option.isSelected && <Tag color="green">Final LOU / 最终方案</Tag>}
                 {canEditLoanDetails(selectedLoan) && option.status === "Approved" && !option.isSelected && <Popconfirm title="Use this final LOU / 采用此方案?" onConfirm={() => bankAction(() => selectFinalLoanBank(option))}><Button>Select final LOU / 选择最终方案</Button></Popconfirm>}
                 {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && option.status !== "Rejected" && <Button onClick={() => { setManualBankOpen(true); loanBankForm.setFieldsValue(option); }}>Edit / 编辑</Button>}
@@ -4870,7 +4884,7 @@ export function LoanPage({
             }}>
               <Form.Item name="id" hidden><Input /></Form.Item>
               <div className="formGridTwo">
-                <Form.Item name="bankName" label="Bank / 银行" rules={[{ required: true }]}><Input /></Form.Item>
+                <Form.Item name="bankName" label="Bank / 银行" rules={[{ required: true, whitespace: true }]}><LoanBankNameInput key={editingBankId ?? "new"} /></Form.Item>
                 <Form.Item name="loanAmount" label="Loan amount / 贷款金额"><InputNumber className="fullWidth" min={0.01} precision={2} /></Form.Item>
                 <Form.Item name="interestRate" label="Interest rate / 利率 (%)"><InputNumber className="fullWidth" min={0.001} precision={3} /></Form.Item>
                 <Form.Item name="tenureMonths" label="Tenure / 期数 (months)"><InputNumber className="fullWidth" min={1} precision={0} /></Form.Item>
@@ -4902,7 +4916,6 @@ export function LoanPage({
                   <Descriptions.Item label="Tenure / 期限">{selectedLoan.loanTenureMonths == null ? "-" : `${selectedLoan.loanTenureMonths} months`}</Descriptions.Item>
                   <Descriptions.Item label="Contra / 抵扣金额">{selectedLoan.contraAmount == null ? "-" : `RM ${selectedLoan.contraAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
                   <Descriptions.Item label="Trade-in plate / 旧车车牌">{selectedLoan.tradeInPlateNumber || "-"}</Descriptions.Item>
-                  <Descriptions.Item label="NCD / NCD">{selectedLoan.ncdAmount == null ? "-" : `RM ${selectedLoan.ncdAmount.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`}</Descriptions.Item>
                   <Descriptions.Item label="NCD percentage / NCD 百分比">{selectedLoan.ncdPercentage == null ? "-" : `${selectedLoan.ncdPercentage}%`}</Descriptions.Item>
                   <Descriptions.Item label="NCD vehicle plate / NCD 车牌">{selectedLoan.ncdVehiclePlate || "-"}</Descriptions.Item>
                   <Descriptions.Item label="NCD insurer / NCD 保险公司">{selectedLoan.ncdInsurer || "-"}</Descriptions.Item>
@@ -4939,7 +4952,6 @@ export function LoanPage({
                 <Form.Item name="depositAmount" label="Deposit / 定金"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
                 <Form.Item name="contraAmount" label="Contra / 抵扣金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
                 <Form.Item name="tradeInPlateNumber" label="Trade-in plate / 旧车车牌"><Input /></Form.Item>
-                <Form.Item name="ncdAmount" label="NCD / NCD 金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
                 <Form.Item name="ncdPercentage" label="NCD percentage / NCD 百分比"><InputNumber className="fullWidth" min={0} max={100} precision={2} /></Form.Item>
                 <Form.Item name="ncdVehiclePlate" label="NCD vehicle plate / NCD 车牌"><Input /></Form.Item>
                 <Form.Item name="ncdInsurer" label="NCD insurer / NCD 保险公司"><Input /></Form.Item>
@@ -5000,7 +5012,7 @@ export function LoanPage({
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
         title="Loan Workflow / 贷款流程"
-        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending" || loan.status === "Submitted") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending" || loan.status === "Submitted").length} pending</Tag>{canCreateManually ? <Button onClick={() => setLoanCreateOpen(true)}>Create buyer / 新增买家</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
+        extra={<Space wrap><Tag color="blue">{loans.length} loans</Tag><Tag color={loans.some((loan) => loan.status === "Pending" || loan.status === "Submitted") ? "orange" : "default"}>{loans.filter((loan) => loan.status === "Pending" || loan.status === "Submitted").length} pending</Tag>{canCreateManually ? <Button onClick={openLoanBuyerIntake}>Create buyer / 新增买家</Button> : <Typography.Text type="secondary">Start loans from Vehicle Details</Typography.Text>}</Space>}
       >
         {(dashboardFocus.loanStatus || dashboardFocus.vehicleId) && <Alert
           className="sectionIntroAlert"
@@ -5064,7 +5076,7 @@ export function LoanPage({
           onValuesChange={(_, values: LoanFilters) => updateLoanFilters(values)}
         >
           <Form.Item name="keyword">
-            <Input allowClear aria-label="Search loans by plate, customer, phone, or status" placeholder="Search plate, customer, phone, status" style={{ width: 280 }} />
+            <Input allowClear aria-label="Search loans by plate" placeholder="Search plate / 搜寻车牌" style={{ width: 280 }} />
           </Form.Item>
           <Form.Item name="status" initialValue="All">
             <Select aria-label="Loan status" placeholder="All loan statuses / 全部贷款状态"
@@ -5100,8 +5112,6 @@ export function LoanPage({
         <div className="mobileRecordList loanMobileList">
           {filteredLoans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={loanEmptyText} />}
           {mobileLoans.map((loan) => {
-            const check = documentChecks[loan.id];
-            const isPending = loan.status === "Pending" || loan.status === "Submitted";
             return (
               <article className="mobileRecordCard" key={loan.id}>
                   <div className="mobileRecordHeader">
@@ -5117,23 +5127,19 @@ export function LoanPage({
                     <strong>{contactFor(customers, loan.customerId)}</strong>
                   </span>
                   <span>
-                    <small>Created / 创建</small>
-                    <strong>{formatDisplayDate(loan.submittedAt)}</strong>
+                    <small>Created by / 创建人</small>
+                    <strong>{loan.createdBy || "Not recorded / 未记录"}</strong>
                   </span>
-                </div>
-                <div className="mobileRecordSection">
-                  <Typography.Text className="mobileRecordLabel">LOU</Typography.Text>
-                  <Space wrap size={6}>
-                    <Badge status={loan.louApproved ? "success" : "default"} text="Approved" />
-                    <Badge status={loan.louDone ? "success" : "warning"} text="Completed" />
-                  </Space>
-                </div>
-                <div className="mobileRecordSection">
-                  <Typography.Text className="mobileRecordLabel">Documents / 文件</Typography.Text>
-                  {renderLoanDocumentSummary(check)}
+                  <span>
+                    <small>Created / 创建</small>
+                    <strong>{loan.createdAt ? formatDisplayDateTime(loan.createdAt) : "Not recorded / 未记录"}</strong>
+                  </span>
+                  {loan.status === "Approved" && <span>
+                    <small>Approved banks / 获批银行</small>
+                    <strong>{renderApprovedBanks(loan)}</strong>
+                  </span>}
                 </div>
                 <div className="mobileRecordFooter">
-                  <Tag color={isPending ? "orange" : "default"}>{isPending ? "2-day reminder active" : "No reminder"}</Tag>
                   <Space className="tableActionGroup" wrap size={6}>
                     <Button size="small" type="primary" disabled={!canOpenLoanDetails(loan)} onClick={() => setUploadLoanId(loan.id)}>Details</Button>
                     {renderLoanNextAction(loan)}
@@ -5167,8 +5173,6 @@ export function LoanPage({
           nativeSearch={{
             fields: [
               { name: "plate", label: "Plate" },
-              { name: "customer", label: "Customer" },
-              { name: "phone", label: "Phone" },
               { name: "status", label: "Status", options: (["Draft", "Pending", "Submitted", "Approved", "Rejected", "Done"] as LoanApplication["status"][]).map((value) => ({ value, label: value })) },
               { name: "documents", label: "Documents", options: [
                 { value: "Missing", label: "Documents missing" },
@@ -5181,7 +5185,7 @@ export function LoanPage({
             },
             onSubmit: (values) => {
               setLoanFilters({
-                keyword: operationsKeywordFromFields(values, ["plate", "customer", "phone"]),
+                keyword: operationsKeywordFromFields(values, ["plate"]),
                 status: (values.status as LoanFilters["status"] | undefined) ?? "All",
                 documents: (values.documents as LoanFilters["documents"] | undefined) ?? "All"
               });
@@ -5242,6 +5246,19 @@ export function LoanPage({
           description="Financed buyers receive a Pending loan case. Cash buyers are saved without a loan application. / 贷款买家建立待处理案件，现金买家无需建立贷款。"
           className="manualLoanRecordAlert"
         />
+        {eligibleBuyerVehiclesError && <Alert
+          type="error"
+          showIcon
+          message="Eligible car plates unavailable"
+          description={eligibleBuyerVehiclesError}
+          action={<Button size="small" onClick={() => void loadEligibleBuyerVehicles()}>Retry</Button>}
+        />}
+        {!eligibleBuyerVehiclesLoading && !eligibleBuyerVehiclesError && eligibleBuyerVehicles.length === 0 && <Alert
+          type="info"
+          showIcon
+          message="No vehicles are eligible"
+          description="There are no assigned vehicles without an active loan application."
+        />}
         <Form form={loanIntakeForm} name="loanCreate" layout="vertical" className="modalForm" initialValues={{ cashBuyer: false }} onValuesChange={(changed) => { if ("customerId" in changed || "icNumber" in changed || "vehicleId" in changed) setIntakeFile(undefined); }} onFinish={async (values) => {
           if (!intakeFile) { message.error("Upload the buyer IC image or PDF / 请上传买家 IC 图片或 PDF"); return; }
           setIntakeSaving(true);
@@ -5254,7 +5271,23 @@ export function LoanPage({
           } catch (error) { message.error(humanizeApiError(error, "Buyer details could not be saved.")); }
           finally { setIntakeSaving(false); }
         }}>
-          <Form.Item name="vehicleId" label="Car plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.filter((vehicle) => isBossAdmin || vehicle.salesAgentUserId === currentUser?.id).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
+          <Form.Item name="vehicleId" label="Car plate / 车牌" rules={[{ required: true }]}>
+            <Select
+              className="repairVehicleSelect"
+              showSearch
+              optionFilterProp="label"
+              loading={eligibleBuyerVehiclesLoading}
+              disabled={eligibleBuyerVehiclesLoading || Boolean(eligibleBuyerVehiclesError)}
+              placeholder={eligibleBuyerVehiclesLoading ? "Loading eligible car plates" : "Search plate, year, make, or model"}
+              notFoundContent={eligibleBuyerVehiclesLoading ? <Spin size="small" /> : "No eligible car plates"}
+              options={eligibleBuyerVehicleOptions}
+              optionRender={(option) => <div className="repairVehicleOption"><strong>{option.data.plateNumber}</strong><span>{option.data.vehicleDescription}</span></div>}
+              labelRender={(selected) => {
+                const vehicle = eligibleBuyerVehicles.find((item) => item.id === selected.value);
+                return vehicle ? <div className="repairVehicleOption"><strong>{vehicle.plateNumber}</strong><span>{repairVehicleDescription(vehicle)}</span></div> : selected.label;
+              }}
+            />
+          </Form.Item>
           <Form.Item name="cashBuyer" valuePropName="checked"><Checkbox>Cash buyer — no loan application / 现金买家，无需贷款申请</Checkbox></Form.Item>
           <Form.Item label="Customer / 客户"><Select value={newBuyer ? "new" : "existing"} onChange={(value) => { setNewBuyer(value === "new"); setIntakeFile(undefined); }} options={[{ value: "existing", label: "Existing customer / 现有客户" }, { value: "new", label: "Create new customer / 新增客户" }]} /></Form.Item>
           {!newBuyer ? <Form.Item name="customerId" label="Select customer / 选择客户" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={customers.map((customer) => ({ value: customer.id, label: customerSelectLabel(customer) }))} /></Form.Item> : <>
@@ -5269,7 +5302,7 @@ export function LoanPage({
           <Form.Item label="Buyer IC image or PDF / 买家 IC 图片或 PDF" required>
             <Upload fileList={intakeFile ? [{ uid: "buyer-ic", name: intakeFile.name, status: "done" }] : []} accept="image/jpeg,image/png,application/pdf" maxCount={1} beforeUpload={(file) => { setIntakeFile(file); return false; }} onRemove={() => setIntakeFile(undefined)}><Button>Select IC file / 选择 IC 文件</Button></Upload>
           </Form.Item>
-          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={intakeSaving}>Save buyer / 保存买家</Button></Form.Item>
+          <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={intakeSaving} disabled={eligibleBuyerVehiclesLoading || Boolean(eligibleBuyerVehiclesError) || eligibleBuyerVehicles.length === 0}>Save buyer / 保存买家</Button></Form.Item>
         </Form>
       </Modal>
     </Space>
@@ -6799,7 +6832,7 @@ function documentCategoryLabel(category: DocumentCategory) {
     IdentityCard: "Identity Card",
     ApDocument: "AP Document",
     StatusReceipt: "Status Receipt",
-    LoanDocument: "LOU / LOU",
+    LoanDocument: "LOU",
     LoanOriginalDocument: "Original Loan Document / 原始贷款文件",
     LoanEditedDocument: "Edited Loan Document / 修改贷款文件",
     DeliveryDocument: "Delivery Document",

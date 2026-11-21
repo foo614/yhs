@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { canCreateManualLoan, canUploadLoanChecklistDocument, filterLoanApplications, isRejectedHiddenAfterMonth, loanCreateBlockReason, loanDocumentCategories, loanDocumentChecklistStatus, loanDocumentUploadOwner, markLoanDone, nextLoanDocumentReloadKey } from "./loan";
 import type { Customer, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 
@@ -44,10 +44,33 @@ describe("loan workflow helpers", () => {
   });
 
   it("keeps rejected records searchable while hiding old records by default", () => {
-    const oldRejected = { ...baseLoan, status: "Rejected" as const, decisionAt: "2026-01-01T00:00:00Z" };
-    expect(isRejectedHiddenAfterMonth(oldRejected, new Date("2026-03-01T00:00:00Z"))).toBe(true);
-    expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, {})).toHaveLength(0);
-    expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, { status: "Rejected" })).toHaveLength(1);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-01T00:00:00Z"));
+    try {
+      const oldRejected = { ...baseLoan, status: "Rejected" as const, decisionAt: "2026-01-01T00:00:00Z" };
+      expect(isRejectedHiddenAfterMonth(oldRejected, new Date("2026-03-01T00:00:00Z"))).toBe(true);
+      expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, {})).toHaveLength(0);
+      expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, { status: "Rejected" })).toHaveLength(1);
+      expect(filterLoanApplications([oldRejected], filterVehicles, filterCustomers, {}, { keyword: "VPK1234" })).toHaveLength(0);
+      const unknownRejectionDate = { ...oldRejected, decisionAt: undefined, submittedAt: "2025-01-01" };
+      expect(isRejectedHiddenAfterMonth(unknownRejectionDate)).toBe(false);
+      expect(filterLoanApplications([unknownRejectionDate], filterVehicles, filterCustomers, {}, {})).toHaveLength(1);
+      expect(isRejectedHiddenAfterMonth({ ...oldRejected, decisionAt: "invalid" })).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["2026-01-31T15:00:00Z", "2026-02-28T14:59:59.999Z", false],
+    ["2026-01-31T15:00:00Z", "2026-02-28T15:00:00Z", true],
+    ["2024-01-31T15:00:00Z", "2024-02-29T14:59:59.999Z", false],
+    ["2024-01-31T15:00:00Z", "2024-02-29T15:00:00Z", true],
+    ["2026-01-31T17:00:00Z", "2026-02-28T16:59:59.999Z", false],
+    ["2026-01-31T17:00:00Z", "2026-02-28T17:00:00Z", true]
+  ])("hides rejected history at one Malaysia calendar month: %s -> %s", (decisionAt, now, hidden) => {
+    expect(isRejectedHiddenAfterMonth({ status: "Rejected", decisionAt }, new Date(now))).toBe(hidden);
+    expect(isRejectedHiddenAfterMonth({ status: "Approved", decisionAt }, new Date(now))).toBe(false);
   });
 
   it("limits loan uploads to loan workflow document categories", () => {
@@ -100,7 +123,7 @@ describe("loan workflow helpers", () => {
     };
 
     expect(filterLoanApplications(loans, filterVehicles, filterCustomers, documentChecks, {
-      keyword: "SITI",
+      keyword: "WXY9876",
       status: "Approved",
       documents: "Complete"
     }).map((loan) => loan.id)).toEqual(["loan-2"]);
@@ -119,12 +142,15 @@ describe("loan workflow helpers", () => {
     expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {})).toEqual([baseLoan]);
   });
 
-  it("matches compact plate and phone searches against formatted values", () => {
+  it("matches compact plate searches without searching customer names or phone numbers", () => {
     expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {
       keyword: "VPK1234"
     })).toEqual([baseLoan]);
     expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {
       keyword: "0121234567"
-    })).toEqual([baseLoan]);
+    })).toEqual([]);
+    expect(filterLoanApplications([baseLoan], filterVehicles, filterCustomers, {}, {
+      keyword: "Ah Ming"
+    })).toEqual([]);
   });
 });

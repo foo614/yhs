@@ -15,6 +15,7 @@ const fixtures = {
   "/api/repair-review": [{ id: "test-invoice", repairId: "test-repair", supplierInvoiceId: "test-invoice", vehicleId: vehicle.id, plateNumber: vehicle.plateNumber, invoiceNumber: "SYNTHETIC-RECEIPT-123", supplierName: "Synthetic supplier", receiptDate: "2026-11-01", amount: 1200, status: "Approved", needsReview: false }],
   "/api/repairs": [{ id: "test-repair", vehicleId: vehicle.id, repairPart: "Air conditioning compressor and condenser", whatToDo: "Inspect and replace the damaged assembly after review", cost: 1200, checklistDone: false, approvalStatus: "Approved" }],
   "/api/loans": [{ id: "test-loan", vehicleId: vehicle.id, customerId: "test-customer", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-09-01" }],
+  "/api/loans/intake/eligible-vehicles": [{ id: "eligible-bmw", plateNumber: "BMW2020", year: 2020, make: "BMW", model: "2 Series Gran Coupe M Sport" }],
   "/api/loans/test-loan/banks": [{ id: "test-bank", loanApplicationId: "test-loan", bankName: "Example Bank", status: "Pending", isSelected: false, loanAmount: 80000, interestRate: 3.2, tenureMonths: 60 }],
   "/api/loans/test-loan/document-check": { isComplete: false, missingCategories: ["LoanOriginalDocument"] },
   "/api/customers": [{ id: "test-customer", name: "Synthetic Customer With A Longer Display Name", phone: "0000000000" }],
@@ -888,13 +889,24 @@ try {
           await page.keyboard.press("Escape");
           await inspect(`${route}-selected-dates`, width);
         }
-        for (const label of ["New Vehicle", "New Supplier", "New Repair", "Manual loan record", "New sales invoice"]) {
+        for (const label of ["New Vehicle", "New Supplier", "New Repair", "Create buyer / 新增买家", "New sales invoice"]) {
           if (route === "repairs" && label === "New Supplier") await page.locator(".secondaryWorkspaceSection > summary").click();
           const button = page.getByRole("button", { name: label, exact: true });
           if (!await button.isVisible().catch(() => false)) continue;
           await button.click();
           await visibleDialogSurface().waitFor({ timeout: 5000 });
           await inspect(`${route}-${label.replaceAll(" ", "-")}`, width);
+          if (label === "Create buyer / 新增买家") {
+            const vehiclePicker = page.locator(".repairVehicleSelect:visible").last();
+            await vehiclePicker.click();
+            const vehicleSearch = vehiclePicker.getByRole("combobox");
+            await vehicleSearch.fill("BMW");
+            const vehicleOption = page.locator(".ant-select-dropdown:visible .repairVehicleOption");
+            await expect(vehicleOption).toContainText("BMW2020");
+            await expect(vehicleOption).toContainText("2020 BMW 2 Series Gran Coupe M Sport");
+            await inspect("loans-create-buyer-vehicle-options", width);
+            await page.keyboard.press("Escape");
+          }
           if (label === "New sales invoice") {
             await page.getByRole("button", { name: "Review invoice", exact: true }).click();
             await page.locator(".financeInvoiceReviewModal:visible").waitFor();

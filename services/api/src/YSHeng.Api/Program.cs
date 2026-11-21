@@ -2007,6 +2007,16 @@ backOffice.MapPost("/purchase-invoices/{id:guid}/confirm-accounting", async (Gui
 backOffice.MapGet("/loans", async (AppDbContext db, HttpContext context) =>
 {
     var loans = await db.LoanApplications.AsNoTracking().ToListAsync();
+    var loanIds = loans.Select(loan => loan.Id).ToList();
+    var creationHistory = (await db.AuditLogs.AsNoTracking()
+        .Where(entry => entry.EntityName == nameof(LoanApplication) && loanIds.Contains(entry.EntityId) &&
+            (entry.Action == "loan.created" || entry.Action == "loan.buyerIntakeCreated"))
+        .ToListAsync()).ToLookup(entry => entry.EntityId);
+    var approvedBanks = (await db.LoanBankOptions.AsNoTracking()
+        .Where(bank => loanIds.Contains(bank.LoanApplicationId) && bank.Status == LoanBankOptionStatus.Approved)
+        .ToListAsync()).ToLookup(bank => bank.LoanApplicationId);
+    loans = loans.Select(loan => LoanDecisionRules.WithApprovedBanks(
+        LoanDecisionRules.WithCreationHistory(loan, creationHistory[loan.Id]), approvedBanks[loan.Id])).ToList();
     if (context.User.IsInRole("BossAdmin")) return Results.Ok(loans);
     var actor = StaffIdentity.CurrentUserId(context);
     var vehicles = await db.Vehicles.AsNoTracking().ToDictionaryAsync(vehicle => vehicle.Id);
@@ -2016,6 +2026,7 @@ backOffice.MapGet("/loans", async (AppDbContext db, HttpContext context) =>
         : loan with
         {
             CustomerId = Guid.Empty,
+            ApprovedBanks = [],
             LoanAmount = null,
             LoanBank = null,
             InterestRate = null,
@@ -2110,7 +2121,11 @@ backOffice.MapPost("/loans/{id:guid}/take", async (Guid id, AppDbContext db, Htt
     }
     await db.SaveChangesAsync();
     await transaction.CommitAsync();
-    return Results.Ok(responseLoan);
+    var creationHistory = await db.AuditLogs.AsNoTracking()
+        .Where(entry => entry.EntityName == nameof(LoanApplication) && entry.EntityId == id &&
+            (entry.Action == "loan.created" || entry.Action == "loan.buyerIntakeCreated"))
+        .ToListAsync();
+    return Results.Ok(LoanDecisionRules.WithCreationHistory(responseLoan, creationHistory));
 }).RequireAuthorization("Loans");
 backOffice.MapLoanBankWorkflow();
 backOffice.MapPost("/loans/{id:guid}/decision", async (Guid id, LoanDecisionRequest request, AppDbContext db, HttpContext context) =>
