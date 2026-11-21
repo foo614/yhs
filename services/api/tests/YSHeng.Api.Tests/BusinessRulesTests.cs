@@ -5563,6 +5563,46 @@ public sealed class BusinessRulesTests
         Assert.Contains(check.Evidence, item => item.Category == FileCategory.RoadTaxReceipt && !item.IsPresent);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Road_tax_confirmation_requires_linked_receipt_unless_eauto(bool? eauto)
+    {
+        var existing = DeliveryWorkboardSeed.Ready() with { RoadTaxHandled = false };
+        var update = existing with { RoadTaxHandled = true, RoadTaxPaidViaEAuto = eauto, RoadTaxReceiptReference = "legacy-number" };
+        var receipts = DeliveryWorkboardSeed.EvidenceFor(update).Where(d => d.Category == FileCategory.RoadTaxReceipt).ToArray();
+        var unrelated = new[]
+        {
+            receipts[0] with { VehicleId = Guid.NewGuid() },
+            receipts[0] with { CustomerId = Guid.NewGuid() },
+            receipts[0] with { DeliveryScheduleId = Guid.NewGuid() },
+            receipts[0] with { Category = FileCategory.Policy }
+        };
+
+        Assert.Equal(eauto == true, DeliveryDocumentRules.ValidateRoadTaxConfirmation(existing, update, unrelated).IsValid);
+        Assert.True(DeliveryDocumentRules.ValidateRoadTaxConfirmation(existing, update, receipts).IsValid);
+        Assert.True(DeliveryDocumentRules.ValidateRoadTaxConfirmation(existing, update, [..unrelated, ..receipts, receipts[0] with { Id = Guid.NewGuid() }]).IsValid);
+        var documents = DeliveryWorkboardSeed.EvidenceFor(update).Where(d => d.Category != FileCategory.RoadTaxReceipt).Concat(unrelated);
+        var check = DeliveryDocumentRules.CheckCompleteness(update, documents);
+        Assert.Equal(eauto == true, DeliveryWorkboardRules.CanRelease(update, true, check, new DateOnly(2026, 8, 27)));
+        Assert.Equal(eauto == true ? DeliveryStage.Handover : DeliveryStage.ClearDocuments, DeliveryWorkboardRules.StageFor(update, true, check, new DateOnly(2026, 8, 27)));
+        var linkedCheck = DeliveryDocumentRules.CheckCompleteness(update, documents.Concat(receipts));
+        Assert.True(DeliveryWorkboardRules.CanRelease(update, true, linkedCheck, new DateOnly(2026, 8, 27)));
+        Assert.Equal(DeliveryStage.Handover, DeliveryWorkboardRules.StageFor(update, true, linkedCheck, new DateOnly(2026, 8, 27)));
+    }
+
+    [Fact]
+    public void Road_tax_drafts_remain_saveable_but_removing_eauto_requires_receipt_for_confirmation()
+    {
+        var legacy = DeliveryWorkboardSeed.Ready();
+        Assert.True(DeliveryDocumentRules.ValidateRoadTaxConfirmation(legacy, legacy, []).IsValid);
+        var eauto = legacy with { RoadTaxPaidViaEAuto = true };
+        var manual = eauto with { RoadTaxPaidViaEAuto = false };
+        Assert.False(DeliveryDocumentRules.ValidateRoadTaxConfirmation(eauto, manual, []).IsValid);
+        Assert.True(DeliveryDocumentRules.ValidateRoadTaxConfirmation(eauto, manual with { RoadTaxHandled = false }, []).IsValid);
+    }
+
     [Fact]
     public void Delivery_validation_requires_pic_and_schedule_date()
     {

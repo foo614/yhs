@@ -2608,6 +2608,9 @@ backOffice.MapPut("/deliveries/{id:guid}", async (Guid id, DeliverySchedule inco
     var scheduleValidation = DeliveryMutationRules.ValidateActiveSchedule(delivery);
     if (!scheduleValidation.IsValid) return Results.BadRequest(scheduleValidation);
     var summary = DeliveryMutationRules.ActivitySummary(existingDelivery, delivery);
+    var roadTaxValidation = DeliveryDocumentRules.ValidateRoadTaxConfirmation(existingDelivery, delivery,
+        await db.DocumentBlobs.AsNoTracking().Where(document => document.VehicleId == delivery.VehicleId && document.DeliveryScheduleId == delivery.Id).ToListAsync());
+    if (!roadTaxValidation.IsValid) return Results.BadRequest(roadTaxValidation);
     db.Entry(existingDelivery).CurrentValues.SetValues(delivery);
     await DeliveryPaymentScheduleSync.ApplyAsync(db, delivery);
     db.DeliveryActivities.Add(DeliveryActivityAudit.Create(delivery.Id, context, summary, "Updated"));

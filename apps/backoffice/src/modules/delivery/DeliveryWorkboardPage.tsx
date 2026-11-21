@@ -14,7 +14,6 @@ import dayjs, { type Dayjs } from "dayjs";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { compareRecordDates } from "../../recordDates";
 import { DocumentPreviewDrawer, documentPreviewKind } from "../shared/DocumentPreviewDrawer";
-import { OcrUploadReview, type OcrReviewValues } from "../shared/OcrUploadReview";
 import {
   Alert,
   Button,
@@ -1102,35 +1101,42 @@ export function CurrentStageForm({
     return <Form
       key={`${item.id}-documents`}
       layout="vertical"
-      initialValues={item}
+      initialValues={{ ...item, roadTaxPaidViaEAuto: item.roadTaxPaidViaEAuto === true }}
       onFinish={(values) => void onSave(values, "Document checks saved")}
     >
-      <div className="deliveryEvidenceGrid">
+      <Form.Item noStyle shouldUpdate={(before, after) => before.roadTaxPaidViaEAuto !== after.roadTaxPaidViaEAuto}>
+        {({ getFieldValue }) => <div className="deliveryEvidenceGrid">
         {(["Voc", "DeliveryDocument", "Policy", "RoadTaxReceipt"] as DocumentCategory[]).map((category) => (
           <EvidenceUpload
             key={category}
-            item={item}
+            item={{ ...item, roadTaxPaidViaEAuto: getFieldValue("roadTaxPaidViaEAuto") === true }}
             category={category}
             saving={saving}
             onUpload={onUpload}
-            onApplyRoadTaxOcr={category === "RoadTaxReceipt" ? async (values) => {
-              const expiry = values.expiryDate ?? values.roadTaxExpiryDate ?? values.expiry;
-              if (expiry) await onSave({ roadTaxExpiryDate: String(expiry) }, "Road tax review saved");
-            } : undefined}
+            allowAdditional={category === "Policy"}
           />
         ))}
-      </div>
+        </div>}
+      </Form.Item>
       <div className="deliveryStageFormGrid">
         <Form.Item name="insuranceCompany" label="Insurance company / 保险公司"><Input placeholder="Manual entry / 手动填写" /></Form.Item>
         <Form.Item name="insurancePrice" label="Insurance price / 保费"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
         <Form.Item name="insuranceSumInsured" label="Sum insured / 投保金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
         <Form.Item name="insurancePolicyReference" label="Policy reference / 保单编号"><Input placeholder="Policy required; endorsement or credit note optional." /></Form.Item>
         <Form.Item name="insuranceExpiryDate" label="Insurance expiry / 保险到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-        <Form.Item name="roadTaxPaidViaEAuto" label="Road tax paid by eAuto / 是否通过 eAuto 付路税" rules={[{ required: true, message: "Choose Yes or No." }]}>
-          <Select options={[{ value: true, label: "Yes / 是" }, { value: false, label: "No — upload JPJ receipt / 否 — 上传JPJ收据" }]} />
+        <Form.Item name="roadTaxPaidViaEAuto" valuePropName="checked" extra="If unchecked, upload a JPJ receipt before confirming road tax. / 未勾选时，须上传JPJ收据后确认路税。">
+          <Checkbox>Renewed via eAuto / 通过 eAuto 更新路税</Checkbox>
         </Form.Item>
-        <Form.Item name="roadTaxReceiptReference" label="JPJ receipt reference / JPJ收据编号"><Input /></Form.Item>
-        <Form.Item name="roadTaxExpiryDate" label="Road tax expiry / 路税到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+        <div>
+          <Form.Item name="roadTaxExpiryDate" label="Road tax expiry / 路税到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+          <Form.Item noStyle shouldUpdate={(before, after) => before.insuranceExpiryDate !== after.insuranceExpiryDate}>
+            {({ getFieldValue, setFieldValue }) => {
+              const expiry = getFieldValue("insuranceExpiryDate");
+              const valid = typeof expiry === "string" && /^\d{4}-\d{2}-\d{2}$/.test(expiry) && dayjs(expiry).isValid() && dayjs(expiry).format("YYYY-MM-DD") === expiry;
+              return <Button size="small" disabled={!valid} onClick={() => { if (valid) setFieldValue("roadTaxExpiryDate", expiry); }}>Use insurance expiry / 使用保险到期日</Button>;
+            }}
+          </Form.Item>
+        </div>
       </div>
       <div className="deliveryEvidenceReviewIntro">
         <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认</Typography.Text>
@@ -1190,13 +1196,13 @@ function EvidenceUpload({
   category,
   saving,
   onUpload,
-  onApplyRoadTaxOcr
+  allowAdditional = true
 }: {
   item: DeliveryWorkboardItem;
   category: DocumentCategory;
   saving: boolean;
   onUpload: (file: File, category: DocumentCategory) => Promise<void>;
-  onApplyRoadTaxOcr?: (values: OcrReviewValues) => Promise<void>;
+  allowAdditional?: boolean;
 }) {
   const evidences = item.evidence.filter((entry) => entry.category === category && entry.isPresent);
   const roadTaxReceiptNotRequired = category === "RoadTaxReceipt" && item.roadTaxPaidViaEAuto === true;
@@ -1237,17 +1243,7 @@ function EvidenceUpload({
       </div>
       <Space>
         <Tag color={evidences.length > 0 ? "green" : "orange"}>{evidences.length > 0 ? `${evidences.length} received` : "Needed"}</Tag>
-        {category === "RoadTaxReceipt" && !roadTaxReceiptNotRequired && onApplyRoadTaxOcr && <OcrUploadReview
-          vehicleId={item.vehicleId}
-          category="RoadTaxReceipt"
-          buttonLabel="AI read road tax / AI读取路税"
-          applyLabel="Review and apply expiry / 审核并应用到期日"
-          compact
-          fields={[{ name: "expiryDate", label: "Road tax expiry / 路税到期日" }]}
-          uploadOwner={{ ownershipType: "Buyer", customerId: item.customerId, deliveryScheduleId: item.id }}
-          onApply={async (values) => { await onApplyRoadTaxOcr(values); }}
-        />}
-        <Upload
+        {(evidences.length === 0 || allowAdditional) && <Upload
           accept={accept}
           showUploadList={false}
           disabled={saving || item.terminal || roadTaxReceiptNotRequired}
@@ -1257,7 +1253,7 @@ function EvidenceUpload({
           }}
         >
           {!roadTaxReceiptNotRequired && <Button size="small" icon={<UploadOutlined />}>{evidences.length > 0 ? "Upload more" : "Upload"}</Button>}
-        </Upload>
+        </Upload>}
       </Space>
       <DocumentPreviewDrawer open={previewOpen} title={`${evidenceLabels[category] ?? category} preview`} source={previewEvidence ? { fileName: previewEvidence.fileName ?? "Document", mimeType: previewEvidence.mimeType ?? "", url: previewUrl } : undefined} loading={previewLoading} error={previewError} onClose={() => setPreviewOpen(false)} footer={previewEvidence?.documentId ? <Button icon={<ExportOutlined />} href={vehicleDocumentContentUrl(item.vehicleId, previewEvidence.documentId)} target="_blank">Download original</Button> : undefined} />
     </div>
