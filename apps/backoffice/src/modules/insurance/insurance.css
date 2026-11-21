@@ -4,9 +4,17 @@
 .insuranceDrawer .ant-drawer-body { overflow-wrap: anywhere; }
 .insuranceDrawer .ant-alert { margin-bottom: 16px; }
 .insuranceDrawer .formGrid { margin-top: 16px; }
+.insuranceCaseModal .ant-modal-body { overflow-wrap: anywhere; padding-right: 4px; }
+.insuranceCaseModal .formGrid { margin-top: 16px; }
+.insuranceCaseModal .ant-modal-footer .ant-space { justify-content: flex-end; }
+.insuranceRoadTaxCalculator { grid-column: 1 / -1; min-width: 0; padding: 16px 0; border-block: 1px solid var(--ant-color-border-secondary, #eee); }
+.insuranceRoadTaxCalculator .ant-select-selection-item { white-space: normal; overflow-wrap: anywhere; }
+.insuranceCheckRow { display: flex; align-items: baseline; gap: 4px; }
+.insuranceCaseModal .ant-modal-title > .ant-space { max-width: calc(100% - 24px); }
+.insuranceCaseModal .ant-modal-title .ant-space-item:first-child { min-width: 0; }
 .insuranceFile { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--ant-color-border-secondary, #eee); }
 .insuranceFile > div { min-width: 0; overflow-wrap: anywhere; }
-.insuranceCharge { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 12px; align-items: end; }
+.insuranceCharge { display: grid; grid-template-columns: minmax(0, 1fr) 140px auto; gap: 12px; align-items: end; }
 .insuranceCharge > button { margin-bottom: 24px; }
 .insuranceImportReview { max-height: 280px; overflow: auto; }
 .insuranceImportReview > div { padding: 8px 0; border-bottom: 1px solid #eee; overflow-wrap: anywhere; }
@@ -19,6 +27,7 @@
   .insuranceToolbar { display: flex; }
   .insuranceToolbar > .ant-space-item { max-width: 100%; }
   .insuranceToolbar button, .insuranceDrawer button { min-height: 44px; white-space: normal; }
+  .insuranceCaseModal button { min-height: 44px; white-space: normal; }
   .insuranceDrawer .ant-drawer-footer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .insuranceCharge { grid-template-columns: 1fr; gap: 0; border-bottom: 1px solid #eee; }
   .insuranceCharge > button { justify-self: end; }
@@ -32,3 +41,6 @@
 .insuranceMobileRecords .mobileRecordCardActions button { min-height: 44px; }
 
 .insurancePage .ant-card-head-title { white-space: normal; overflow-wrap: anywhere; }
+
+.insuranceMonthlyPreview { max-height: 400px; }
+.insuranceMonthlyLoading { min-height: 80px; }

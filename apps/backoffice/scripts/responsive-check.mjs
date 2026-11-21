@@ -158,6 +158,15 @@ fixtures["/api/insurance"] = [{
   insurerPayments: [{ id: "synthetic-insurer-payment", amount: 1117.25, paidDate: "2026-11-10", reference: "SYNTHETIC-PAYMENT" }],
   attachments: [{ id: "synthetic-policy", kind: "Policy", fileName: "Synthetic long insurance policy filename for responsive review.pdf", mimeType: "application/pdf", uploadedAt: "2026-11-21T00:00:00Z" }], total: 1340.23, received: 0, outstanding: 1340.23, renewalDue: true, paymentAlert: true, commission: 112.98
 }];
+fixtures["/api/insurance/charge-items"] = [
+  { itemCode: "LICENSE", description: "DRIVER LICENSE" }, { itemCode: "INTERCHANGE NUMBER", description: "INTERCHANGE NUMBER" },
+  { itemCode: "STMS/E-SERAHAN", description: "TUNTUTAN HAK MILIK" }, { itemCode: "SAMAN", description: "SAMAN" }, { itemCode: "TENDER", description: "TENDER NUMBER" }
+];
+fixtures["/api/insurance/autocount-monthly"] = {
+  fingerprint: "A".repeat(64), book: "YS Heng Auto", columns: ["Item Code", "Acc. No.", "Description", "Further", "UOM", "Qty", "Unit Price", "Discount", "Total"],
+  rows: [["INS-MV", "4001-I001", "INSURANCE FOR M/V - TEST1234", "", "UNIT", "1", "1230.23", "", "1230.23"], ["ROAD TAX", "4001-R001", "ROAD TAX - TEST1234", "", "UNIT", "1", "90.00", "", "90.00"]],
+  clipboard: "INS-MV\t4001-I001\tINSURANCE FOR M/V - TEST1234\t\tUNIT\t1\t1230.23\t\t1230.23\nROAD TAX\t4001-R001\tROAD TAX - TEST1234\t\tUNIT\t1\t90.00\t\t90.00", blockers: [], headers: { Debtor: "YS HENG AUTOMOTIVE SDN BHD" }, notes: ["Review the selected month and individual vehicle lines before use."]
+};
 export const fixtureTemplate = fixtures;
 export const emptyCollectionTemplate = emptyCollections;
 

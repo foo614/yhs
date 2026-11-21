@@ -17,6 +17,68 @@ namespace YSHeng.Api.Tests;
 
 public sealed class WhatsAppStaffAssistantTests
 {
+    // Optional external references must not turn a forwarded slip into settled
+    // funds or let a mismatched legacy invoice trigger a private media download.
+    [Theory]
+    [InlineData(null, null, true)]
+    [InlineData("LEGACY-IV", null, true)]
+    [InlineData("LEGACY-IV", "LEGACY-IV", true)]
+    [InlineData("LEGACY-IV", "WRONG-IV", false)]
+    public async Task Insurance_forwarded_evidence_keeps_optional_invoice_case_binding_and_explicit_partial_confirmation(
+        string? savedInvoice, string? captionInvoice, bool accepted)
+    {
+        await using var fixture = await Fixture.Create(testMode: false);
+        await fixture.AddStaff("boss", "BossAdmin"); Assert.True(await fixture.Verify(await fixture.Issue("boss")));
+        await fixture.DispatchAccepted();
+        var binding = await fixture.Db.WhatsAppStaffBindings.SingleAsync();
+        var item = new InsuranceCase { PlateNumber = "EVID123", CustomerName = "Synthetic", InvoiceNumber = savedInvoice,
+            Company = "Automotive", InsuranceAmount = 100m, RunnerFee = 0, ExpiryDate = new(2027, 11, 1), Version = 1 };
+        fixture.Db.InsuranceCases.Add(item); await fixture.Db.SaveChangesAsync();
+        var caption = $"INSURANCE {item.Id:D} | 30.00 | TNG | PBB | {InsuranceRules.Today:yyyy-MM-dd}";
+        if (captionInvoice != null) caption += " | " + captionInvoice;
+        using var message = JsonDocument.Parse(JsonSerializer.Serialize(new { type = "image", image = new { id = "987", caption } }));
+        var intent = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffWebhook.ParseMessage(message.RootElement));
+        Assert.Equal("insurance-evidence", intent.Name);
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, intent, "insurance-evidence-caption", fixture.Now));
+        var handler = new IntakeMediaHandler("valid"); using var media = new WhatsAppMediaClient(handler);
+        var reply = "";
+        await WhatsAppStaffQueue.DispatchOneRichAsync(fixture.Db, fixture.Options, (_, outbound, _) =>
+        {
+            reply = outbound.Text;
+            return Task.FromResult(new WhatsAppSendResult("Accepted", "synthetic-insurance-preview"));
+        }, fixture.Now, mediaClient: media);
+        if (!accepted)
+        {
+            Assert.Equal(0, handler.Calls);
+            Assert.Empty(await fixture.Db.InsuranceReceipts.AsNoTracking().ToListAsync());
+            Assert.Empty(await fixture.Db.InsuranceAttachments.AsNoTracking().ToListAsync());
+            Assert.Equal(100m, (await InsuranceModule.LoadView(fixture.Db, item)).Outstanding);
+            Assert.Contains("match", reply);
+            return;
+        }
+        Assert.Equal(2, handler.Calls);
+        var request = await fixture.Db.WhatsAppStaffRequests.AsNoTracking().SingleAsync(row => row.Intent == "insurance-evidence");
+        var receipt = await fixture.Db.InsuranceReceipts.AsNoTracking().SingleAsync();
+        var attachment = await fixture.Db.InsuranceAttachments.AsNoTracking().SingleAsync();
+        Assert.Equal(request.Id, receipt.Id); Assert.Equal(item.Id, receipt.CaseId); Assert.Equal(item.Id, attachment.CaseId);
+        Assert.Equal(attachment.Id, receipt.EvidenceAttachmentId); Assert.Equal("PaymentEvidence", attachment.Kind);
+        Assert.Equal(savedInvoice ?? "", receipt.InvoiceNumber); Assert.Equal("Pending", receipt.Status);
+        Assert.Equal("TNG", receipt.PaymentType); Assert.Equal("PBB", receipt.DepositAccount);
+        Assert.Contains(item.Id.ToString("D"), reply); Assert.Contains("30.00", reply);
+        Assert.Equal(100m, (await InsuranceModule.LoadView(fixture.Db, item)).Outstanding);
+        await fixture.AddStaff("other-boss", "BossAdmin");
+        const string otherRecipient = "60188888888";
+        Assert.True(await fixture.Verify(await fixture.Issue("other-boss", recipient: otherRecipient), "other-boss-link", recipient: otherRecipient));
+        var otherBinding = await fixture.Db.WhatsAppStaffBindings.AsNoTracking().SingleAsync(row => row.StaffUserId == "other-boss");
+        Assert.Contains("unavailable", await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {request.Id:D}", otherBinding.Id, Guid.NewGuid(), "other-boss", fixture.Options, fixture.Now, default));
+        Assert.Equal("Pending", (await fixture.Db.InsuranceReceipts.AsNoTracking().SingleAsync()).Status);
+        Assert.Contains("Funds verified", await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {request.Id:D}", binding.Id, Guid.NewGuid(), "boss", fixture.Options, fixture.Now, default));
+        Assert.Equal(70m, (await InsuranceModule.LoadView(fixture.Db, item)).Outstanding);
+        await WhatsAppInsurance.PaymentReplyAsync(fixture.Db, $"confirm {request.Id:D}", binding.Id, Guid.NewGuid(), "boss", fixture.Options, fixture.Now, default);
+        Assert.Single(await fixture.Db.AuditLogs.Where(row => row.Action == "insurance.receiptConfirmed").ToListAsync());
+        Assert.Equal(2, handler.Calls);
+    }
+
     [Fact]
     public async Task Insurance_staff_policy_supports_scheduled_internal_renewal_without_phone_once_per_expiry()
     {

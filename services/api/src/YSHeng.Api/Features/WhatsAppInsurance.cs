@@ -197,7 +197,7 @@ public static class WhatsAppInsurance
     private static async Task<string> PreviewAsync(AppDbContext db, InsuranceReceipt receipt, Guid previewId, CancellationToken ct)
     {
         var record = await db.InsuranceCases.AsNoTracking().SingleAsync(x => x.Id == receipt.CaseId, ct);
-        return $"VERIFY FUNDS preview: {record.PlateNumber}; case {record.Id:D}; invoice {receipt.InvoiceNumber}; {receipt.Company}; RM {receipt.Amount:0.00}; {receipt.PaymentType} to {receipt.DepositAccount}; date {receipt.ReceivedDate:yyyy-MM-dd}; evidence {receipt.EvidenceAttachmentId?.ToString("D") ?? "none"}. Check actual funds before confirming. Within 5 minutes send: insurance-pay confirm {previewId:D}";
+        return $"VERIFY FUNDS preview: {record.PlateNumber}; case {record.Id:D}; invoice {(string.IsNullOrWhiteSpace(receipt.InvoiceNumber) ? "select manually in AutoCount" : receipt.InvoiceNumber)}; {receipt.Company}; RM {receipt.Amount:0.00}; {receipt.PaymentType} to {receipt.DepositAccount}; date {receipt.ReceivedDate:yyyy-MM-dd}; evidence {receipt.EvidenceAttachmentId?.ToString("D") ?? "none"}. Check actual funds before confirming. Within 5 minutes send: insurance-pay confirm {previewId:D}";
     }
 
     public static async Task<string> StoreEvidenceAsync(AppDbContext db, string argument, Guid bindingId, Guid requestId, string staffUserId,
@@ -206,25 +206,26 @@ public static class WhatsAppInsurance
         var identity = await WhatsAppStaffBindings.ResolveAsync(db, options, bindingId, now, ct);
         if (identity is null || !identity.Value.Roles.Contains("BossAdmin") || identity.Value.Binding.StaffUserId != staffUserId) return "A current Boss/Admin connection is required.";
         var parts = argument.Split('|', StringSplitOptions.TrimEntries);
-        if (parts.Length != 7 || !Guid.TryParse(parts[0], out var caseId) || !decimal.TryParse(parts[1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount) || amount <= 0 || decimal.Round(amount, 2) != amount ||
+        if (parts.Length is not (6 or 7) || !Guid.TryParse(parts[0], out var caseId) || !decimal.TryParse(parts[1], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount) || amount <= 0 || decimal.Round(amount, 2) != amount ||
             parts[2] is not ("Cash" or "TNG" or "Transfer" or "Card") || parts[3] is not ("Cash" or "PBB") ||
-            !DateOnly.TryParseExact(parts[4], "yyyy-MM-dd", out var date) || date > WhatsAppStaffNotifications.LocalDate(now) || parts[5].Length is 0 or > 100 || parts[5].Any(char.IsControl) || !WhatsAppMediaClient.ValidId(parts[6]))
-            return "Forward slip with caption: INSURANCE <case-id> | <amount> | Cash/TNG/Transfer/Card | Cash/PBB | yyyy-mm-dd | <invoice-no>";
-        var record = await db.InsuranceCases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == caseId && x.InvoiceNumber == parts[5], ct);
-        if (record is null) return "Case and invoice must match an existing insurance case.";
+            !DateOnly.TryParseExact(parts[4], "yyyy-MM-dd", out var date) || date > WhatsAppStaffNotifications.LocalDate(now) || (parts.Length == 7 && (parts[5].Length > 100 || parts[5].Any(char.IsControl))) || !WhatsAppMediaClient.ValidId(parts[^1]))
+            return "Forward slip with caption: INSURANCE <case-id> | <amount> | Cash/TNG/Transfer/Card | Cash/PBB | yyyy-mm-dd [| <invoice-no>]";
+        var record = await db.InsuranceCases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == caseId, ct);
+        if (record is null) return "Case must match an existing insurance case.";
         var prior = await db.InsuranceReceipts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == requestId, ct);
         if (prior is not null) return await PreviewAsync(db, prior, requestId, ct);
+        var invoiceNumber = InsuranceRules.ResolveReceiptInvoice(record, parts.Length == 7 ? parts[5] : null);
         var outstanding = InsuranceRules.Total(record) - InsuranceRules.Received(await db.InsuranceReceipts.AsNoTracking().Where(x => x.CaseId == caseId).ToListAsync(ct));
-        var validation = InsuranceRules.ValidateReceipt(new("whatsapp:" + requestId.ToString("N"), amount, parts[2], parts[3], date, parts[5]), record, outstanding);
+        var validation = InsuranceRules.ValidateReceipt(new("whatsapp:" + requestId.ToString("N"), amount, parts[2], parts[3], date, invoiceNumber), record, outstanding);
         if (validation is not null) return validation;
-        var media = await mediaClient.DownloadAsync(options, parts[6], ct);
+        var media = await mediaClient.DownloadAsync(options, parts[^1], ct);
         if (media is null) return "Evidence could not be downloaded or validated. No payment was changed.";
         var contentValidation = UploadPolicy.ValidateCollectionEvidenceContent(media.FileName, media.MimeType, media.Content);
         if (!contentValidation.Result.IsValid) return "Evidence content is invalid. No payment was changed.";
         var attachment = new InsuranceAttachment { CaseId = caseId, Kind = "PaymentEvidence", FileName = media.FileName, MimeType = media.MimeType,
             Content = media.Content, Checksum = Convert.ToHexString(SHA256.HashData(media.Content)), UploadedBy = staffUserId };
         var receipt = new InsuranceReceipt { Id = requestId, CaseId = caseId, IdempotencyKey = "whatsapp:" + requestId.ToString("N"), Amount = amount,
-            PaymentType = parts[2], DepositAccount = parts[3], ReceivedDate = date, EvidenceAttachmentId = attachment.Id, InvoiceNumber = parts[5], Company = record.Company, CreatedBy = staffUserId };
+            PaymentType = parts[2], DepositAccount = parts[3], ReceivedDate = date, EvidenceAttachmentId = attachment.Id, InvoiceNumber = invoiceNumber, Company = record.Company, CreatedBy = staffUserId };
         db.InsuranceAttachments.Add(attachment); db.InsuranceReceipts.Add(receipt);
         db.AuditLogs.Add(new AuditLog { Actor = staffUserId, Action = "insurance.paymentEvidenceReceived", EntityName = nameof(InsuranceReceipt), EntityId = receipt.Id });
         await db.SaveChangesAsync(ct);

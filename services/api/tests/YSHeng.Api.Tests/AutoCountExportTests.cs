@@ -9,6 +9,80 @@ namespace YSHeng.Api.Tests;
 
 public sealed class AutoCountExportTests
 {
+    // The shared item metadata and saving rules must not change purchase/special
+    // sales descriptions, plate suffixes or the distinct M002/M001 accounts.
+    [Fact]
+    public void Insurance_other_charges_use_canonical_descriptions_and_verified_accounts()
+    {
+        var expected = new[] { ("LICENSE", "DRIVER LICENSE"), ("INTERCHANGE NUMBER", "INTERCHANGE NUMBER"),
+            ("STMS/E-SERAHAN", "TUNTUTAN HAK MILIK"), ("SAMAN", "SAMAN"), ("TENDER", "TENDER NUMBER") };
+        var source = InsuranceRules.Normalize(new InsuranceCase { PlateNumber = "SYNTH123", Company = "Auto", SpecialJpjSale = true,
+            OtherCharges = expected.Select(item => new InsuranceCharge(item.Item1, "Caller cannot change the mapping", 5)).ToArray() });
+        var purchase = InsuranceAutoCount.Build(source, "PurchaseOther");
+        var sales = InsuranceAutoCount.Build(source, "CustomerSales");
+        Assert.Empty(purchase.Blockers); Assert.Empty(sales.Blockers);
+        Assert.Equal(expected.Length, purchase.Rows.Length); Assert.Equal(expected.Length, sales.Rows.Length);
+        for (var index = 0; index < expected.Length; index++)
+        {
+            Assert.Equal(expected[index].Item2, source.OtherCharges[index].Description);
+            Assert.Equal(expected[index].Item1, purchase.Rows[index][0]);
+            Assert.Equal(expected[index].Item2 + " - SYNTH123", purchase.Rows[index][2]);
+            Assert.Equal(purchase.Rows[index][2], sales.Rows[index][2]);
+            Assert.Equal("4001-M002", purchase.Rows[index][1]);
+            Assert.Equal("4001-M001", sales.Rows[index][1]);
+        }
+    }
+
+    // Prevents workbook generation from shifting screenshot columns, dropping blank
+    // placeholders, exporting blocked mappings or losing per-vehicle monetary lines.
+    [Fact]
+    public void Insurance_monthly_workbook_preserves_preview_columns_rows_and_blank_cells()
+    {
+        var first = new InsuranceCase { PlateNumber = "SYNTH1", InsuranceAmount = 1230.23m, RoadTaxAmount = 90m,
+            OtherCharges = [new("STMS/E-SERAHAN", "Ownership", 50m)] };
+        var preview = InsuranceAutoCount.Monthly([first, first with { Id = Guid.NewGuid(), PlateNumber = "SYNTH2", InsuranceAmount = 0, OtherCharges = [] }], "2026-11");
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInsuranceMonthly(preview)), ZipArchiveMode.Read);
+        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        var sheet = Assert.Single(XDocument.Parse(Read(archive, "xl/workbook.xml")).Descendants(ns + "sheet"));
+        Assert.Equal("MonthlySales", (string?)sheet.Attribute("name"));
+        var xmlRows = XDocument.Parse(Read(archive, "xl/worksheets/sheet1.xml")).Descendants(ns + "row").ToArray();
+        Assert.Equal(preview.Rows.Length + 1, xmlRows.Length);
+        Assert.Equal(preview.Columns, xmlRows[0].Elements(ns + "c").Select(cell => cell.Value));
+        for (var row = 0; row < preview.Rows.Length; row++)
+        {
+            var cells = xmlRows[row + 1].Elements(ns + "c").ToArray();
+            Assert.Equal(preview.Columns.Length, cells.Length);
+            for (var column = 0; column < cells.Length; column++)
+            {
+                Assert.Equal($"{(char)('A' + column)}{row + 2}", (string?)cells[column].Attribute("r"));
+                var expected = preview.Rows[row][column];
+                if ((string?)cells[column].Attribute("t") == "n")
+                    Assert.Equal(decimal.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), decimal.Parse(cells[column].Value, System.Globalization.CultureInfo.InvariantCulture));
+                else Assert.Equal(expected, cells[column].Value);
+            }
+            Assert.Empty(cells[3].Value); // Further placeholder.
+            Assert.Empty(cells[7].Value); // Discount placeholder.
+        }
+        Assert.Contains("SYNTH2", xmlRows[^1].Value);
+        Assert.Throws<InvalidOperationException>(() => AutoCountExcel.ExportInsuranceMonthly(InsuranceAutoCount.Monthly([], "2026-11")));
+        var blocked = InsuranceAutoCount.Monthly([first with { OtherCharges = [new("UNVERIFIED", "Do not map", 10)] }], "2026-11");
+        Assert.Throws<InvalidOperationException>(() => AutoCountExcel.ExportInsuranceMonthly(blocked));
+    }
+
+    // Export must bind to the reviewed financial payload, with stable header ordering.
+    [Fact]
+    public void Insurance_preview_fingerprint_changes_for_export_values_and_blockers()
+    {
+        var preview = InsuranceAutoCount.Monthly([new InsuranceCase { PlateNumber = "SYNTH1", InsuranceAmount = 100m }], "2026-11");
+        Assert.Equal(64, preview.Fingerprint.Length);
+        Assert.Equal(preview.Fingerprint, (preview with { Headers = preview.Headers.Reverse().ToDictionary(pair => pair.Key, pair => pair.Value) }).Fingerprint);
+        Assert.NotEqual(preview.Fingerprint, (preview with { Book = "Other book" }).Fingerprint);
+        Assert.NotEqual(preview.Fingerprint, (preview with { Columns = ["Other column"] }).Fingerprint);
+        Assert.NotEqual(preview.Fingerprint, (preview with { Rows = [["different amount"]] }).Fingerprint);
+        Assert.NotEqual(preview.Fingerprint, (preview with { Blockers = ["unconfirmed account"] }).Fingerprint);
+        Assert.NotEqual(preview.Fingerprint, (preview with { Headers = new() { ["Month"] = "2026-12" } }).Fingerprint);
+    }
+
     // Prevents silent wrong-book accounts, missing clipboard placeholders and unverified money exports.
     [Fact]
     public void Insurance_copy_uses_exact_screenshot_columns_and_blocks_unconfirmed_money_or_accounts()
@@ -38,7 +112,7 @@ public sealed class AutoCountExportTests
     }
 
     [Fact]
-    public void Insurance_intercompany_retains_plates_and_ap_requires_supplier_invoice_with_exact_accounts()
+    public void Insurance_intercompany_retains_plates_and_ap_allows_external_supplier_invoice_with_exact_accounts()
     {
         var first = new InsuranceCase { PlateNumber = "SYNTH1", Company = "Automotive", InsuranceAmount = 100, RoadTaxAmount = 90, RunnerFee = 0,
             OtherCharges = [new("STMS/E-SERAHAN", "Ownership", 50), new("INTERCHANGE NUMBER", "Interchange", 205)] };
@@ -46,12 +120,33 @@ public sealed class AutoCountExportTests
         var monthly = InsuranceAutoCount.Monthly([first, second], "2026-11");
         Assert.Empty(monthly.Blockers); Assert.Equal(8, monthly.Rows.Length);
         Assert.Equal("4001-M001", monthly.Rows[2][1]); Assert.Contains("SYNTH2", monthly.Rows[4][2]);
-        Assert.Empty(InsuranceAutoCount.Build(first, "AutomotiveAP").Clipboard);
+        var manualAp = InsuranceAutoCount.Build(first, "AutomotiveAP");
+        Assert.Empty(manualAp.Blockers); Assert.NotEmpty(manualAp.Clipboard);
+        Assert.Empty(manualAp.Headers["Supplier IV No."]);
+        Assert.NotEmpty(InsuranceAutoCount.Build(first with { CaseType = "BankArranged" }, "AutomotiveAP").Blockers);
         var ap = InsuranceAutoCount.Build(first with { IntercompanyInvoiceNumber = "SYNTH-AUTO-IV" }, "AutomotiveAP");
         Assert.Empty(ap.Blockers); Assert.Equal("SYNTH-AUTO-IV", ap.Headers["Supplier IV No."]);
         Assert.Equal("SYNTH1", ap.Headers["Ref. No. 2"]); Assert.Equal("<<New>>", ap.Headers["Invoice No."]);
         Assert.Equal(new[] { "4001-I002", "4001-R002", "6000-0000", "4001-M002" }, ap.Rows.Select(row => row[0]));
         Assert.All(ap.Rows, row => Assert.Equal(3, row.Length));
+    }
+
+    // Removing case invoice inputs must not remove receipt ownership, book or
+    // confirmation gates when copying only AutoCount's top payment row.
+    [Fact]
+    public void Insurance_receipt_copy_allows_external_invoice_without_weakening_confirmation_or_book_guards()
+    {
+        var item = new InsuranceCase { PlateNumber = "SYNTH1", Company = "Automotive", CustomerName = "Synthetic" };
+        var receipt = new InsuranceReceipt { CaseId = item.Id, Company = "Automotive", Amount = 30m, InvoiceNumber = "",
+            Status = "Confirmed", ConfirmedBy = "synthetic-admin", ConfirmedAt = DateTimeOffset.UtcNow, ReceivedDate = InsuranceRules.Today };
+        var payment = InsuranceAutoCount.Build(item, "Receipt", receipt: receipt);
+        Assert.Empty(payment.Blockers); Assert.Equal("YS Heng Automotive Sdn Bhd", payment.Book);
+        Assert.Empty(payment.Headers["Invoice to knock off manually"]);
+        Assert.Equal(new[] { "PBB", "-", "30.00", "0.00", "1", "", "False", "" }, Assert.Single(payment.Rows));
+        Assert.NotEmpty(InsuranceAutoCount.Build(item, "Receipt", receipt: receipt with { Company = "Auto" }).Blockers);
+        Assert.NotEmpty(InsuranceAutoCount.Build(item, "Receipt", receipt: receipt with { CaseId = Guid.NewGuid() }).Blockers);
+        Assert.NotEmpty(InsuranceAutoCount.Build(item, "Receipt", receipt: receipt with { Status = "Pending" }).Blockers);
+        Assert.NotEmpty(InsuranceAutoCount.Build(item with { InvoiceNumber = "SAVED-IV" }, "Receipt", receipt: receipt with { InvoiceNumber = "WRONG-IV" }).Blockers);
     }
 
     [Fact]
