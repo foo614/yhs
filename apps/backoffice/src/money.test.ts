@@ -22,5 +22,7 @@ describe("money formatting", () => {
     expect(formatMoneyInputWithTwoDecimals("7.5")).toBe("7.50");
     expect(formatMoneyInputWithTwoDecimals("1,234")).toBe("1,234.00");
     expect(formatMoneyInputWithTwoDecimals("7", { userTyping: true, input: "7." })).toBe("7.");
+    expect(formatMoneyInputWithTwoDecimals("78000", { userTyping: true, input: "7,8000" })).toBe("78,000");
+    expect(formatMoneyInputWithTwoDecimals("78000.5", { userTyping: true, input: "78,000.5" })).toBe("78,000.5");
   });
 });
