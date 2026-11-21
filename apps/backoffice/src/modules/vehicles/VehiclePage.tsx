@@ -595,7 +595,7 @@ export function ownerFromIdentityCardReview(values: SellerIdentityReviewValues, 
     id,
     name: values.name?.trim() ?? "",
     phone: values.phone?.trim() ?? "",
-    icNumber: formatIdentityCardNumber(values.icNumber),
+    icNumber: identityCardNumberWithoutSeparators(values.icNumber),
     tinNumber: values.tinNumber?.trim() || undefined,
     address: identityCardAddress(values.address)
   };
@@ -637,6 +637,13 @@ function formatIdentityCardNumber(value?: string) {
   const normalized = normalizeIdentityCardNumber(value);
   return normalized.length === 12
     ? `${normalized.slice(0, 6)}-${normalized.slice(6, 8)}-${normalized.slice(8)}`
+    : value?.trim() || undefined;
+}
+
+function identityCardNumberWithoutSeparators(value?: string) {
+  const normalized = normalizeIdentityCardNumber(value);
+  return normalized.length === 12
+    ? normalized
     : value?.trim() || undefined;
 }
 
@@ -2280,7 +2287,7 @@ export function VehiclePage({
       setSellerIdentityPreview(preview);
       sellerIdentityReviewForm.setFieldsValue({
         name: extracted.customerName ?? extracted.name ?? undefined,
-        icNumber: formatIdentityCardNumber(extracted.icNumber ?? undefined),
+        icNumber: identityCardNumberWithoutSeparators(extracted.icNumber ?? undefined),
         address: identityCardAddress(extracted.address ?? undefined),
         phone: preview.existingOwner?.phone
       });
@@ -3645,6 +3652,7 @@ export function VehiclePage({
               <Form.Item
                 name="icNumber"
                 label="IC / 身份证"
+                normalize={(value?: string) => normalizeIdentityCardNumber(value)}
                 rules={[
                   {
                     validator: async (_, value?: string) => {
