@@ -15,6 +15,15 @@ describe("shared operations calendar", () => {
   it("shows delivery status while preserving privacy for busy availability", () => {
     expect(operationsCalendarEventDetail(events[0])).toEqual({ time: "10:00", status: "Scheduled" });
     expect(operationsCalendarEventDetail(events[1])).toEqual({ time: "2026-09-05 – 2026-09-07", status: undefined });
+    for (const availabilityKind of [undefined, "Leave", "BusinessTrip"] as const) {
+      const availability = { ...events[1], availabilityKind, description: "PRIVATE_HR_DETAILS" };
+      const markup = renderToStaticMarkup(createElement(SelectedDayEvents, { events: [availability] }));
+      expect(markup).not.toContain("PRIVATE_HR_DETAILS");
+      expect(operationsCalendarEventDetail(availability)).toEqual({ time: "2026-09-05 – 2026-09-07", status: undefined });
+      expect(operationsCalendarCellKinds([availability])).toEqual({ delivery: 0, busy: 1, holiday: 0 });
+      expect(eventsOnDate([availability], "2026-09-05")).toEqual([availability]);
+      expect(eventsOnDate([availability], "2026-09-07")).toEqual([availability]);
+    }
   });
   it("returns aligned delivery and busy cues for dates with mixed events", () => {
     expect(operationsCalendarCellKinds(events)).toEqual({ delivery: 1, busy: 1, holiday: 0 });
