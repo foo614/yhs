@@ -12,7 +12,7 @@ public sealed record InsuranceCaseView(InsuranceCase Record, IReadOnlyList<Insur
     IReadOnlyList<InsuranceInsurerPayment> InsurerPayments, IReadOnlyList<InsuranceAttachment> Attachments,
     decimal Total, decimal Received, decimal Outstanding, bool RenewalDue, bool PaymentAlert, decimal? Commission);
 public sealed record InsuranceReceiptRequest(string IdempotencyKey, decimal Amount, string PaymentType,
-    string DepositAccount, DateOnly ReceivedDate, string InvoiceNumber, Guid? EvidenceAttachmentId = null);
+    string DepositAccount, DateOnly ReceivedDate, string? InvoiceNumber = null, Guid? EvidenceAttachmentId = null);
 public sealed record InsurancePaymentRequest(string IdempotencyKey, decimal Amount, DateOnly PaidDate, string Reference);
 public sealed record InsuranceConfirmRequest(bool Confirmed);
 public sealed record InsuranceRenewRequest(long Version, bool Confirmed);
@@ -21,57 +21,77 @@ public sealed record InsuranceImportPreview(IReadOnlyList<InsuranceCase> Records
 
 public static class InsuranceRules
 {
-    public static readonly string[] ImportHeaders = ["NAME", "IC NO.", "VEHICLE NO.", "EXP DATE", "INSURANCE", "COVERAGE", "NCD", "RENEWAL/NEW", "REMARK", "Customer Phone Number"];
+    public static readonly string[] ImportHeaders = ["NAME", "IC NO.", "CUSTOMER PHONE NUMBER", "VEHICLE NO.", "EXP DATE", "INSURANCE", "COVERAGE", "NCD", "RENEWAL/NEW", "REMARK"];
     public static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow.AddHours(8));
     public static decimal Total(InsuranceCase item) => item.InsuranceAmount + item.RoadTaxAmount + item.RunnerFee + item.OtherCharges.Sum(x => x.Amount) - item.Discount;
     public static decimal Received(IEnumerable<InsuranceReceipt> receipts) => receipts.Where(x => x.Status == "Confirmed").Sum(x => x.Amount);
     public static bool RenewalDue(InsuranceCase item, DateOnly today) => !item.RenewalDeclined && item.RenewedByCaseId == null && today >= item.ExpiryDate.AddMonths(-1);
     public static bool PaymentAlert(InsuranceCase item, decimal outstanding, DateOnly today) => outstanding > 0 && item.CoverStartDate.HasValue && today >= item.CoverStartDate.Value.AddDays(7);
-    public static InsuranceCase Normalize(InsuranceCase item) => item with
+    public static InsuranceCase Normalize(InsuranceCase item, InsuranceCase? prior = null) => item with
     {
         PlateNumber = (item.PlateNumber ?? "").Trim().ToUpperInvariant(), CustomerName = (item.CustomerName ?? "").Trim(),
         CustomerPhone = string.IsNullOrWhiteSpace(item.CustomerPhone) ? null : item.CustomerPhone.Trim(),
-        RunnerFee = item.RoadTaxMethod == "JPJ" ? item.RunnerFee : 0
+        InvoiceNumber = item.InvoiceNumber ?? prior?.InvoiceNumber,
+        IntercompanyInvoiceNumber = item.IntercompanyInvoiceNumber ?? prior?.IntercompanyInvoiceNumber,
+        RunnerFee = item.RoadTaxMethod == "JPJ" ? item.RunnerFee : 0,
+        OtherCharges = item.OtherCharges.Select(charge => charge == null || PreservedCharge(charge, prior)
+            || !InsuranceChargeCatalog.TryDescription(charge.ItemCode, out var description)
+            ? charge! : charge with { Description = description }).ToArray()
     };
+    private static bool PreservedCharge(InsuranceCharge charge, InsuranceCase? prior) =>
+        prior?.OtherCharges.Any(saved => saved != null && saved.ItemCode == charge.ItemCode && saved.Description == charge.Description) == true;
     private static bool Money(decimal amount) => amount >= 0 && amount <= 10000000m && decimal.Round(amount, 2) == amount;
-    public static string? Validate(InsuranceCase item)
+    public static string? Validate(InsuranceCase item, InsuranceCase? prior = null)
     {
         if (string.IsNullOrWhiteSpace(item.PlateNumber) || item.PlateNumber.Length > 30 || string.IsNullOrWhiteSpace(item.CustomerName) || item.CustomerName.Length > 250)
             return "Plate and customer name are required (maximum 30 and 250 characters).";
-        if (item.ExpiryDate == default || item.CoverStartDate > item.ExpiryDate) return "Enter a valid expiry after cover starts.";
+        if (item.ExpiryDate == default || item.CoverStartDate > item.ExpiryDate) return "Enter a valid expiry after the policy effective date.";
         if (item.CaseType is not ("New" or "Renewal" or "BankArranged") || item.Company is not ("Auto" or "Automotive")) return "Invalid case type or invoice company.";
         if (item.RoadTaxMethod is not ("None" or "JPJ" or "EAuto") || item.RoadTaxMonths is not (6 or 12)) return "Select a valid road-tax method and term.";
         if (item.Ncd is < 0 or > 100) return "NCD must be between 0 and 100.";
         if (!Money(item.InsuranceAmount) || !Money(item.RoadTaxAmount) || !Money(item.RunnerFee) || !Money(item.Discount) || item.OtherCharges.Length > 30 || item.OtherCharges.Any(x => x == null || !Money(x.Amount) || string.IsNullOrWhiteSpace(x.ItemCode) || string.IsNullOrWhiteSpace(x.Description))) return "Amounts must be non-negative RM values with at most two decimal places; other charges need item and description.";
+        if (item.OtherCharges.Any(charge => !InsuranceChargeCatalog.TryDescription(charge.ItemCode, out _) && !PreservedCharge(charge, prior))) return "Choose a supported other-charge item code.";
         if (item.Discount > item.InsuranceAmount) return "Insurance discount cannot exceed the insurance amount.";
         if ((item.BankCreditorName?.Length ?? 0) > 250 || (item.BankInvoiceNumber?.Length ?? 0) > 100) return "Bank creditor or invoice is too long.";
         if ((item.CustomerPhone?.Length ?? 0) > 30 || (item.IdentityNumber?.Length ?? 0) > 50 || (item.Remark?.Length ?? 0) > 2000 || (item.PolicyNumber?.Length ?? 0) > 100) return "A customer or policy field is too long.";
         return null;
     }
+    public static string ResolveReceiptInvoice(InsuranceCase item, string? supplied) =>
+        string.IsNullOrWhiteSpace(supplied) ? item.InvoiceNumber?.Trim() ?? "" : supplied.Trim();
     public static string? ValidateReceipt(InsuranceReceiptRequest request, InsuranceCase item, decimal outstanding)
     {
         if (string.IsNullOrWhiteSpace(request.IdempotencyKey) || request.IdempotencyKey.Length > 100 || !Money(request.Amount) || request.Amount <= 0 || request.Amount > outstanding) return "Enter a positive amount no greater than outstanding and an idempotency key.";
         if (request.PaymentType is not ("Cash" or "TNG" or "Transfer" or "Card") || request.DepositAccount is not ("Cash" or "PBB")) return "Select an original payment type and actual Cash/PBB destination.";
         if (request.PaymentType == "Cash" && request.DepositAccount != "Cash") return "Cash receipts use Cash in AutoCount.";
-        if (request.ReceivedDate == default || request.ReceivedDate > Today || string.IsNullOrWhiteSpace(request.InvoiceNumber) || request.InvoiceNumber != item.InvoiceNumber) return "Receipt must identify this case's current invoice and a valid received date.";
+        if (request.ReceivedDate == default || request.ReceivedDate > Today) return "Enter a valid received date.";
+        var reference = ResolveReceiptInvoice(item, request.InvoiceNumber);
+        if (reference.Length > 100 || reference.Any(char.IsControl)) return "External invoice reference must be at most 100 characters without control characters.";
+        if (reference.Length > 0 && !string.IsNullOrWhiteSpace(item.InvoiceNumber) && reference != item.InvoiceNumber.Trim()) return "Receipt reference must match this case's saved invoice when provided.";
         return null;
     }
     public static InsuranceImportPreview PreviewImport(InsuranceImportRequest request)
     {
         var errors = new List<string>(); var records = new List<InsuranceCase>();
-        if (request.Headers == null || !request.Headers.SequenceEqual(ImportHeaders)) return new([], ["Headers must exactly follow the sample order: " + string.Join(", ", ImportHeaders)]);
+        if (request.Headers == null) return new([], ["Include the listing header row."]);
+        var headers = request.Headers.Select(header => (header ?? "").Trim().ToUpperInvariant()).ToArray();
+        if (headers.Distinct(StringComparer.Ordinal).Count() != headers.Length
+            || headers.Any(header => !ImportHeaders.Contains(header, StringComparer.Ordinal))
+            || ImportHeaders.Where(header => header != "CUSTOMER PHONE NUMBER").Any(header => !headers.Contains(header, StringComparer.Ordinal)))
+            return new([], ["Include each required listing header exactly once; CUSTOMER PHONE NUMBER is optional. Recommended order: " + string.Join(", ", ImportHeaders)]);
+        var columns = headers.Select((header, index) => (header, index)).ToDictionary(pair => pair.header, pair => pair.index, StringComparer.Ordinal);
         if (request.Rows == null || request.Rows.Length is 0 or > 1000) return new([], ["Import between 1 and 1000 rows at a time."]);
         var keys = new HashSet<string>();
         for (var i = 0; i < request.Rows.Length; i++)
         {
             var row = request.Rows[i]?.Select(x => x ?? "").ToArray();
-            if (row == null || row.Length != ImportHeaders.Length) { errors.Add($"Row {i + 1}: expected {ImportHeaders.Length} columns."); continue; }
-            if (!DateOnly.TryParseExact(row[3].Trim(), ["d/M/yyyy", "dd/MM/yyyy", "yyyy-MM-dd"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var expiry)) { errors.Add($"Row {i + 1}: expiry must be day/month/year or YYYY-MM-DD."); continue; }
+            if (row == null || row.Length != headers.Length) { errors.Add($"Row {i + 1}: expected {headers.Length} columns."); continue; }
+            string Cell(string header) => row[columns[header]];
+            if (!DateOnly.TryParseExact(Cell("EXP DATE").Trim(), ["d/M/yyyy", "dd/MM/yyyy", "yyyy-MM-dd"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var expiry)) { errors.Add($"Row {i + 1}: expiry must be day/month/year or YYYY-MM-DD."); continue; }
             decimal? ncd = null;
-            if (row[6].Trim().Length > 0) { if (decimal.TryParse(row[6], NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)) ncd = parsed; else { errors.Add($"Row {i + 1}: invalid NCD."); continue; } }
-            var renewal = row[7].Trim().ToUpperInvariant();
+            if (Cell("NCD").Trim().Length > 0) { if (decimal.TryParse(Cell("NCD"), NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed)) ncd = parsed; else { errors.Add($"Row {i + 1}: invalid NCD."); continue; } }
+            var renewal = Cell("RENEWAL/NEW").Trim().ToUpperInvariant();
             if (renewal != "N" && !Regex.IsMatch(renewal, @"\AR(?:\s*\([^()\r\n]+\))?\z")) { errors.Add($"Row {i + 1}: RENEWAL/NEW must be N or R (with optional source note)."); continue; }
-            var item = Normalize(new InsuranceCase { CustomerName = row[0], IdentityNumber = row[1], PlateNumber = row[2], ExpiryDate = expiry, Insurer = row[4], Coverage = row[5], Ncd = ncd, CaseType = renewal == "N" ? "New" : "Renewal", Remark = renewal.Length > 1 ? row[8] + "\nSource RENEWAL/NEW: " + row[7] : row[8], CustomerPhone = row[9], RunnerFee = 0 });
+            var item = Normalize(new InsuranceCase { CustomerName = Cell("NAME"), IdentityNumber = Cell("IC NO."), PlateNumber = Cell("VEHICLE NO."), ExpiryDate = expiry, Insurer = Cell("INSURANCE"), Coverage = Cell("COVERAGE"), Ncd = ncd, CaseType = renewal == "N" ? "New" : "Renewal", Remark = renewal.Length > 1 ? Cell("REMARK") + "\nSource RENEWAL/NEW: " + Cell("RENEWAL/NEW") : Cell("REMARK"), CustomerPhone = columns.TryGetValue("CUSTOMER PHONE NUMBER", out var phoneColumn) ? row[phoneColumn] : null, RunnerFee = 0 });
             var key = item.PlateNumber + ":" + item.ExpiryDate.ToString("yyyy-MM-dd");
             if (!keys.Add(key)) errors.Add($"Row {i + 1}: duplicate plate and expiry in import.");
             var error = Validate(item); if (error != null) errors.Add($"Row {i + 1}: {error}");
@@ -115,8 +135,8 @@ public static class InsuranceModule
             if (id != request.Id) return Results.BadRequest(new ApiError("Route and body IDs must match."));
             var current = await db.InsuranceCases.FirstOrDefaultAsync(x => x.Id == id); if (current == null) return Results.NotFound();
             if (request.Version != current.Version) return Results.Conflict(new ApiError("Case changed. Reload before saving."));
-            var item = InsuranceRules.Normalize(request) with { Version = current.Version + 1, CreatedAt = current.CreatedAt, CreatedBy = current.CreatedBy, RenewedByCaseId = current.RenewedByCaseId, ImportKey = current.ImportKey, ImportBatchKey = current.ImportBatchKey, ImportFingerprint = current.ImportFingerprint, UpdatedAt = DateTimeOffset.UtcNow };
-            var error = InsuranceRules.Validate(item); if (error != null) return Results.BadRequest(new ApiError(error));
+            var item = InsuranceRules.Normalize(request, current) with { Version = current.Version + 1, CreatedAt = current.CreatedAt, CreatedBy = current.CreatedBy, RenewedByCaseId = current.RenewedByCaseId, ImportKey = current.ImportKey, ImportBatchKey = current.ImportBatchKey, ImportFingerprint = current.ImportFingerprint, UpdatedAt = DateTimeOffset.UtcNow };
+            var error = InsuranceRules.Validate(item, current); if (error != null) return Results.BadRequest(new ApiError(error));
             var receipts = await db.InsuranceReceipts.AsNoTracking().Where(x => x.CaseId == id).ToListAsync();
             var insurerPaid = await db.InsuranceInsurerPayments.Where(x => x.CaseId == id).Select(x => x.Amount).ToListAsync();
             if (item.CaseType == "BankArranged" && insurerPaid.Count > 0) return Results.Conflict(new ApiError("A case with actual Auto insurer payments cannot change to bank-arranged cover."));
@@ -165,12 +185,13 @@ public static class InsuranceModule
         group.MapPost("/{id:guid}/receipts/preview", async (Guid id, InsuranceReceiptRequest request, AppDbContext db, HttpContext context) =>
         {
             var item = await db.InsuranceCases.FirstOrDefaultAsync(x => x.Id == id); if (item == null) return Results.NotFound();
+            request = request with { InvoiceNumber = InsuranceRules.ResolveReceiptInvoice(item, request.InvoiceNumber) };
             var prior = await db.InsuranceReceipts.AsNoTracking().FirstOrDefaultAsync(x => x.CaseId == id && x.IdempotencyKey == request.IdempotencyKey);
             if (prior != null) return prior.Amount == request.Amount && prior.PaymentType == request.PaymentType && prior.DepositAccount == request.DepositAccount && prior.ReceivedDate == request.ReceivedDate && prior.InvoiceNumber == request.InvoiceNumber && prior.EvidenceAttachmentId == request.EvidenceAttachmentId ? Results.Ok(prior) : Results.Conflict(new ApiError("Idempotency key was already used for different receipt details."));
             var received = InsuranceRules.Received(await db.InsuranceReceipts.AsNoTracking().Where(x => x.CaseId == id).ToListAsync());
             var error = InsuranceRules.ValidateReceipt(request, item, InsuranceRules.Total(item) - received); if (error != null) return Results.BadRequest(new ApiError(error));
             if (request.EvidenceAttachmentId.HasValue && !await db.InsuranceAttachments.AnyAsync(x => x.Id == request.EvidenceAttachmentId && x.CaseId == id && x.Kind == "PaymentEvidence")) return Results.BadRequest(new ApiError("Payment evidence must belong to this case."));
-            var receipt = new InsuranceReceipt { CaseId = id, IdempotencyKey = request.IdempotencyKey, Amount = request.Amount, PaymentType = request.PaymentType, DepositAccount = request.DepositAccount, ReceivedDate = request.ReceivedDate, EvidenceAttachmentId = request.EvidenceAttachmentId, InvoiceNumber = request.InvoiceNumber, Company = item.Company, CreatedBy = AuditTrail.ActorFrom(context.User) };
+            var receipt = new InsuranceReceipt { CaseId = id, IdempotencyKey = request.IdempotencyKey, Amount = request.Amount, PaymentType = request.PaymentType, DepositAccount = request.DepositAccount, ReceivedDate = request.ReceivedDate, EvidenceAttachmentId = request.EvidenceAttachmentId, InvoiceNumber = request.InvoiceNumber!, Company = item.Company, CreatedBy = AuditTrail.ActorFrom(context.User) };
             db.InsuranceReceipts.Add(receipt); ApiAudit.Add(db, context.User, "insurance.receiptPreviewed", nameof(InsuranceReceipt), receipt.Id);
             try { await db.SaveChangesAsync(); } catch (DbUpdateException) { return Results.Conflict(new ApiError("Receipt preview already exists. Reload the case.")); }
             return Results.Ok(receipt);

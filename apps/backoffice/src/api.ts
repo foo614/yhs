@@ -4094,6 +4094,7 @@ export type InsuranceInsurerPayment = { id: string; amount: number; paidDate: st
 export type InsuranceCaseView = { record: InsuranceCase; receipts: InsuranceReceipt[]; insurerPayments: InsuranceInsurerPayment[]; attachments: InsuranceAttachment[]; total: number; received: number; outstanding: number; renewalDue: boolean; paymentAlert: boolean; commission?: number | null };
 export type InsuranceImportInput = { headers: string[]; rows: string[][] };
 export type InsuranceImportPreview = { records: InsuranceCase[]; errors: string[] };
+export function getInsuranceChargeItems() { return request<{ itemCode: string; description: string }[]>("/api/insurance/charge-items"); }
 export function getInsuranceCases() { return request<InsuranceCaseView[]>("/api/insurance"); }
 export function getInsuranceCase(id: string) { return request<InsuranceCaseView>(`/api/insurance/${encodeURIComponent(id)}`); }
 export function saveInsuranceCase(record: InsuranceCase, existing: boolean) { return request<InsuranceCaseView>(existing ? `/api/insurance/${encodeURIComponent(record.id)}` : "/api/insurance", { method: existing ? "PUT" : "POST", body: JSON.stringify(record) }); }
@@ -4105,10 +4106,11 @@ export function getInsuranceAttachment(id: string, attachmentId: string) { retur
 export function previewInsuranceImport(input: InsuranceImportInput) { return request<InsuranceImportPreview>("/api/insurance/import/preview", { method: "POST", body: JSON.stringify(input) }); }
 export function confirmInsuranceImport(input: InsuranceImportInput & { idempotencyKey: string }) { return request("/api/insurance/import/confirm", { method: "POST", body: JSON.stringify(input) }); }
 
-export type InsuranceAutoCountPreview = { columns: string[]; rows: string[][]; clipboard: string; blockers: string[]; headers: Record<string, string>; book: string; notes: string[] };
+export type InsuranceAutoCountPreview = { fingerprint: string; columns: string[]; rows: string[][]; clipboard: string; blockers: string[]; headers: Record<string, string>; book: string; notes: string[] };
 export type InsuranceAutoCountKind = "PurchaseInsurance" | "PurchaseRoadTax" | "PurchaseOther" | "CustomerSales" | "AutomotiveAP" | "Receipt";
 export function getInsuranceAutoCount(id: string, kind: InsuranceAutoCountKind, receiptId?: string) { return request<InsuranceAutoCountPreview>(`/api/insurance/${encodeURIComponent(id)}/autocount?kind=${kind}${receiptId ? `&receiptId=${encodeURIComponent(receiptId)}` : ""}`); }
 export function getInsuranceMonthlyAutoCount(month: string) { return request<InsuranceAutoCountPreview>(`/api/insurance/autocount-monthly?month=${encodeURIComponent(month)}`); }
+export function exportInsuranceMonthlyAutoCountWorkbook(month: string, expectedFingerprint: string) { return requestBlob(`/api/insurance/autocount-monthly.xlsx?month=${encodeURIComponent(month)}&expectedFingerprint=${encodeURIComponent(expectedFingerprint)}`, "Unable to export monthly intercompany rows"); }
 export function sendInsuranceDocuments(id: string, snapshot: { caseVersion: number; customerPhone: string; attachmentIds: string[] }) { return request<{ items: { id: string; state: string }[]; message: string }>(`/api/insurance/${encodeURIComponent(id)}/send-documents`, { method: "POST", body: JSON.stringify(snapshot) }); }
 
 export function renewInsuranceCase(id: string, version: number) { return request<InsuranceCaseView>(`/api/insurance/${encodeURIComponent(id)}/renew`, { method: "POST", body: JSON.stringify({ version, confirmed: true }) }); }

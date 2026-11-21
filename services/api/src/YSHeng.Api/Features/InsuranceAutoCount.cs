@@ -1,12 +1,37 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
 
 namespace YSHeng.Api.Features;
 
+public sealed record InsuranceChargeItem(string ItemCode, string Description);
+
+public static class InsuranceChargeCatalog
+{
+    private static readonly Dictionary<string, string> Descriptions = new(StringComparer.Ordinal)
+    {
+        ["LICENSE"] = "DRIVER LICENSE", ["INTERCHANGE NUMBER"] = "INTERCHANGE NUMBER", ["STMS/E-SERAHAN"] = "TUNTUTAN HAK MILIK", ["SAMAN"] = "SAMAN", ["TENDER"] = "TENDER NUMBER"
+    };
+    public static InsuranceChargeItem[] Items => Descriptions.Select(pair => new InsuranceChargeItem(pair.Key, pair.Value)).ToArray();
+    public static bool TryDescription(string? itemCode, out string description)
+    {
+        description = "";
+        return itemCode != null && Descriptions.TryGetValue(itemCode, out description!);
+    }
+}
+
 public sealed record InsuranceCopyRows(string Book, string[] Columns, string[][] Rows,
-    string Clipboard, IReadOnlyList<string> Blockers, Dictionary<string, string> Headers, string[] Notes);
+    string Clipboard, IReadOnlyList<string> Blockers, Dictionary<string, string> Headers, string[] Notes)
+{
+    public string Fingerprint => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        Book, Columns, Rows, Blockers,
+        Headers = Headers.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new[] { pair.Key, pair.Value }).ToArray()
+    })));
+}
 
 public static class InsuranceAutoCount
 {
@@ -18,6 +43,7 @@ public static class InsuranceAutoCount
     public static void MapRoutes(RouteGroupBuilder api)
     {
         var group = api.MapGroup("/insurance").RequireAuthorization("BossAdmin");
+        group.MapGet("/charge-items", () => Results.Ok(InsuranceChargeCatalog.Items));
         group.MapGet("/{id:guid}/autocount", async (Guid id, string kind, Guid? receiptId, AppDbContext db, CancellationToken ct) =>
         {
             var record = await db.InsuranceCases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
@@ -31,13 +57,37 @@ public static class InsuranceAutoCount
         });
         group.MapGet("/autocount-monthly", async (string month, AppDbContext db, CancellationToken ct) =>
         {
-            if (!DateOnly.TryParseExact(month + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var first))
+            if (!TryMonth(month, out var first))
                 return Results.BadRequest(new { message = "Month must use YYYY-MM." });
-            var end = first.AddMonths(1);
-            var records = await db.InsuranceCases.AsNoTracking().Where(x => x.Company == "Automotive" && x.CoverStartDate >= first && x.CoverStartDate < end)
-                .OrderBy(x => x.CoverStartDate).ThenBy(x => x.PlateNumber).ToListAsync(ct);
-            return Results.Ok(Monthly(records, month));
+            return Results.Ok(await LoadMonthlyAsync(db, first, month, ct));
         });
+        group.MapGet("/autocount-monthly.xlsx", async (string? month, string? expectedFingerprint, AppDbContext db, HttpContext context, CancellationToken ct) =>
+        {
+            if (!TryMonth(month, out var first))
+                return Results.BadRequest(new { message = "Month must use YYYY-MM." });
+            if (expectedFingerprint is null || expectedFingerprint.Length != 64 || !expectedFingerprint.All(Uri.IsHexDigit))
+                return Results.BadRequest(new { message = "Preview the selected month and provide its valid fingerprint before downloading." });
+            var preview = await LoadMonthlyAsync(db, first, month!, ct);
+            if (preview.Blockers.Count > 0 || preview.Rows.Length == 0)
+                return Results.Conflict(new { message = "Monthly sales is blocked or empty. Refresh the preview and resolve its blockers before downloading." });
+            if (!string.Equals(preview.Fingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase))
+                return Results.Conflict(new { message = "Monthly sales changed since the preview. Refresh and review it before downloading." });
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.File(AutoCountExcel.ExportInsuranceMonthly(preview),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"insurance-intercompany-{month}.xlsx");
+        });
+    }
+
+    private static bool TryMonth(string? month, out DateOnly first) =>
+        DateOnly.TryParseExact(month + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out first)
+        && first < new DateOnly(9999, 12, 1);
+
+    private static async Task<InsuranceCopyRows> LoadMonthlyAsync(AppDbContext db, DateOnly first, string month, CancellationToken ct)
+    {
+        var end = first.AddMonths(1);
+        var records = await db.InsuranceCases.AsNoTracking().Where(x => x.Company == "Automotive" && x.CoverStartDate >= first && x.CoverStartDate < end)
+            .OrderBy(x => x.CoverStartDate).ThenBy(x => x.PlateNumber).ThenBy(x => x.Id).ToListAsync(ct);
+        return Monthly(records, month);
     }
 
     public static InsuranceCopyRows Build(InsuranceCase record, string kind, decimal insurerPaid = 0,
@@ -61,7 +111,7 @@ public static class InsuranceAutoCount
                 if (!hasInsurerPayment || insurerPaid <= 0) blockers.Add("Record the actual insurer payment before copying the purchase invoice.");
                 if (record.CaseType == "BankArranged") blockers.Add("Bank-arranged cover has no Auto insurer purchase invoice.");
                 if (insurerPaid > record.InsuranceAmount) blockers.Add("Actual insurer payment exceeds policy amount. Review the amounts.");
-                if (string.IsNullOrWhiteSpace(record.PolicyNumber) || record.CoverStartDate is null) blockers.Add("Policy number and cover start date are required.");
+                if (string.IsNullOrWhiteSpace(record.PolicyNumber) || record.CoverStartDate is null) blockers.Add("Policy number and policy effective date are required.");
                 headers["Creditor"] = record.Insurer;
                 headers["Supplier Invoice No"] = record.InsurerInvoiceNumber ?? "";
                 headers["Policy No"] = record.PolicyNumber ?? "";
@@ -78,7 +128,7 @@ public static class InsuranceAutoCount
             case "PurchaseOther":
                 foreach (var charge in record.OtherCharges)
                 {
-                    if (!OtherDescriptions.TryGetValue(charge.ItemCode, out var description)) { blockers.Add("Unverified other-charge item: " + charge.ItemCode); continue; }
+                    if (!InsuranceChargeCatalog.TryDescription(charge.ItemCode, out var description)) { blockers.Add("Unverified other-charge item: " + charge.ItemCode); continue; }
                     Line(charge.ItemCode, "4001-M002", $"{description} - {plate}", charge.Amount);
                 }
                 break;
@@ -99,7 +149,7 @@ public static class InsuranceAutoCount
                 foreach (var charge in record.OtherCharges)
                 {
                     if (!record.SpecialJpjSale || automotive) { blockers.Add("Other customer sales charge mapping requires review."); continue; }
-                    if (!OtherDescriptions.TryGetValue(charge.ItemCode, out var description)) { blockers.Add("Unverified other-charge item: " + charge.ItemCode); continue; }
+                    if (!InsuranceChargeCatalog.TryDescription(charge.ItemCode, out var description)) { blockers.Add("Unverified other-charge item: " + charge.ItemCode); continue; }
                     Line(charge.ItemCode, "4001-M001", $"{description} - {plate}", charge.Amount);
                 }
                 break;
@@ -110,7 +160,7 @@ public static class InsuranceAutoCount
                 var bankArranged = record.CaseType == "BankArranged";
                 if (bankArranged && (record.RoadTaxAmount > 0 || record.OtherCharges.Length > 0)) blockers.Add("Bank-arranged A/P with mixed road-tax/other charges needs separate supplier allocation review before copying.");
                 if (bankArranged && (string.IsNullOrWhiteSpace(record.BankCreditorName) || string.IsNullOrWhiteSpace(record.BankInvoiceNumber))) blockers.Add("Bank-arranged A/P requires the actual bank creditor and bank invoice reference.");
-                if (!bankArranged && string.IsNullOrWhiteSpace(record.IntercompanyInvoiceNumber)) blockers.Add("Enter the Auto intercompany sales invoice number as Supplier IV No.");
+                if (!bankArranged && string.IsNullOrWhiteSpace(record.IntercompanyInvoiceNumber)) notes.Add("Enter the Auto intercompany sales invoice number directly in AutoCount Supplier IV No.; it is managed externally.");
                 headers["Supplier IV No."] = (bankArranged ? record.BankInvoiceNumber : record.IntercompanyInvoiceNumber) ?? "";
                 headers["Ref. No. 2"] = plate;
                 headers["Creditor"] = bankArranged ? record.BankCreditorName ?? "" : "YS HENG AUTO";
@@ -129,7 +179,8 @@ public static class InsuranceAutoCount
                 else
                 {
                     book = receipt.Company == "Automotive" ? "YS Heng Automotive Sdn Bhd" : "YS Heng Auto";
-                    if (receipt.Company != record.Company || string.IsNullOrWhiteSpace(receipt.InvoiceNumber)) blockers.Add("Receipt invoice/book must match the case.");
+                    if (receipt.Company != record.Company) blockers.Add("Receipt book must match the case.");
+                    if (!string.IsNullOrWhiteSpace(receipt.InvoiceNumber) && !string.IsNullOrWhiteSpace(record.InvoiceNumber) && receipt.InvoiceNumber.Trim() != record.InvoiceNumber.Trim()) blockers.Add("Receipt reference must match the case's saved invoice when provided.");
                     if (receipt.DepositAccount is not ("Cash" or "PBB")) blockers.Add("Confirm the actual deposit destination (Cash or PBB).");
                     headers["Invoice to knock off manually"] = receipt.InvoiceNumber;
                     headers["Date"] = receipt.ReceivedDate.ToString("yyyy-MM-dd");
@@ -155,20 +206,16 @@ public static class InsuranceAutoCount
             if (record.RoadTaxAmount > 0) rows.Add(AutoLine("ROAD TAX", "4001-R001", $"ROAD TAX - {record.PlateNumber}", record.RoadTaxAmount));
             foreach (var charge in record.OtherCharges)
             {
-                if (!OtherDescriptions.TryGetValue(charge.ItemCode, out var description)) { blockers.Add("Unverified item: " + charge.ItemCode); continue; }
+                if (!InsuranceChargeCatalog.TryDescription(charge.ItemCode, out var description)) { blockers.Add("Unverified item: " + charge.ItemCode); continue; }
                 rows.Add(AutoLine(charge.ItemCode, "4001-M001", $"{description} - {record.PlateNumber}", charge.Amount));
             }
         }
-        if (rows.Count == 0) blockers.Add("No eligible cases in the selected cover-start month.");
+        if (rows.Count == 0) blockers.Add("No eligible cases with a policy effective date in the selected month.");
         return Result("YS Heng Auto", AutoColumns, rows, blockers,
             new() { ["Debtor"] = "YS HENG AUTOMOTIVE SDN BHD", ["Month"] = month, ["Invoice No."] = "<<New>>" },
-            ["Monthly intercompany sales retains individual vehicle lines. Record the saved Auto invoice number on each Automotive A/P case. Physical paste has not been verified."]);
+            ["Monthly intercompany sales retains individual vehicle lines. Enter the saved Auto invoice number directly in Automotive AutoCount Supplier IV No. Physical paste has not been verified."]);
     }
 
-    private static readonly Dictionary<string, string> OtherDescriptions = new(StringComparer.Ordinal)
-    {
-        ["LICENSE"] = "DRIVER LICENSE", ["INTERCHANGE NUMBER"] = "INTERCHANGE NUMBER", ["STMS/E-SERAHAN"] = "TUNTUTAN HAK MILIK", ["SAMAN"] = "SAMAN", ["TENDER"] = "TENDER NUMBER"
-    };
     private static string[] AutoLine(string item, string account, string description, decimal amount) => [item, account, description, "", "UNIT", "1", Money(amount), "", Money(amount)];
     private static string Money(decimal amount) => amount.ToString("0.00", CultureInfo.InvariantCulture);
     private static InsuranceCopyRows Result(string book, string[] columns, List<string[]> rows, List<string> blockers, Dictionary<string, string> headers, IEnumerable<string> notes)

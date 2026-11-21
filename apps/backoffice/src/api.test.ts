@@ -2377,3 +2377,22 @@ describe("insurance renewal ledger boundary", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:5000/api/insurance/previous-case/renew", expect.objectContaining({ method: "POST", credentials: "include", body: JSON.stringify({ version: 4, confirmed: true }) }));
   });
 });
+
+
+describe("insurance monthly workbook boundary", () => {
+  it("downloads the selected month only with its reviewed server fingerprint and staff credentials", async () => {
+    const { exportInsuranceMonthlyAutoCountWorkbook } = await import("./api");
+    const fingerprint = "A".repeat(64);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Uint8Array([80, 75]), { status: 200, headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const blob = await exportInsuranceMonthlyAutoCountWorkbook("2026-11", fingerprint);
+    expect(fetchMock).toHaveBeenCalledWith(`http://localhost:5000/api/insurance/autocount-monthly.xlsx?month=2026-11&expectedFingerprint=${fingerprint}`, { credentials: "include" });
+    expect(blob.type).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([80, 75]);
+  });
+  it("surfaces changed-row export guards instead of returning a fake workbook", async () => {
+    const { exportInsuranceMonthlyAutoCountWorkbook } = await import("./api");
+    mockFetch({ message: "Monthly sales changed since the preview." }, false, 409);
+    await expect(exportInsuranceMonthlyAutoCountWorkbook("2026-11", "B".repeat(64))).rejects.toThrow("Monthly sales changed since the preview.");
+  });
+});
