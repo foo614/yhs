@@ -627,6 +627,9 @@ export type RepairJob = {
 
 export type LoanApplication = {
   id: string;
+  createdBy?: string;
+  createdAt?: string;
+  approvedBanks?: { id: string; bankName: string; isSelected: boolean }[];
   vehicleId: string;
   customerId: string;
   status: LoanStatus;

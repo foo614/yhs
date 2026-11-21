@@ -2053,6 +2053,25 @@ public static class LoanMutationRules
 
 public static class LoanDecisionRules
 {
+    public static LoanApplication WithApprovedBanks(LoanApplication loan, IEnumerable<LoanBankOption> banks) =>
+        loan with
+        {
+            ApprovedBanks = banks
+                .Where(bank => bank.LoanApplicationId == loan.Id && bank.Status == LoanBankOptionStatus.Approved)
+                .OrderByDescending(bank => bank.IsSelected).ThenBy(bank => bank.BankName)
+                .Select(bank => new LoanApprovedBank(bank.Id, bank.BankName, bank.IsSelected)).ToList()
+        };
+
+    public static LoanApplication WithCreationHistory(LoanApplication loan, IEnumerable<AuditLog> history)
+    {
+        var creation = history
+            .Where(entry => entry.EntityName == nameof(LoanApplication) && entry.EntityId == loan.Id &&
+                (entry.Action == "loan.created" || entry.Action == "loan.buyerIntakeCreated"))
+            .OrderBy(entry => entry.CreatedAt)
+            .FirstOrDefault();
+        return loan with { CreatedBy = creation?.Actor, CreatedAt = creation?.CreatedAt };
+    }
+
     public const int RejectionReasonMaxLength = 500;
     public static string LoanAdvisoryLockKey(Guid loanId) => $"loan:{loanId:N}";
 

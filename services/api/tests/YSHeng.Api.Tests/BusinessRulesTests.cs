@@ -2357,6 +2357,51 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Loan_approved_bank_summary_excludes_other_cases_and_unapproved_banks()
+    {
+        var loan = new LoanApplication { Status = LoanStatus.Approved, LoanBank = "Unverified legacy name" };
+        var approved = new LoanBankOption { LoanApplicationId = loan.Id, BankName = "Approved Alpha", Status = LoanBankOptionStatus.Approved };
+        var selected = approved with { Id = Guid.NewGuid(), BankName = "Selected Beta", IsSelected = true };
+        var result = LoanDecisionRules.WithApprovedBanks(loan, [approved, selected,
+            approved with { Id = Guid.NewGuid(), LoanApplicationId = Guid.NewGuid() },
+            approved with { Id = Guid.NewGuid(), Status = LoanBankOptionStatus.Submitted },
+            approved with { Id = Guid.NewGuid(), Status = LoanBankOptionStatus.Rejected, IsSelected = true }]);
+        Assert.Equal(new[] { selected.Id, approved.Id }, result.ApprovedBanks.Select(bank => bank.Id));
+        Assert.True(result.ApprovedBanks[0].IsSelected);
+        Assert.False(result.ApprovedBanks[1].IsSelected);
+        Assert.Equal("Selected Beta", result.ApprovedBanks[0].BankName);
+        Assert.Empty(LoanDecisionRules.WithApprovedBanks(loan, []).ApprovedBanks);
+    }
+
+    [Fact]
+    public void Loan_creation_history_uses_only_the_recorded_creation_event()
+    {
+        var loan = new LoanApplication { TakenByName = "Processor", SubmittedAt = new DateOnly(2026, 11, 1), CreatedBy = "Untrusted", CreatedAt = DateTime.UtcNow };
+        var createdAt = new DateTime(2026, 11, 1, 2, 0, 0, DateTimeKind.Utc);
+        var unrelated = new[]
+        {
+            new AuditLog { EntityName = nameof(LoanApplication), EntityId = loan.Id, Action = "loan.updated", Actor = "Editor", CreatedAt = createdAt.AddDays(-1) },
+            new AuditLog { EntityName = nameof(LoanApplication), EntityId = Guid.NewGuid(), Action = "loan.created", Actor = "Other creator", CreatedAt = createdAt },
+            new AuditLog { EntityName = nameof(Customer), EntityId = loan.Id, Action = "loan.created", Actor = "Wrong entity", CreatedAt = createdAt }
+        };
+        var missing = LoanDecisionRules.WithCreationHistory(loan, unrelated);
+        Assert.Null(missing.CreatedBy);
+        Assert.Null(missing.CreatedAt);
+
+        foreach (var action in new[] { "loan.created", "loan.buyerIntakeCreated" })
+        {
+            var recorded = LoanDecisionRules.WithCreationHistory(loan, unrelated.Append(new AuditLog
+            {
+                EntityName = nameof(LoanApplication), EntityId = loan.Id, Action = action,
+                Actor = "Recorded creator", CreatedAt = createdAt
+            }));
+            Assert.Equal("Recorded creator", recorded.CreatedBy);
+            Assert.Equal(createdAt, recorded.CreatedAt);
+            Assert.Equal("Processor", recorded.TakenByName);
+        }
+    }
+
+    [Fact]
     public void Loan_decision_requires_a_pending_application_and_a_rejection_reason()
     {
         var pending = new LoanApplication { Status = LoanStatus.Pending };

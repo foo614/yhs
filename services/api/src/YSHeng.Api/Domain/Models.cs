@@ -444,6 +444,12 @@ public sealed record CreateRepairWithReceiptResponse(RepairJob Repair, SupplierI
 
 public sealed record LoanApplication
 {
+    [NotMapped]
+    public string? CreatedBy { get; init; }
+    [NotMapped]
+    public DateTime? CreatedAt { get; init; }
+    [NotMapped]
+    public IReadOnlyList<LoanApprovedBank> ApprovedBanks { get; init; } = [];
     [System.Text.Json.Serialization.JsonIgnore]
     public bool RequiresExplicitOriginal { get; init; }
     public Guid Id { get; init; } = Guid.NewGuid();
@@ -480,6 +486,8 @@ public sealed record LoanApplication
     public DateTime? DecisionAt { get; init; }
     public string? RejectionReason { get; init; }
 }
+
+public sealed record LoanApprovedBank(Guid Id, string BankName, bool IsSelected);
 
 public sealed record LoanBankOption
 {

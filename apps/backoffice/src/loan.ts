@@ -1,5 +1,11 @@
 import type { Customer, DocumentCategory, DocumentUploadOwner, LoanApplication, LoanDocumentCheck, VehicleLookup } from "./api";
 import { newestRecordsFirst } from "./recordDates";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 export const loanDocumentCategories = ["LoanOriginalDocument", "LoanEditedDocument"] as const;
 export const loanHistoryDocumentCategories = [...loanDocumentCategories, "LoanDocument", "Voc", "ApDocument", "StatusReceipt"] as const;
@@ -49,25 +55,18 @@ export type LoanFilters = {
 export function filterLoanApplications(
   loans: LoanApplication[],
   vehicles: VehicleLookup[],
-  customers: Customer[],
+  _customers: Customer[],
   documentChecks: Record<string, LoanDocumentCheck>,
   filters: LoanFilters
 ) {
   const keyword = normalizeFilterValue(filters.keyword);
-  const historyRequested = Boolean(keyword || (filters.status && filters.status !== "All"));
+  const historyRequested = filters.status === "Rejected";
 
-  return newestRecordsFirst(loans, loan => loan.submittedAt).filter((loan) => {
+  return newestRecordsFirst(loans, loan => loan.createdAt).filter((loan) => {
     if (loan.status === "Rejected" && !historyRequested && isRejectedHiddenAfterMonth(loan)) return false;
     const vehicle = vehicles.find((item) => item.id === loan.vehicleId);
-    const customer = customers.find((item) => item.id === loan.customerId);
     const check = documentChecks[loan.id];
-    const matchesKeyword = !keyword || matchesFilterValue(keyword, [
-      vehicle?.plateNumber,
-      customer?.name,
-      customer?.phone,
-      loan.status,
-      loan.submittedAt
-    ]);
+    const matchesKeyword = !keyword || matchesFilterValue(keyword, [vehicle?.plateNumber]);
     const matchesStatus = !filters.status || filters.status === "All" || loan.status === filters.status;
     const matchesDocuments = !filters.documents || filters.documents === "All" ||
       (filters.documents === "Complete" ? check?.isComplete === true : check?.isComplete !== true);
@@ -77,15 +76,12 @@ export function filterLoanApplications(
   });
 }
 
-export function isRejectedHiddenAfterMonth(loan: Pick<LoanApplication, "status" | "submittedAt" | "decisionAt">, today = new Date()) {
+export function isRejectedHiddenAfterMonth(loan: Pick<LoanApplication, "status" | "decisionAt">, today = new Date()) {
   if (loan.status !== "Rejected") return false;
-  const reference = loan.decisionAt ?? loan.submittedAt;
-  if (!reference) return false;
-  const rejectedAt = new Date(reference);
-  if (Number.isNaN(rejectedAt.getTime())) return false;
-  const cutoff = new Date(today);
-  cutoff.setMonth(cutoff.getMonth() - 1);
-  return rejectedAt < cutoff;
+  if (!loan.decisionAt) return false;
+  const rejectedAt = dayjs.utc(loan.decisionAt).tz("Asia/Kuala_Lumpur");
+  if (!rejectedAt.isValid()) return false;
+  return !dayjs(today).isBefore(rejectedAt.add(1, "month"));
 }
 
 export function loanCreateBlockReason(loan: LoanApplication) {
