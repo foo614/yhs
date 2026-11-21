@@ -17,7 +17,7 @@ import {
   Upload,
   message
 } from "antd";
-import { PlusOutlined, UploadOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import { ModalForm } from "@ant-design/pro-components";
 import {
   createInspection,
@@ -195,11 +195,15 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
           <div className="formGrid formGrid--three">
             <Form.Item name="vehicleId" label="Vehicle / 车辆" rules={[{ required: true, message: "Select a vehicle. / 请选择车辆。" }]}><Select showSearch optionFilterProp="label" options={vehicleOptions} placeholder="Select plate / 选择车牌" /></Form.Item>
             <Form.Item name="type" label="Inspection type / 验车类型" rules={[{ required: true, message: "Select inspection type. / 请选择验车类型。" }]}><Select options={inspectionTypeOptions.map(option => ({ value: option.value, label: option.label }))} /></Form.Item>
-            <Form.Item name="specialInspection" label="Special inspection / 特殊验车" valuePropName="checked" extra="Checked: YS Heng Auto. Unchecked: YS Heng Automotive Sdn Bhd. / 勾选：YS Heng Auto；未勾选：YS Heng Automotive Sdn Bhd。"><Checkbox>Special inspection / 特殊验车</Checkbox></Form.Item>
+            <Form.Item name="specialInspection" valuePropName="checked" style={{ gridColumn: "1 / -1" }}><Checkbox>Special inspection</Checkbox></Form.Item>
             <Form.Item name="appointmentDate" label="Appointment date / 预约日期" rules={[{ required: true, message: "Select appointment date. / 请选择预约日期。" }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="appointmentTime" label="Appointment time / 预约时间"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
-            <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="supplierInvoiceReference" label="Supplier Invoice No / 供应商发票编号" validateTrigger="onBlur" rules={[
+            <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]} style={{ gridColumn: "1 / -1" }}><Input /></Form.Item>
+            <Form.Item name="supplierInvoiceReference" label="Supplier Invoice No / 供应商发票编号" tooltip={{
+              title: "Enter the original number or your confirmed bracket suffix, e.g. INV123 (1). Allocations share the original receipt; the suffix does not create a new receipt. / 填原编号或自行确认的括号编号，如 INV123 (1)。分配金额仍合计到原收据，括号编号不另开收据。",
+              trigger: ["hover", "focus", "click"],
+              icon: <Button type="text" size="small" aria-label="Supplier invoice number guidance" icon={<InfoCircleOutlined />} />
+            }} validateTrigger="onBlur" rules={[
               { required: true, whitespace: true, message: "Enter supplier invoice number. / 请填写供应商发票编号。" },
               { validator: async (_, value: string) => {
                 if (!value?.trim()) return;
@@ -207,11 +211,11 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
                 if (form.getFieldValue("supplierInvoiceReference") !== value) return;
                 if (!result.available) throw new Error(`Number already used. Suggested: ${result.suggestedInvoiceNumber}. Please edit and confirm. / 编号已使用，建议改为 ${result.suggestedInvoiceNumber}，请自行修改确认。`);
               } }
-            ]} extra="Enter the original number or your confirmed bracket suffix, e.g. INV123 (1). Allocations share the original receipt; the suffix does not create a new receipt. / 填原编号或自行确认的括号编号，如 INV123 (1)。分配金额仍合计到原收据，括号编号不另开收据。"><Input /></Form.Item>
+            ]}><Input /></Form.Item>
+            <Form.Item name="isLorry" label="Vehicle type / 车辆类型"><Select options={[{ value: false, label: "Car / 轿车" }, { value: true, label: "Lorry / 罗里" }]} /></Form.Item>
             <Form.Item name="receiptTotal" label="Receipt total (RM) / 收据总额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="allocatedAmount" label="Allocated amount (RM) / 本车分配金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
-            <Form.Item name="isLorry" label="Vehicle type / 车辆类型"><Select options={[{ value: false, label: "Car / 轿车" }, { value: true, label: "Lorry / 罗里" }]} /></Form.Item>
-            <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={1} /></Form.Item>
+            <Form.Item name="notes" label="Notes / 备注" style={{ gridColumn: "1 / -1" }}><Input.TextArea rows={1} /></Form.Item>
           </div>
       </ModalForm>
 
