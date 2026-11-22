@@ -355,7 +355,7 @@ export function CashCustodyPage({
         </Space>
       </ProCard>
 
-      <Modal
+      <Modal mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="Record Cash Received / 记录现金收款"
         open={createOpen}
@@ -456,7 +456,7 @@ export function CashCustodyPage({
         {reviewing && <Space direction="vertical" size={12} className="fullWidth"><Alert type={reviewing.action === "accept" ? "warning" : "info"} showIcon message={actionMessage(reviewing.action)} /><CashCustodyDetails handover={reviewing.handover} /></Space>}
       </Modal>
 
-      <Modal
+      <Modal mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="Reject Cash Handover"
         open={Boolean(rejecting)}

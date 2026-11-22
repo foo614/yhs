@@ -207,7 +207,7 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
         : loading ? <Skeleton active paragraph={{ rows: 2 }} /> : <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
     </Drawer>
     </ProCard>
-    <Modal title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
+    <Modal mask={{ closable: false }} title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
       {taskSaveError && <Alert type="error" showIcon message="Task could not be saved" description={taskSaveError} />}
       <Form form={taskForm} layout="vertical">
         <Form.Item name="title" label="Task / 任务" rules={[{ required: true, message: "Enter a task title." }]}><Input maxLength={160} showCount /></Form.Item>

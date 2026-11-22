@@ -1464,7 +1464,7 @@ export function HrSalaryPage({
         />
       </div>
       <Tabs className="hrSectionTabs" activeKey={activeTab} onChange={changeTab} items={sectionItems} />
-      <Modal title="Clock out early? / 提早放工？" zIndex={2100} open={Boolean(earlyAction)} confirmLoading={clockBusy} onCancel={() => setEarlyAction(undefined)} onOk={() => earlyForm.submit()} okText="Confirm clock out / 确认放工">
+      <Modal mask={{ closable: false }} title="Clock out early? / 提早放工？" zIndex={2100} open={Boolean(earlyAction)} confirmLoading={clockBusy} onCancel={() => setEarlyAction(undefined)} onOk={() => earlyForm.submit()} okText="Confirm clock out / 确认放工">
         <Typography.Paragraph>Your scheduled finish is {malaysiaTime(earlyAction?.scheduledEndAt)}. Enter a reason to clock out now.</Typography.Paragraph>
         {clockError && <Alert type="error" message={clockError} />}
         <Form form={earlyForm} layout="vertical" onFinish={async values => { if (!earlyAction) return; setClockBusy(true); setClockError(""); try { await finishClock(earlyAction.qr, { confirmEarly: true, reason: values.reason }); setEarlyAction(undefined); } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); } }}><Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>
@@ -1474,7 +1474,7 @@ export function HrSalaryPage({
         open={Boolean(previewGeneratePeriodId)}
         width={760}
         closable={!preparingPayslips}
-        maskClosable={!preparingPayslips}
+        mask={{ closable: false }}
         keyboard={!preparingPayslips}
         onCancel={closePayrollPreview}
         footer={<Space wrap>
@@ -1534,7 +1534,7 @@ export function HrSalaryPage({
           <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Admin for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及管理员审批。</Typography.Paragraph>
         </>}
       </Modal>
-      <Modal title={editingHolidayId ? "Edit Johor holiday / 编辑柔佛假期" : "Add Johor holiday / 新增柔佛假期"} open={holidayEditorOpen} onCancel={() => setHolidayEditorOpen(false)} onOk={() => void saveHoliday()} okText="Save / 保存" destroyOnClose>
+      <Modal mask={{ closable: false }} title={editingHolidayId ? "Edit Johor holiday / 编辑柔佛假期" : "Add Johor holiday / 新增柔佛假期"} open={holidayEditorOpen} onCancel={() => setHolidayEditorOpen(false)} onOk={() => void saveHoliday()} okText="Save / 保存" destroyOnClose>
         <Form form={holidayForm} layout="vertical">
           <Form.Item name="date" label="Date / 日期" rules={[{ required: true, message: "Select a date." }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
           <Form.Item name="name" label="Holiday name / 假期名称" rules={[{ required: true, whitespace: true }]}><Input maxLength={200} /></Form.Item>

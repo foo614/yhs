@@ -295,7 +295,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       </Space>}
     </Drawer>
 
-    <Drawer title={editing ? `Edit ${descriptions[editing.category].title}` : "Edit message category"}
+    <Drawer mask={{ closable: false }} title={editing ? `Edit ${descriptions[editing.category].title}` : "Edit message category"}
       open={!!editing} onClose={() => setEditing(null)} width={screens.md ? 480 : "100%"} destroyOnClose className="recordEditDrawer">
       {editing && <Form form={form} layout="vertical" onFinish={reviewSave}>
         <Typography.Paragraph type="secondary">{descriptions[editing.category].detail}</Typography.Paragraph>

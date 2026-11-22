@@ -1327,7 +1327,7 @@ export default function App() {
         ]}
       >
       {notificationContextHolder}
-      <Drawer title="My WhatsApp" width={520} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
+      <Drawer mask={{ closable: false }} title="My WhatsApp" width={520} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
         {whatsAppConnectionOpen && <StaffWhatsAppConnection key={currentUser.id} />}
       </Drawer>
       <PageContainer title={false}>
@@ -3945,6 +3945,7 @@ function RepairPage({
       </ProCard>
       </details>
       <Modal
+        mask={{ closable: false }}
         title={creatingSupplierFromReceipt ? "Create supplier from receipt / 从收据建立供应商" : "New Supplier / 新增供应商"}
         open={supplierCreateOpen}
         onCancel={closeSupplierCreate}
@@ -4003,6 +4004,7 @@ function RepairPage({
         </Form>
       </Modal>
       <Modal
+        mask={{ closable: false }}
         title="New Repair / 新增整备"
         width={920}
         open={repairCreateOpen}
@@ -4611,6 +4613,7 @@ export function LoanPage({
 
   const rejectionModal = (
     <Modal
+      mask={{ closable: false }}
       title="Record loan rejection / 记录贷款拒绝"
       open={Boolean(rejectionLoan)}
       okText="Confirm rejection"
@@ -5271,6 +5274,7 @@ export function LoanPage({
       {rejectionModal}
         {completionModal}
       <Modal
+        mask={{ closable: false }}
         title="Buyer & loan application / 买家与贷款申请"
         width={680}
         open={loanCreateOpen}
@@ -5780,6 +5784,7 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
         />
       </ProCard>
       <Modal
+        mask={{ closable: false }}
         title="Link vehicle / 关联车辆"
         open={Boolean(linkingLead)}
         okText="Link vehicle"
@@ -5814,6 +5819,7 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
         />
       </Modal>
       <Modal
+        mask={{ closable: false }}
         title="Close lead / 结束询问"
         open={Boolean(closingLead)}
         okText="Close lead"
@@ -6313,6 +6319,7 @@ function AdminPage({
                   locale={{ emptyText: "No staff users match the current filters." }}
                 />
                 <Drawer
+                  mask={{ closable: false }}
                   title="Staff Details / 员工详情"
                   width={520}
                   open={staffEditorOpen}
@@ -6377,6 +6384,7 @@ function AdminPage({
                   {staffEditorOpen && selectedEditStaffUser && <StaffWhatsAppConnection key={selectedEditStaffUser.id} staffUserId={selectedEditStaffUser.id} />}
                 </Drawer>
                 <Drawer
+                  mask={{ closable: false }}
                   title="Reset Password / 重设密码"
                   width={520}
                   open={passwordResetOpen}
@@ -6429,6 +6437,7 @@ function AdminPage({
                   </Form>
                 </Drawer>
                 <Modal
+                  mask={{ closable: false }}
                   title="Create Staff / 新增员工"
                   width={680}
                   open={staffCreateOpen}
