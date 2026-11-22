@@ -2579,13 +2579,13 @@ export function VehiclePage({
         </ProConfigProvider>
       </ProCard>
       <Modal
+        mask={{ closable: false }}
         title={loanHandoffVehicle ? `Start Loan / 开始贷款 - ${loanHandoffVehicle.plateNumber}` : "Start Loan / 开始贷款"}
         width={600}
         open={Boolean(loanHandoffVehicle)}
         onCancel={closeLoanHandoff}
         footer={null}
         destroyOnClose
-        maskClosable={!loanHandoffSubmitting}
         closable={!loanHandoffSubmitting}
         keyboard={!loanHandoffSubmitting}
         className="loanHandoffModal"
@@ -2659,6 +2659,7 @@ export function VehiclePage({
         ) : null}
       </Modal>
       <Drawer
+        mask={{ closable: false }}
         title={selectedVehicle ? `Vehicle Details / 车辆详情 - ${selectedVehicle.plateNumber}` : "Vehicle Details / 车辆详情"}
         width={960}
         open={vehicleDetailOpen}
@@ -3236,6 +3237,7 @@ export function VehiclePage({
         </div>
       </Drawer>
       <Modal
+        mask={{ closable: false }}
         title="Create Vehicle / 新增车辆"
         width={860}
         open={vehicleCreateOpen}
@@ -3244,7 +3246,6 @@ export function VehiclePage({
         }}
         footer={null}
         destroyOnClose
-        maskClosable={!vehicleCreateSaving}
         closable={!vehicleCreateSaving}
         keyboard={!vehicleCreateSaving}
         className="recordCreateModal"
@@ -3534,6 +3535,7 @@ export function VehiclePage({
         </StepsForm>
       </Modal>
       <Modal
+        mask={{ closable: false }}
         title="Check Previous Owner NRIC / 核对原车主身份证"
         width={620}
         open={sellerIdentityReviewOpen}
@@ -3652,6 +3654,7 @@ export function VehiclePage({
         </Space>
       </Modal>
       <Modal
+        mask={{ closable: false }}
         title="Generate Purchase Invoice / 生成收车发票"
         width={560}
         open={purchaseInvoiceCreateOpen}
@@ -3744,6 +3747,7 @@ export function VehiclePage({
         </Space>
       </Modal>
       <Drawer
+        mask={{ closable: false }}
         title="Purchase Invoice Details / 收车发票详情"
         width={560}
         open={purchaseInvoiceEditorOpen}
@@ -3962,6 +3966,7 @@ export function VehiclePage({
         />
       </ProCard>}
       <Modal
+        mask={{ closable: false }}
         title="New Customer / 新增客户"
         width={620}
         open={customerCreateOpen}
@@ -3972,7 +3977,6 @@ export function VehiclePage({
         }}
         footer={null}
         destroyOnClose
-        maskClosable={!customerCreating}
         closable={!customerCreating}
         keyboard={!customerCreating}
         className="recordCreateModal"
@@ -4027,6 +4031,7 @@ export function VehiclePage({
         </Form>
       </Modal>
       <Modal
+        mask={{ closable: false }}
         title="New Owner / 新增原车主"
         width={560}
         open={ownerCreateOpen}
@@ -4070,6 +4075,7 @@ export function VehiclePage({
         </Form>
       </Modal>
       <Drawer
+        mask={{ closable: false }}
         title="Customer Details / 客户详情"
         width={560}
         open={customerEditorOpen}
@@ -4117,6 +4123,7 @@ export function VehiclePage({
         </Form>
       </Drawer>
       <Drawer
+        mask={{ closable: false }}
         title="Owner Details / 原车主详情"
         width={560}
         open={ownerEditorOpen}

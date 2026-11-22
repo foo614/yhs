@@ -841,7 +841,7 @@ export function DeliveryWorkboardPage({
         }}
       />
 
-      <Drawer
+      <Drawer mask={{ closable: false }}
         rootClassName="deliveryWorkboardDrawer"
         width={760}
         open={Boolean(selected)}
@@ -867,7 +867,7 @@ export function DeliveryWorkboardPage({
         />}
       </Drawer>
 
-      <Modal
+      <Modal mask={{ closable: false }}
         open={Boolean(secondaryAction)}
         title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request Sales Invoice Update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
         okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send to Finance" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
@@ -916,7 +916,7 @@ function CreateDeliveryModal({
   onCreate: (values: CreateDeliveryValues) => Promise<void>;
 }) {
   return (
-    <Modal
+    <Modal mask={{ closable: false }}
       open={open}
       title="New delivery / 新交车"
       okText="Schedule delivery"

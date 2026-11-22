@@ -122,7 +122,7 @@ function OcrReviewShell({
   }
 
   return (
-    <Drawer title={title} width={560} open={open} onClose={onClose} className="recordEditDrawer ocrReviewDrawer" footer={actions}>
+    <Drawer mask={{ closable: false }} title={title} width={560} open={open} onClose={onClose} className="recordEditDrawer ocrReviewDrawer" footer={actions}>
       {children}
     </Drawer>
   );

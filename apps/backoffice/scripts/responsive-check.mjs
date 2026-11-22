@@ -385,6 +385,15 @@ async function closeOverlay() {
   await expect(page.locator(".ant-drawer-open")).toHaveCount(0);
   await expect(page.locator(".ant-modal-wrap:visible,.ant-modal:visible")).toHaveCount(0);
 }
+// A backdrop must not invoke cancellation, discard confirmation, or reset a draft.
+async function verifyModalBackdropDraft(dialog, input, value) {
+  const dialogCount = await page.getByRole("dialog").filter({ visible: true }).count();
+  await input.fill(value);
+  await page.locator(".ant-modal-wrap:visible").last().click({ position: { x: 2, y: 2 } });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("dialog").filter({ visible: true })).toHaveCount(dialogCount);
+  await expect(input).toHaveValue(value);
+}
 // Critical mutation coverage: a repeated tap must not create duplicate lead work,
 // and a terminal loan transition must require confirmation and retain failed input.
 async function verifyLeadRecovery() {
@@ -773,6 +782,8 @@ try {
           }
           await page.getByRole("button", { name: "Customer receipt / 客户收款", exact: true }).click();
           await inspect("insurance-receipt-preview-form", width);
+          const receiptDialog = page.getByRole("dialog", { name: /Customer receipt/ });
+          await verifyModalBackdropDraft(receiptDialog, receiptDialog.getByRole("spinbutton", { name: /Amount received/ }), "42.00");
           await page.locator(".ant-modal-close:visible").last().click();
           await expect(page.locator(".ant-modal-wrap:visible")).toHaveCount(0);
           await page.getByRole("button", { name: "Edit case / 编辑个案", exact: true }).click();
@@ -782,12 +793,30 @@ try {
           await closeOverlay();
           await page.getByRole("button", { name: "Import listing / 导入旧名单", exact: true }).click();
           await inspect("insurance-import-preview", width);
+          const importDialog = page.getByRole("dialog", { name: "Import existing listing / 导入旧名单" });
+          await verifyModalBackdropDraft(importDialog, importDialog.getByRole("textbox", { name: "Tab-separated listing including header row" }), "NAME\tIC NO.\tCUSTOMER PHONE NUMBER");
           await closeOverlay();
           await page.getByRole("button", { name: "New case / 新增个案", exact: true }).click();
           await page.getByRole("button", { name: "Review & save / 检查保存", exact: true }).click();
           await page.locator(".ant-form-item-explain-error").first().waitFor();
           await inspect("insurance-case-validation", width);
-          await closeOverlay();
+          const caseDialog = page.getByRole("dialog", { name: /New insurance case/ });
+          await verifyModalBackdropDraft(caseDialog, caseDialog.locator("#plateNumber"), "SYNTH123");
+          await caseDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          const discardDialog = page.getByRole("dialog", { name: "Discard this new case? / 放弃新个案？" });
+          await expect(discardDialog).toBeVisible();
+          await discardDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await expect(discardDialog).toBeHidden();
+          await expect(caseDialog.locator("#plateNumber")).toHaveValue("SYNTH123");
+          await page.keyboard.press("Escape");
+          await expect(discardDialog).toBeVisible();
+          await discardDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await expect(discardDialog).toBeHidden();
+          await expect(caseDialog.locator("#plateNumber")).toHaveValue("SYNTH123");
+          await caseDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await discardDialog.getByRole("button", { name: "Discard case / 放弃个案", exact: true }).click();
+          await expect(caseDialog).toBeHidden();
+          diagnostics.insuranceBackdrop = "Backdrop preserves case, receipt and import drafts; explicit cancel retains its discard flow.";
         }
         if (route === "repairs") await verifyRepairReviewTotal();
         if (route === "leads") await verifyLeadRecovery();
@@ -1214,7 +1243,7 @@ const knownAntd6DeprecationWarnings = new Set([
   "Warning: [antd: Steps] `direction` is deprecated. Please use `orientation` instead.",
   "Warning: [antd: Steps] `items.description` is deprecated. Please use `items.content` instead."
 ]);
-const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !knownAntd6DeprecationWarnings.has(message) && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation || diagnostics.repairTotalFailureCheck) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
+const unexpectedConsoleErrors = diagnostics.consoleErrors.filter(message => !knownWarnings.has(message) && !knownAntd6DeprecationWarnings.has(message) && !(diagnostics.insuranceBackdrop && message === "Warning: [antd: Modal] Static function can not consume context like dynamic theme. Please use 'App' component instead.") && !(diagnostics.catalogDuplicateCheck && message === "Failed to load resource: the server responded with a status of 400 (Bad Request)") && !((diagnostics.dashboardFailureChecks || diagnostics.leadRecovery || diagnostics.loanConfirmation || diagnostics.repairTotalFailureCheck) && message === "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"));
 const summary = { width, checks: results.length, failed, unknownRequests: [...unknownRequests], failedRequests: diagnostics.failedRequests, unexpectedConsoleErrors };
 console.log(JSON.stringify(summary, null, 2));
 if (failed.length || unknownRequests.size || diagnostics.failedRequests.length || unexpectedConsoleErrors.length) {
