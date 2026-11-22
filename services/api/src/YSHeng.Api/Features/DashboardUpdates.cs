@@ -84,7 +84,7 @@ public static class DashboardUpdates
                     LouDocumentId = (boss || loanStaff)
                         ? documents.FirstOrDefault(x => x.LoanApplicationId == loan.Id && x.VehicleId == vehicle.Id)?.Id : null });
             var ownLoan = broker && Owns(vehicle) || loanStaff && !string.IsNullOrWhiteSpace(actor) && string.Equals(loan.TakenByUserId, actor, StringComparison.Ordinal);
-            if (loan.Status is not (LoanStatus.Done or LoanStatus.Rejected) && loan.SubmittedAt is not null && ReminderRules.LoanFollowUpDate(loan).AddDays(2) <= today && (boss || ownLoan)) reminders.Add(item);
+            if (ReminderRules.IsLoanFollowUpDue(loan, today) && (boss || ownLoan)) reminders.Add(item);
         }
         foreach (var delivery in deliveries)
         {

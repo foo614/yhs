@@ -7,7 +7,7 @@ export const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repa
 export const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
 const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", customerId: "test-customer", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
 const fixtures = {
-  "/api/dashboard/updates": { news: [], reminders: Array.from({ length: 6 }, (_, index) => ({ id: `update-${index}`, kind: "Loan", plate: `TEST${index}`, title: "Loan case / 贷款个案", status: "Approved", date: "2026-11-01", daysOpen: 17, recordedBy: "Synthetic Staff", path: "/loans" })) },
+  "/api/dashboard/updates": { news: [], reminders: Array.from({ length: 6 }, (_, index) => ({ id: `update-${index}`, kind: "Loan", plate: `TEST${index}`, title: "Loan case / 贷款个案", status: "Pending", date: "2026-11-01", daysOpen: 17, recordedBy: "Synthetic Staff", path: "/loans" })) },
   "/api/auth/me": { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: ["BossAdmin"] },
   "/api/vehicles": [vehicle],
   "/api/vehicle-lookup": [vehicle],
@@ -604,6 +604,17 @@ async function verifyDashboardActionIdentity() {
   diagnostics.dashboardActionIdentity = "Six distinct actions retained; duplicate reminder/action sources merged; second Loan and Delivery on one vehicle opened their exact records.";
 }
 
+async function verifyDashboardPendingWork() {
+  const pendingWork = page.locator(".dashboardPending");
+  await expect(pendingWork.locator(".ant-list-item")).toHaveCount(5);
+  await expect(pendingWork.getByText("Pending / 待处理", { exact: true })).toHaveCount(5);
+  await expect(pendingWork.getByText("Approved / 已批准", { exact: true })).toHaveCount(0);
+  await pendingWork.locator(".ant-pagination-next button").click();
+  await expect(pendingWork.locator(".ant-list-item")).toHaveCount(1);
+  await expect(pendingWork).toContainText("TEST5");
+  await pendingWork.locator(".ant-pagination-prev button").click();
+}
+
 async function verifyDashboardClarity() {
   const status = label => page.getByRole("status", { name: `${label} data status`, exact: true });
   const updated = label => status(label).locator("time").getAttribute("datetime");
@@ -773,6 +784,7 @@ try {
       const spinner = page.locator(".ant-spin-spinning");
       if (await spinner.count()) await spinner.first().waitFor({ state: "hidden" });
       await inspect(route, width);
+      if (route === "dashboard") await verifyDashboardPendingWork();
       if (process.env.RESPONSIVE_NEGATIVE_CONTROL === "1" && route === "leads" && width === 360) {
         const oldStyles = await page.addStyleTag({ content: ".salesLeadViewSwitch .ant-radio-button-wrapper { height: 24px !important; min-height: 24px !important; padding-block: 0 !important; } .leadMobileActions .ant-btn { height: 22px !important; min-height: 22px !important; padding-block: 0 !important; }" });
         try {
