@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
@@ -110,13 +111,10 @@ public static class WhatsAppInspectionReminders
     {
         var malay = language == "ms";
         var plate = WhatsAppStaffSalesQueries.Clean(vehicle.PlateNumber);
-        var date = inspection.AppointmentDate.ToString("dd/MM/yyyy");
         var remark = inspection.IsLorry ? " (Lorry)" : "";
         return kind switch
         {
-            AppointmentReminder => malay
-                ? $"Peringatan pemeriksaan esok: {plate}{remark}, {date}, rujukan {inspection.BookingReference}. Appointment slip dilampirkan."
-                : $"Inspection tomorrow: {plate}{remark}, {date}, reference {inspection.BookingReference}. Appointment slip attached.",
+            AppointmentReminder => AppointmentText(inspection, plate, remark),
             BookingReminder => malay
                 ? $"Peringatan booking inspection: report {plate} akan expire pada {inspection.ReportExpiryDate:dd/MM/yyyy}. Sila arrange booking baru."
                 : $"Inspection booking reminder: {plate} report expires on {inspection.ReportExpiryDate:dd/MM/yyyy}. Please arrange a new booking.",
@@ -125,6 +123,15 @@ public static class WhatsAppInspectionReminders
                 : $"Reminder: {plate} inspection report expires in 7 days on {inspection.ReportExpiryDate:dd/MM/yyyy}.",
             _ => ""
         };
+    }
+
+    private static string AppointmentText(InspectionRecord inspection, string plate, string remark)
+    {
+        var date = inspection.AppointmentDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture);
+        var appointment = $"Vehicle {plate}{remark} is scheduled for inspection on {date}";
+        return inspection.AppointmentTime is { } time
+            ? $"{appointment} at {time.ToString("h:mm tt", CultureInfo.InvariantCulture)} MYT."
+            : $"{appointment}. Appointment time is unavailable in the portal.";
     }
 
     private static bool ValidBody(string body) => !string.IsNullOrWhiteSpace(body) && body.Length <= 1024 && !body.Any(char.IsControl);

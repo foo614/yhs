@@ -32,6 +32,7 @@ public static class WhatsAppStaffNotifications
         long now, CancellationToken ct, WhatsAppStaffNotificationPolicy? policy, WhatsAppDueDigestSources? dueSources,
         WhatsAppAttendanceFacts? attendance, WhatsAppPendingLeaveFacts? pendingLeave)
     {
+        if (WhatsAppLeaveSubmission.IsSubmission(item)) return await WhatsAppLeaveSubmission.RefreshAsync(db, item, now, pendingLeave, ct);
         string? body = item.MessageKind switch
         {
             "InsuranceReminder" => await WhatsAppInsurance.RefreshReminderAsync(db, item, now, ct),
@@ -85,7 +86,7 @@ public static class WhatsAppStaffNotifications
 
     public static async Task<WhatsAppOutbox?> StageAsync(AppDbContext db, WhatsAppAssistantOptions assistant,
         Guid bindingId, string category, string requiredRole, string businessEventKey, int businessEventVersion, string body,
-        long dueAt, long expiresAt, long now, string actor, CancellationToken ct = default)
+        long dueAt, long expiresAt, long now, string actor, CancellationToken ct = default, string templateVersion = "staff_notice_v1")
     {
         if (!AllowedRoles.TryGetValue(category, out var allowedRoles) || !allowedRoles.Contains(requiredRole) ||
             string.IsNullOrWhiteSpace(businessEventKey) || businessEventKey.Length > 256 ||
@@ -146,7 +147,7 @@ public static class WhatsAppStaffNotifications
             Audience = "Staff", StaffBindingId = binding.Id, StaffUserId = binding.StaffUserId,
             Recipient = binding.Recipient, IdempotencyKey = key, MessageKind = category, RequiredStaffRole = requiredRole,
             BusinessEventKey = businessEventKey, BusinessEventVersion = businessEventVersion,
-            EventKind = "staff.notification", TemplateVersion = "staff_notice_v1", TemplateReference = body,
+            EventKind = "staff.notification", TemplateVersion = templateVersion, TemplateReference = body,
             Body = body, Language = binding.Language, State = "Queued", CreatedAt = now,
             ScheduledAt = dueAt, NextAttemptAt = Math.Max(dueAt, now), ExpiresAt = expiresAt
         };
@@ -178,8 +179,15 @@ public static class WhatsAppStaffNotifications
         return AllowedRoles.Keys.Select(category =>
         {
             var row = rows.SingleOrDefault(item => item.Category == category);
-            var templateKeys = category == "InspectionReminder"
-                ? new[] { "staff_notice_v1", WhatsAppInspectionAttachment.TemplateKey } : new[] { "staff_notice_v1" };
+            string[] templateKeys = category switch
+            {
+                "InspectionReminder" => ["staff_notice_v1", WhatsAppInspectionAttachment.TemplateKey],
+                "LeaveApproval" => [
+                    dispatch.TemplateFor(WhatsAppReminderV2.Leave, "en_US") is null ? "staff_notice_v1" : WhatsAppReminderV2.Leave,
+                    WhatsAppLeaveSubmission.TemplateKey
+                ],
+                _ => ["staff_notice_v1"]
+            };
             var minute = category is "OutstandingDigest" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" or "InsuranceReminder" ? 540 : category == "AttendanceSummary" ? 600 : 0;
             var templateReady = templateKeys.All(key => dispatch.TemplateFor(key, "en_US") is not null);
             return new WhatsAppStaffPolicyView(category, row?.Enabled ?? false, row?.LocalMinuteOfDay ?? minute,

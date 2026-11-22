@@ -5582,7 +5582,8 @@ hr.MapPost("/leave-requests/preview", async (HrLeaveCalculationPreviewRequest re
     return Results.Ok(new HrLeaveCalculationPreviewResponse(effectiveStaffUserId, calculation.Days, calculation.ScheduledDates, calculation.HolidayDates));
 });
 
-hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, HttpContext context) =>
+hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, HttpContext context,
+    WhatsAppAssistantOptions assistant, WhatsAppDispatchOptions dispatch, CancellationToken ct) =>
 {
     if (!Enum.IsDefined(request.Type) || request.Type == HrLeaveType.EmergencyLeave) return Results.BadRequest(new ApiError("Select annual, medical or unpaid leave for new requests."));
     var staffUserId = StaffIdentity.CurrentUserId(context);
@@ -5606,7 +5607,9 @@ hr.MapPost("/leave-requests", async (HrLeaveRequest request, AppDbContext db, Ht
     if (!validation.IsValid) return Results.BadRequest(validation);
     db.HrLeaveRequests.Add(leave);
     ApiAudit.Add(db, context.User, "hr.leave.created", nameof(HrLeaveRequest), leave.Id);
-    await db.SaveChangesAsync();
+    await WhatsAppLeaveSubmission.StageAsync(db, assistant, dispatch, leave, staffUserId,
+        new DateTimeOffset(leave.CreatedAt).ToUnixTimeSeconds(), ct);
+    await db.SaveChangesAsync(ct);
     return Results.Created($"/api/hr/leave-requests/{leave.Id}", leave);
 });
 

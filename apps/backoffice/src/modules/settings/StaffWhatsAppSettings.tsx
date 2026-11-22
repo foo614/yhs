@@ -45,12 +45,18 @@ function timestamp(value: number | null) {
 function readiness(policy: StaffWhatsAppPolicy) {
   const missing: string[] = [];
   if (!policy.senderReady) missing.push("ask an operator to check the sender configuration");
-  if (!policy.templateReady) missing.push("no staff-notice language is configured as ready");
+  if (!policy.templateReady) {
+    const blocked = policy.templateReadiness?.filter(template => !template.ready && template.templateKey)
+      .map(template => template.templateKey === "inspection_appointment_document_v1"
+        ? "ysheng_inspection_appointment_v1" : template.templateKey);
+    missing.push(blocked?.length ? "review the English template configuration for " + blocked.join(", ") :
+      "review English template configuration");
+  }
   if (!policy.categoryReady) missing.push("reminder integration is pending for this category");
   if (!policy.enabled) return missing.length
     ? `Category off. Before enabling: ${missing.join("; ")}.`
     : "This category is off. Enable it only after reviewing recipients and timing.";
-  if (missing.length) return `Sending is blocked: ${missing.join("; ")}. Staff also need an active My WhatsApp connection.`;
+  if (missing.length) return `Some sends may be blocked: ${missing.join("; ")}. Staff also need an active My WhatsApp connection.`;
   return "Configuration allows sending only in ready languages. Each recipient still needs a verified connection and current role access. This is not a live delivery check.";
 }
 

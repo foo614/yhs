@@ -1708,7 +1708,7 @@ export type StaffWhatsAppPolicy = {
   templateReady: boolean;
   categoryReady: boolean;
   senderIssues?: string[];
-  templateReadiness?: { language: "ms" | "en_US"; ready: boolean; issues: string[] }[];
+  templateReadiness?: { language: "ms" | "en_US"; ready: boolean; issues: string[]; templateKey?: string }[];
 };
 export type StaffWhatsAppPolicyInput = Pick<StaffWhatsAppPolicy,
   "enabled" | "localMinuteOfDay" | "leadDays" | "thresholdPercent" | "delayMinutes">;

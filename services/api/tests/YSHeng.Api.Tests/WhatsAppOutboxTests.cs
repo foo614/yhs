@@ -552,17 +552,21 @@ public sealed class WhatsAppOutboxTests
     private sealed class AttachmentHandler(string mediaKind = "document") : HttpMessageHandler
     {
         public int Requests { get; private set; }
+        public byte[]? UploadedFile { get; private set; }
+        public JsonElement SubmittedTemplate { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Requests++;
             Assert.Equal("graph.facebook.com", request.RequestUri!.Host);
             if (request.RequestUri.AbsolutePath.EndsWith("/media"))
             {
-                Assert.IsType<MultipartFormDataContent>(request.Content);
+                var mediaForm = Assert.IsType<MultipartFormDataContent>(request.Content);
+                UploadedFile = await mediaForm.Single(part => part.Headers.ContentDisposition?.Name?.Trim('"') == "file").ReadAsByteArrayAsync(ct);
                 return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { id = "123456789" }) };
             }
             using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
-            var components = json.RootElement.GetProperty("template").GetProperty("components");
+            SubmittedTemplate = json.RootElement.GetProperty("template").Clone();
+            var components = SubmittedTemplate.GetProperty("components");
             var media = components[0].GetProperty("parameters")[0];
             Assert.Equal(mediaKind, media.GetProperty("type").GetString());
             Assert.Equal("123456789", media.GetProperty(mediaKind).GetProperty("id").GetString());
@@ -571,14 +575,16 @@ public sealed class WhatsAppOutboxTests
         }
     }
 
-    private sealed class StaffTemplateHandler(Action<string> submitted) : HttpMessageHandler
+    private sealed class StaffTemplateHandler(Action<string> submitted, string? expectedName = "approved_staff_notice",
+        Action<JsonElement>? inspect = null) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             Assert.Equal("template", payload.RootElement.GetProperty("type").GetString());
             var template = payload.RootElement.GetProperty("template");
-            Assert.Equal("approved_staff_notice", template.GetProperty("name").GetString());
+            if (expectedName is not null) Assert.Equal(expectedName, template.GetProperty("name").GetString());
+            inspect?.Invoke(template);
             submitted(template.GetProperty("components")[0].GetProperty("parameters")[0].GetProperty("text").GetString()!);
             return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { messages = new[] { new { id = "wamid.synthetic-" + Guid.NewGuid() } } }) };
         }
@@ -1712,52 +1718,134 @@ public sealed class WhatsAppOutboxTests
         Assert.Equal("Suppressed", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
     }
 
-    [Fact]
-    public async Task Inspection_reminder_batch_deduplicates_skips_sold_or_cancelled_and_dispatches_current_facts()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task New_leave_submission_notifies_eligible_approvers_once_with_current_pending_summary(int total)
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant(testMode: false);
+        await AddStaffBinding(db, assistant);
+        db.Users.Add(new AppUser { Id = "requester", UserName = "requester", DisplayName = "Synthetic requester", SecurityStamp = "requester-stamp" });
+        db.UserRoles.Add(new IdentityUserRole<string> { UserId = "requester", RoleId = "notification-boss" });
+        await db.SaveChangesAsync();
+        const string requesterPhone = "60123456000";
+        var link = await WhatsAppStaffBindings.IssueAsync(db, assistant, "requester", new(requesterPhone, "en_US", true), "test", Now);
+        Assert.True(await WhatsAppStaffBindings.VerifyAsync(db, assistant, requesterPhone, link.Command[5..], "requester-link", Now));
+        var today = WhatsAppStaffNotifications.LocalDate(Now);
+        var now = WhatsAppStaffNotifications.LocalDayDueAt(today, total == 1 ? 1439 : 600);
+        var dispatchAt = total == 1 ? now + 120 : now;
+        await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "LeaveApproval", new(true, 1439, 0, 0), "boss", now);
+        var date = today.AddDays(10);
+        var leave = new HrLeaveRequest { StaffUserId = "requester", StartDate = date, EndDate = date.AddDays(1),
+            Days = 2, Reason = "PRIVATE REASON" };
+        for (var index = 1; index < total; index++)
+            db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "requester", StartDate = today.AddDays(index), EndDate = today.AddDays(index), Days = 1 });
+        db.HrLeaveRequests.Add(new HrLeaveRequest { StaffUserId = "staff-notification", StartDate = today, EndDate = today, Days = 1 });
+        db.HrLeaveRequests.Add(leave);
+        var key = WhatsAppLeaveSubmission.TemplateKey;
+        var dispatch = StaffDispatch(new WhatsAppApprovedTemplate { Key = key, Name = key, Language = "en_US",
+            ProviderLanguage = "en", Approved = true, ApprovalEvidence = "synthetic leave submission approval" });
+        var policyWithoutSubmission = (await WhatsAppStaffNotifications.PoliciesAsync(db, StaffDispatch())).Single(row => row.Category == "LeaveApproval");
+        Assert.False(policyWithoutSubmission.TemplateReady);
+        Assert.Contains(policyWithoutSubmission.TemplateReadiness, template => template.TemplateKey == key && !template.Ready);
+        await WhatsAppLeaveSubmission.StageAsync(db, assistant, dispatch, leave, "test", now, default);
+        await db.SaveChangesAsync();
+        await WhatsAppLeaveSubmission.StageAsync(db, assistant, dispatch, leave, "test", now, default);
+        await db.SaveChangesAsync();
+        var queued = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("staff-notification", queued.StaffUserId);
+        Assert.Equal(now, queued.ScheduledAt);
+
+        var providerRequests = 0;
+        var handler = new StaffTemplateHandler(_ => providerRequests++, key, template =>
+        {
+            Assert.Equal("en", template.GetProperty("language").GetProperty("code").GetString());
+            var component = Assert.Single(template.GetProperty("components").EnumerateArray());
+            var values = component.GetProperty("parameters").EnumerateArray().Select(item => item.GetProperty("text").GetString()).ToArray();
+            Assert.Equal(5, values.Length);
+            string Display(DateOnly date) => date.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            Assert.Equal(Display(WhatsAppStaffNotifications.LocalDate(dispatchAt)), values[0]);
+            Assert.Equal(total.ToString(), values[1]);
+            Assert.Equal($"Synthetic requester - {Display(date)} to {Display(date.AddDays(1))}", values[2]);
+            Assert.Equal(total == 1 ? "None" : $"Synthetic requester - {Display(today.AddDays(1))}", values[3]);
+            Assert.Equal(total == 1 ? "None" : $"Synthetic requester - {Display(today.AddDays(2))}", values[4]);
+            Assert.DoesNotContain("PRIVATE REASON", template.GetRawText());
+        });
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch,
+            (item, ct) => sender.SendAsync(dispatch, item, ct), dispatchAt, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.False(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, dispatch,
+            (item, ct) => sender.SendAsync(dispatch, item, ct), dispatchAt, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal(1, providerRequests);
+        var submitted = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
+        Assert.Equal("Accepted", submitted.State);
+        Assert.Contains("Open the portal to review all pending requests and record your decision.", submitted.SubmittedBody);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Inspection_reminder_batch_deduplicates_skips_sold_or_cancelled_and_dispatches_current_facts(bool hasTime)
     {
         await using var fixture = await Fixture.Create();
         await using var db = fixture.Open();
         var assistant = StaffAssistant();
         await AddStaffBinding(db, assistant);
-        var day = WhatsAppStaffNotifications.LocalDate(Now);
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var day = WhatsAppStaffNotifications.LocalDate(now);
         var appointment = day.AddDays(1);
         var liveVehicle = new Vehicle { PlateNumber = "INSP-LIVE", Status = VehicleStatus.Available };
         var soldVehicle = new Vehicle { PlateNumber = "INSP-SOLD", Status = VehicleStatus.Sold };
         var cancelledVehicle = new Vehicle { PlateNumber = "INSP-CANCEL", Status = VehicleStatus.Available };
         db.Vehicles.AddRange(liveVehicle, soldVehicle, cancelledVehicle);
         db.InspectionRecords.AddRange(
-            new InspectionRecord { VehicleId = liveVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Booked, AppointmentDate = appointment, BookingReference = "BOOK-LIVE" },
+            new InspectionRecord { VehicleId = liveVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Booked, IsLorry = true, AppointmentDate = appointment, AppointmentTime = hasTime ? new TimeOnly(10, 0) : null, BookingReference = "BOOK-LIVE" },
             new InspectionRecord { VehicleId = soldVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Booked, AppointmentDate = appointment, BookingReference = "BOOK-SOLD" },
             new InspectionRecord { VehicleId = cancelledVehicle.Id, Type = InspectionType.Awalan, Status = InspectionStatus.Cancelled, AppointmentDate = appointment, BookingReference = "BOOK-CANCEL" });
         await db.SaveChangesAsync();
-        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "InspectionReminder", new(true, 0, 0, 0), "boss", Now));
+        Assert.True(await WhatsAppStaffNotifications.UpdatePolicyAsync(db, "InspectionReminder", new(true, 0, 0, 0), "boss", now));
 
-        Assert.Equal(1, await WhatsAppInspectionReminders.EnqueueAsync(db, assistant, Now));
-        Assert.Equal(0, await WhatsAppInspectionReminders.EnqueueAsync(db, assistant, Now + 1));
+        Assert.Equal(1, await WhatsAppInspectionReminders.EnqueueAsync(db, assistant, now));
+        Assert.Equal(0, await WhatsAppInspectionReminders.EnqueueAsync(db, assistant, now));
         var queued = await db.WhatsAppOutbox.AsNoTracking().SingleAsync();
         Assert.Contains("INSP-LIVE", queued.Body);
         Assert.DoesNotContain("INSP-SOLD", queued.Body);
         Assert.DoesNotContain("INSP-CANCEL", queued.Body);
-        Assert.Null(await WhatsAppInspectionAttachment.LoadAsync(db, queued, Now, default));
+        Assert.Null(await WhatsAppInspectionAttachment.LoadAsync(db, queued, now, default));
         var liveInspection = await db.InspectionRecords.SingleAsync(item => item.VehicleId == liveVehicle.Id);
         var slip = new DocumentBlob { VehicleId = soldVehicle.Id, InspectionId = liveInspection.Id,
             Category = FileCategory.InspectionAppointmentConfirmation, MimeType = "application/pdf",
             Content = System.Text.Encoding.UTF8.GetBytes("%PDF-1.7 synthetic"), FileName = "appointment.pdf" };
         db.DocumentBlobs.Add(slip);
+        db.DocumentBlobs.Add(slip with { Id = Guid.NewGuid(), VehicleId = liveVehicle.Id, Category = FileCategory.InspectionReceipt,
+            Content = "%PDF-1.7 unrelated receipt"u8.ToArray() });
         await db.SaveChangesAsync();
-        Assert.Null(await WhatsAppInspectionAttachment.LoadAsync(db, queued, Now, default));
+        Assert.Null(await WhatsAppInspectionAttachment.LoadAsync(db, queued, now, default));
         db.Entry(slip).CurrentValues.SetValues(slip with { VehicleId = liveVehicle.Id });
         await db.SaveChangesAsync();
-        Assert.Equal(slip.Id, (await WhatsAppInspectionAttachment.LoadAsync(db, queued, Now, default))!.Id);
+        Assert.Equal(slip.Id, (await WhatsAppInspectionAttachment.LoadAsync(db, queued, now, default))!.Id);
 
-        var calls = 0;
-        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, StaffDispatch(new WhatsAppApprovedTemplate { Key = "staff_notice_v1", Name = "approved_staff_notice", Language = "en_US", Approved = true, ApprovalEvidence = "synthetic" }, AttachmentTemplate("en_US")), (message, _) =>
+        var handler = new AttachmentHandler();
+        using var sender = new WhatsAppTemplateSender(new HttpClient(handler));
+        var options = StaffDispatch(new WhatsAppApprovedTemplate
         {
-            calls++;
-            Assert.Contains("INSP-LIVE", message.Body);
-            return Task.FromResult(new WhatsAppSendResult("Accepted", "wamid.synthetic.inspection"));
-        }, Now + 1, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
-        Assert.Equal(1, calls);
+            Key = WhatsAppInspectionAttachment.TemplateKey, Name = "ysheng_inspection_appointment_v1", Language = "en_US",
+            ProviderLanguage = "en", Approved = true, ApprovalEvidence = "synthetic document approval", HeaderFormat = "DOCUMENT"
+        });
+        Assert.True(await WhatsAppNotificationDispatcher.DispatchOneAsync(db, options, (message, ct) =>
+            WhatsAppInspectionAttachment.SendAsync(db, sender, options, assistant, message, ct),
+            now, assistant: assistant, refreshStaff: WhatsAppStaffNotifications.RefreshAsync));
+        Assert.Equal(2, handler.Requests);
+        Assert.Equal(slip.Content, handler.UploadedFile);
+        var template = handler.SubmittedTemplate;
+        Assert.Equal("ysheng_inspection_appointment_v1", template.GetProperty("name").GetString());
+        Assert.Equal("en", template.GetProperty("language").GetProperty("code").GetString());
+        var body = Assert.Single(template.GetProperty("components")[1].GetProperty("parameters").EnumerateArray());
+        var date = appointment.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        var timing = hasTime ? " at 10:00 AM MYT." : ". Appointment time is unavailable in the portal.";
+        Assert.Equal($"Vehicle INSP-LIVE (Lorry) is scheduled for inspection on {date}{timing}", body.GetProperty("text").GetString());
         Assert.Equal("Accepted", (await db.WhatsAppOutbox.AsNoTracking().SingleAsync()).State);
     }
 

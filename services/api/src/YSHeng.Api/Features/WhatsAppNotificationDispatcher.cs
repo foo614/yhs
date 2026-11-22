@@ -13,6 +13,7 @@ public static class WhatsAppNotificationDispatcher
         : item.Audience == "Staff"
         ? item.EventKind == "staff.notification" && (item.TemplateVersion == "staff_notice_v1" ||
           item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey && WhatsAppInspectionAttachment.Required(item) ||
+          WhatsAppLeaveSubmission.IsSubmission(item) ||
           WhatsAppReminderV2.Known(item.TemplateVersion) && WhatsAppReminderV2.KeyFor(item) == item.TemplateVersion) &&
           WhatsAppStaffNotifications.Categories.Contains(item.MessageKind)
         : WhatsAppInsurance.IsDocument(item) || WhatsAppInsurance.IsPayment(item) ||
@@ -142,7 +143,7 @@ public static class WhatsAppNotificationDispatcher
             currentStaffFacts, refreshStaff, lockBinding: true) : null;
         var staffEligible = refreshed is not null;
         if (refreshed is not null) candidate = refreshed;
-        if (refreshed is not null && refreshStaff is not null)
+        if (refreshed is not null && refreshStaff is not null && !WhatsAppLeaveSubmission.IsSubmission(candidate))
             candidate = await WhatsAppReminderV2.SelectAsync(db, options, candidate, now, ct);
         if (candidate.Audience == "Enrollment")
         {
@@ -164,13 +165,14 @@ public static class WhatsAppNotificationDispatcher
                 if (candidate.Audience is "Staff" or "Enrollment")
                 {
                     var approvedTemplate = options.TemplateFor(candidate)!;
+                    var structured = WhatsAppReminderV2.Known(candidate.TemplateVersion) || WhatsAppLeaveSubmission.IsSubmission(candidate);
                     await db.WhatsAppOutbox.Where(row => row.Id == candidate.Id && row.State == "Sending")
                         .ExecuteUpdateAsync(set => set.SetProperty(row => row.TemplateReference, row =>
-                                WhatsAppReminderV2.Known(candidate.TemplateVersion) ? row.TemplateReference : candidate.TemplateReference)
+                                structured ? row.TemplateReference : candidate.TemplateReference)
                             .SetProperty(row => row.Body, row =>
-                                WhatsAppReminderV2.Known(candidate.TemplateVersion) ? row.Body : candidate.Body)
+                                structured ? row.Body : candidate.Body)
                             .SetProperty(row => row.SubmittedBody,
-                                WhatsAppReminderV2.Known(candidate.TemplateVersion) ? candidate.Body : candidate.TemplateReference)
+                                structured ? candidate.Body : candidate.TemplateReference)
                             .SetProperty(row => row.SubmittedTemplateName, approvedTemplate.Name)
                             .SetProperty(row => row.SubmittedLanguage, approvedTemplate.EffectiveProviderLanguage), ct);
                 }
