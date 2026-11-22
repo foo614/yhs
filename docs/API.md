@@ -386,6 +386,7 @@ When supplied, `repairJobId` must reference a repair for the route vehicle and t
 | `PUT` | `/api/leads/{id}` | `Sales` | Update lead/customer link/status. |
 | `POST` | `/api/leads/{id}/vehicle/{vehicleId}` | `Sales` | Link an available public vehicle once to a contacted FAQ budget enquiry. The lead owner or a BossAdmin can link it. |
 | `GET` | `/api/sales/workboard?agentUserId={id}` | `Sales` | Return `Sold this month` and assigned cars for the `Cars I’m Handling` view, with the current process and combined current handoff (responsible department plus next action). Sales is server-scoped to the signed-in agent; Boss/Admin may select an agent. |
+| `PUT` | `/api/sales/workboard/{vehicleId}/actual-selling-price` | `Sales` | Save a positive actual deal price up to RM10,000,000 with the authenticated actor and audit event. Boss/Admin may update any workboard vehicle, including unassigned vehicles or those assigned to another Broker; ordinary Sales may update only a vehicle currently assigned to that account. Assignment is checked again at save time. |
 
 Lead ownership: the first staff member who moves a lead out of `New` is recorded as the taker. After that, only the same staff member may mutate the lead; Boss/Admin retains the management override.
 
