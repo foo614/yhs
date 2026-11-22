@@ -1885,6 +1885,38 @@ public sealed class WhatsAppOutboxTests
         Assert.Single(await db.AuditLogs.AsNoTracking().Where(row => row.Action == "whatsapp.staff.retargeted").ToListAsync());
     }
 
+    [Fact]
+    public async Task Weekly_stock_preferences_save_only_eligible_recipients_and_never_stage_unsupported_xlsx()
+    {
+        await using var fixture = await Fixture.Create();
+        await using var db = fixture.Open();
+        var assistant = StaffAssistant();
+        await AddStaffBinding(db, assistant);
+
+        var defaults = await WhatsAppStockListingPreferencesStore.ReadAsync(db, assistant, Now, default);
+        Assert.Equal((int)DayOfWeek.Friday, defaults.Weekday);
+        Assert.Equal(540, defaults.LocalMinuteOfDay);
+        Assert.Empty(defaults.RecipientUserIds);
+        Assert.Equal("staff-notification", Assert.Single(defaults.EligibleRecipients).UserId);
+        Assert.Equal("XlsxTemplateUnsupported", defaults.DeliveryState);
+
+        var update = new WhatsAppStockListingPreferencesInput(3, 615, ["staff-notification"]);
+        Assert.Null(await WhatsAppStockListingPreferencesStore.UpdateAsync(db, assistant,
+            update with { LocalMinuteOfDay = 1440 }, "synthetic-admin", Now, default));
+        Assert.Null(await WhatsAppStockListingPreferencesStore.UpdateAsync(db, assistant,
+            update with { RecipientUserIds = ["unknown-user"] }, "synthetic-admin", Now, default));
+        Assert.NotNull(await WhatsAppStockListingPreferencesStore.UpdateAsync(db, assistant, update, "synthetic-admin", Now, default));
+        await using var restarted = fixture.Open();
+        var saved = await WhatsAppStockListingPreferencesStore.ReadAsync(restarted, assistant, Now, default);
+        Assert.Equal(update.Weekday, saved.Weekday);
+        Assert.Equal(update.LocalMinuteOfDay, saved.LocalMinuteOfDay);
+        Assert.Equal(update.RecipientUserIds, saved.RecipientUserIds);
+        await restarted.UserRoles.Where(item => item.UserId == "staff-notification").ExecuteDeleteAsync();
+        Assert.Empty((await WhatsAppStockListingPreferencesStore.ReadAsync(restarted, assistant, Now, default)).EligibleRecipients);
+        Assert.Null(await WhatsAppStockListingPreferencesStore.UpdateAsync(restarted, assistant, update, "synthetic-admin", Now, default));
+        Assert.Empty(await restarted.WhatsAppOutbox.ToListAsync());
+    }
+
     private static WhatsAppAssistantOptions StaffAssistant(bool testMode = true) => new()
     {
         Enabled = true, WebhookEnabled = true, TestMode = testMode, TestRecipient = Recipient,

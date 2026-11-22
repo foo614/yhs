@@ -1762,6 +1762,20 @@ export type StaffWhatsAppLimitsInput = Pick<StaffWhatsAppLimits, "dailyAttemptLi
 export function getStaffWhatsAppDiagnostics(): Promise<StaffWhatsAppDiagnostics> {
   return request<StaffWhatsAppDiagnostics>("/api/whatsapp/staff/diagnostics");
 }
+export type StockListingPreferencesInput = { weekday: number; localMinuteOfDay: number; recipientUserIds: string[] };
+export type StockListingPreferences = StockListingPreferencesInput & {
+  eligibleRecipients: { userId: string; displayName: string }[];
+  deliveryState: "XlsxTemplateUnsupported";
+};
+
+export function getStockListingPreferences(): Promise<StockListingPreferences> {
+  return request("/api/whatsapp/staff/stock-listing");
+}
+
+export function updateStockListingPreferences(input: StockListingPreferencesInput): Promise<StockListingPreferences> {
+  return request("/api/whatsapp/staff/stock-listing", { method: "PUT", body: JSON.stringify(input) });
+}
+
 export function getStaffWhatsAppPolicies(): Promise<StaffWhatsAppPolicy[]> {
   return request<StaffWhatsAppPolicy[]>("/api/whatsapp/staff/policies");
 }
