@@ -5343,7 +5343,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Loan_document_check_does_not_require_each_legacy_category()
+    public void Loan_document_check_accepts_lou_when_explicit_original_tracking_is_enabled()
     {
         var loan = new LoanApplication
         {
@@ -5366,12 +5366,12 @@ public sealed class BusinessRulesTests
         Assert.False(result.HasExplicitOriginal);
         var restored = new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, Category = FileCategory.LoanOriginalDocument };
         var afterRemoval = loan with { RequiresExplicitOriginal = true };
-        Assert.False(LoanDocumentRules.CheckCompleteness(afterRemoval, documents).IsComplete);
+        Assert.True(LoanDocumentRules.CheckCompleteness(afterRemoval, documents).IsComplete);
         Assert.True(LoanDocumentRules.CheckCompleteness(afterRemoval, documents.Append(restored)).HasExplicitOriginal);
     }
 
     [Fact]
-    public void Loan_document_check_does_not_use_another_vehicle_voc_for_the_same_customer()
+    public void Loan_document_check_does_not_use_another_vehicle_evidence_for_the_same_customer()
     {
         var customerId = Guid.NewGuid();
         var loan = new LoanApplication
@@ -5381,10 +5381,11 @@ public sealed class BusinessRulesTests
             Status = LoanStatus.Pending,
             SubmittedAt = new DateOnly(2026, 5, 30)
         };
+        var otherVehicleId = Guid.NewGuid();
         var documents = new[]
         {
-            new DocumentBlob { VehicleId = Guid.NewGuid(), CustomerId = customerId, Category = FileCategory.Voc },
-            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = customerId, Category = FileCategory.LoanDocument }
+            new DocumentBlob { VehicleId = otherVehicleId, CustomerId = customerId, Category = FileCategory.Voc },
+            new DocumentBlob { VehicleId = otherVehicleId, CustomerId = customerId, Category = FileCategory.LoanDocument }
         };
 
         var result = LoanDocumentRules.CheckCompleteness(loan, documents);
