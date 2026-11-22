@@ -2138,6 +2138,7 @@ backOffice.MapPost("/loans/{id:guid}/take", async (Guid id, AppDbContext db, Htt
     return Results.Ok(LoanDecisionRules.WithCreationHistory(responseLoan, creationHistory));
 }).RequireAuthorization("Loans");
 backOffice.MapLoanBankWorkflow();
+backOffice.MapPendingDocumentReviews();
 backOffice.MapPost("/loans/{id:guid}/decision", async (Guid id, LoanDecisionRequest request, AppDbContext db, HttpContext context) =>
 {
     await using var transaction = await db.Database.BeginTransactionAsync();

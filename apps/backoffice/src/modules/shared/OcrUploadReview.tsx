@@ -9,6 +9,7 @@ import { formatMoneyInputWithTwoDecimals, parseMoneyInput } from "../../money";
 import { LoanBankNameInput } from "../../LoanBankNameInput";
 import {
   getOcrJob,
+  getPendingDocumentReview,
   getVehicleDocumentContent,
   humanizeApiError,
   reviewOcrJob,
@@ -31,6 +32,7 @@ export type OcrFieldConfig = {
   options?: { value: string; label: string }[];
   section?: OcrFieldSection;
   fullWidth?: boolean;
+  required?: boolean;
 };
 
 export type OcrFieldSection = {
@@ -157,8 +159,22 @@ export async function runOcrApplySteps(
   }
 }
 
+export async function loadStoredOcrReview(jobId: string, vehicleId: string | undefined, category: DocumentCategory, owner?: DocumentUploadOwner) {
+  const item = await getPendingDocumentReview(jobId);
+  const recordId = category === "RepairInvoice" ? owner?.repairJobId : category === "LoanDocument" ? owner?.loanApplicationId : undefined;
+  if (!recordId || item.jobId !== jobId || item.vehicleId !== vehicleId || item.category !== category || item.recordId !== recordId || item.source !== (category === "RepairInvoice" ? "Repair" : "Loan")) {
+    throw new Error("This review belongs to another record. Return to the pending review queue.");
+  }
+  const stored = await getOcrJob(jobId);
+  if (stored.id !== jobId || stored.documentId !== item.documentId || stored.category !== category || stored.status !== "NeedsReview" || stored.reviewDecision !== "Pending" || !stored.result) {
+    throw new Error("This document is no longer pending review. Refresh the queue.");
+  }
+  return stored;
+}
+
 export function OcrUploadReview({
   vehicleId,
+  resumeJobId,
   category,
   buttonLabel,
   applyLabel = "Apply to Form",
@@ -175,6 +191,7 @@ export function OcrUploadReview({
   onApply
 }: {
   vehicleId?: string;
+  resumeJobId?: string;
   category: DocumentCategory;
   buttonLabel: string;
   applyLabel?: string;
@@ -195,6 +212,7 @@ export function OcrUploadReview({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [analyzeProgress, setAnalyzeProgress] = useState(0);
   const [job, setJob] = useState<OcrJob | null>(null);
+  const [resumeError, setResumeError] = useState("");
   const [lineItems, setLineItems] = useState<OcrLineItem[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -210,6 +228,7 @@ export function OcrUploadReview({
     requestBusy.current = false;
     setBusy(false);
     setJob(null);
+    setResumeError("");
     setSavedStep(undefined);
     setUploadedDocumentId(undefined);
     setManualFallbackMessage("");
@@ -221,7 +240,27 @@ export function OcrUploadReview({
     setAnalyzeProgress(0);
     form.resetFields();
     return () => { requestVersion.current += 1; };
-  }, [vehicleId, category, uploadOwner?.ownershipType, uploadOwner?.ownerId, uploadOwner?.customerId, uploadOwner?.repairJobId, uploadOwner?.paymentRecordId, uploadOwner?.collectionTransactionId, uploadOwner?.deliveryScheduleId, uploadOwner?.loanApplicationId, uploadOwner?.loanBankOptionId, form]);
+  }, [vehicleId, resumeJobId, category, uploadOwner?.ownershipType, uploadOwner?.ownerId, uploadOwner?.customerId, uploadOwner?.repairJobId, uploadOwner?.paymentRecordId, uploadOwner?.collectionTransactionId, uploadOwner?.deliveryScheduleId, uploadOwner?.loanApplicationId, uploadOwner?.loanBankOptionId, form]);
+  useEffect(() => {
+    if (!resumeJobId || disabled) return;
+    const version = requestVersion.current;
+    requestBusy.current = true;
+    setBusy(true);
+    void loadStoredOcrReview(resumeJobId, vehicleId, category, uploadOwner).then(stored => {
+      if (version !== requestVersion.current) return;
+      setJob(stored);
+      setUploadedDocumentId(stored.documentId);
+      setLineItems(!ocrSupportsLineItems(category) ? [] : stored.result?.lineItems?.length ? stored.result.lineItems : repairLineItemsFromRawText(stored.result?.rawText));
+      const initial = initialValuesFromJob(stored, fields);
+      for (const conflict of ocrFieldConflicts(fields, existingValues, initial)) initial[conflict.name] = conflict.existingValue;
+      form.setFieldsValue(initial);
+      setReviewOpen(true);
+    }).catch(reason => {
+      if (version === requestVersion.current) setResumeError(humanizeApiError(reason));
+    }).finally(() => {
+      if (version === requestVersion.current) { requestBusy.current = false; setBusy(false); }
+    });
+  }, [resumeJobId, vehicleId, category, uploadOwner?.ownershipType, uploadOwner?.ownerId, uploadOwner?.customerId, uploadOwner?.repairJobId, uploadOwner?.loanApplicationId, uploadOwner?.loanBankOptionId, disabled, form]);
   const declaredAmount = Form.useWatch("amount", form) as string | number | undefined;
   const lineItemColumns = (ocrLineItemColumns(updateLineItem, removeLineItem) as ColumnsType<OcrLineItem>).map(column => ({
     ...column,
@@ -362,6 +401,10 @@ export function OcrUploadReview({
         : job;
       const submission = pendingApply.current ?? { values, result: reviewedResult, localJob, progress: { targetApplied: false } };
       pendingApply.current = submission;
+      if (resumeJobId && !submission.progress.targetApplied && !submission.progress.reviewedJob) {
+        await loadStoredOcrReview(resumeJobId, vehicleId, category, uploadOwner);
+        if (!isCurrent()) return;
+      }
       await runOcrApplySteps(submission.progress, commitAfterApply,
         async (reviewedJob) => {
           const appliedJob = reviewedJob?.result && submission.localJob.result
@@ -397,7 +440,7 @@ export function OcrUploadReview({
   return (
     <>
       <Space direction="vertical" size={8} className="fullWidth">
-        {!compact && (
+        {!compact && !resumeJobId && (
           <div className="ocrUploadGuide">
             <span className="ocrStepLabel">Step 1 of 3</span>
             <div>
@@ -406,7 +449,11 @@ export function OcrUploadReview({
             </div>
           </div>
         )}
-        <Upload
+        {resumeJobId ? <>
+          <Typography.Text type="secondary">{busy ? "Loading saved review… / 正在读取已有审核…" : "Using the original uploaded document / 使用原上传文件"}</Typography.Text>
+          {resumeError && <Alert type="warning" showIcon title="Review unavailable / 无法继续审核" description={resumeError} />}
+          {!busy && job?.reviewDecision === "Pending" && !reviewOpen && <Button onClick={() => setReviewOpen(true)}>Continue stored review / 继续已有审核</Button>}
+        </> : <Upload
           accept={[...ocrImageMimeTypes, ...(["Voc", "LoanDocument"].includes(category) ? ["application/pdf"] : [])].join(",")}
           disabled={disabled || busy || Boolean(savedStep)}
           maxCount={1}
@@ -419,9 +466,9 @@ export function OcrUploadReview({
           customRequest={(option) => void handleUpload(option)}
         >
           <Button type={compact ? "primary" : "default"} size={compact ? "small" : "middle"} icon={<UploadOutlined />} disabled={disabled || busy || Boolean(savedStep)}>{buttonLabel}</Button>
-        </Upload>
+        </Upload>}
         {savedStep && !reviewOpen && <Button onClick={() => setReviewOpen(true)}>Resume unfinished OCR save</Button>}
-        {(busy || uploadProgress > 0 || analyzeProgress > 0) && (
+        {!resumeJobId && (busy || uploadProgress > 0 || analyzeProgress > 0) && (
           <div className="ocrProgressStack">
             <Typography.Text type="secondary">Uploading document</Typography.Text>
             <Progress size="small" percent={uploadProgress} status={uploadProgress === 100 ? "success" : "active"} />
@@ -535,7 +582,7 @@ export function OcrUploadReview({
                 ) : null}
                 <div className={group.section ? "ocrReviewFieldGrid" : undefined}>
                   {group.fields.map((field) => (
-                    <Form.Item key={field.name} name={field.name} className={field.fullWidth ? "ocrReviewFieldFullWidth" : undefined} label={fieldLabel(field, job)}>
+                    <Form.Item key={field.name} name={field.name} className={field.fullWidth ? "ocrReviewFieldFullWidth" : undefined} label={fieldLabel(field, job)} rules={field.required ? [{ required: true, message: "Complete this value before applying / 请填写后再采用" }] : undefined}>
                       {field.type === "number" ? (
                         <InputNumber className="fullWidth" min={0} precision={isMoneyField(field.name) ? 2 : undefined} formatter={isMoneyField(field.name) ? formatMoneyInputWithTwoDecimals : undefined} parser={isMoneyField(field.name) ? parseMoneyInput : undefined} />
                       ) : field.type === "select" ? (

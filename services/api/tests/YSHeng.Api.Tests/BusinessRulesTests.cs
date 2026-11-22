@@ -136,29 +136,37 @@ public sealed class BusinessRulesTests
     public void WhatsApp_hr_attendance_uses_mutually_exclusive_known_scheduled_categories()
     {
         var today = new DateOnly(2026, 10, 7);
-        var scheduled = new[] { "checked", "leave", "trip", "partial", "missing", "inactive" }
+        var scheduled = new[] { "checked", "leave", "trip", "partial", "partial-checked", "unclear", "missing", "inactive" }
             .Select(id => new HrWorkSchedule { StaffUserId = id, AttendanceDate = today }).ToArray();
         var facts = new WhatsAppAttendanceFacts(scheduled,
             [new HrAttendanceRecord { StaffUserId = "checked", AttendanceDate = today, CheckInAt = DateTime.UtcNow },
                 new HrAttendanceRecord { StaffUserId = "unscheduled", AttendanceDate = today, CheckInAt = DateTime.UtcNow },
+                new HrAttendanceRecord { StaffUserId = "partial-checked", AttendanceDate = today, CheckInAt = DateTime.UtcNow },
                 new HrAttendanceRecord { StaffUserId = "inactive", AttendanceDate = today, CheckInAt = DateTime.UtcNow }],
             [new HrLeaveRequest { StaffUserId = "checked", Status = HrLeaveStatus.Approved,
                 StartDate = today, EndDate = today, Days = 1 },
                 new HrLeaveRequest { StaffUserId = "leave", Status = HrLeaveStatus.Approved,
                     StartDate = today, EndDate = today, Days = 1 },
                 new HrLeaveRequest { StaffUserId = "partial", Status = HrLeaveStatus.Approved,
-                    StartDate = today, EndDate = today, Days = 0.5m }],
+                    StartDate = today, EndDate = today, Days = 0.5m },
+                new HrLeaveRequest { StaffUserId = "partial-checked", Status = HrLeaveStatus.Approved,
+                    StartDate = today, EndDate = today, Days = 0.5m },
+                new HrLeaveRequest { StaffUserId = "unclear", Status = HrLeaveStatus.Approved,
+                    StartDate = today, EndDate = today.AddDays(1), Days = 1.5m }],
             [new HrBusinessTrip { StaffUserId = "checked", Status = HrBusinessTripStatus.Approved,
                 StartDate = today, EndDate = today },
                 new HrBusinessTrip { StaffUserId = "trip", Status = HrBusinessTripStatus.Approved,
                     StartDate = today, EndDate = today }],
-            ["checked", "leave", "trip", "partial", "missing", "unscheduled"]);
+            ["checked", "leave", "trip", "partial", "partial-checked", "unclear", "missing", "unscheduled"]);
         var result = WhatsAppHrNotifications.ProjectAttendance(facts, today, "en_US");
-        Assert.Equal(5, result.Scheduled);
-        Assert.Equal(1, result.CheckedIn);
+        Assert.Equal(7, result.Scheduled);
+        Assert.Equal(2, result.CheckedIn);
         Assert.Equal(1, result.FullDayLeave);
         Assert.Equal(1, result.Outstation);
-        Assert.Equal(1, result.PartialLeaveUnknown);
+        Assert.Equal(2, result.PartialLeaveUnknown);
+        Assert.Equal(2, result.ConfirmedFullDayLeave);
+        Assert.Equal(2, result.ConfirmedPartialLeave);
+        Assert.Equal(2, result.ApprovedOutstation);
         Assert.Equal(1, result.ScheduledWithoutCheckIn);
         Assert.Equal(1, result.UnscheduledCheckIns);
         Assert.Contains("Schedule coverage unverified", result.Body);

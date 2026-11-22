@@ -38,7 +38,7 @@ public static class WhatsAppReminderV2
         (Delivery, "ms") => "Penghantaran tugasan YS Heng | {{1}}\nTarikh akhir hingga: {{2}}\nPenghantaran anda: {{3}}\nLewat: {{4}}\nSemak persediaan dan langkah serahan di Portal.",
         (Leave, "en_US") => "YS Heng leave approvals | {{1}}\nPending requests you can review: {{2}}\nEarliest leave starts: {{3}}\nOpen Portal to review all requests and decide.",
         (Leave, "ms") => "Kelulusan cuti YS Heng | {{1}}\nPermohonan menunggu semakan anda: {{2}}\nCuti terawal bermula: {{3}}\nBuka Portal untuk menyemak semua permohonan dan membuat keputusan.",
-        (Attendance, "en_US") => "YS Heng attendance | {{1}}\nKnown scheduled: {{2}}\nChecked in (scheduled): {{3}}\nFull-day leave: {{4}}\nOutstation: {{5}}\nPartial/unclear leave: {{6}}\nScheduled without check-in: {{7}}\nUnscheduled check-ins: {{8}}\nSchedule coverage unverified. No check-in is not an absence decision. Review in Portal.",
+        (Attendance, "en_US") => "Date: {{1}}\nAs of: {{2}} MYT\n\nATTENDANCE\nChecked in today: {{3}} staff\n\nAPPROVED ARRANGEMENTS\nFull-day leave: {{4}}\nPartial-day leave: {{5}}\nOutstation duty: {{6}}\n\nHR FOLLOW-UP\n{{7}}\nMissing check-ins require review before recording an absence.",
         (Attendance, "ms") => "Kehadiran YS Heng | {{1}}\nJadual diketahui: {{2}}\nDaftar masuk (berjadual): {{3}}\nCuti penuh: {{4}}\nLuar kawasan: {{5}}\nCuti separa/tidak jelas: {{6}}\nBerjadual belum daftar masuk: {{7}}\nDaftar masuk tanpa jadual: {{8}}\nLiputan jadual tidak disahkan. Belum daftar masuk bukan keputusan ponteng. Semak di Portal.",
         _ => ""
     };
@@ -50,11 +50,11 @@ public static class WhatsAppReminderV2
 
     public static string? Render(string key, string language, IReadOnlyList<string> values)
     {
-        var count = key switch { Due => 9, Delivery => 4, Leave => 3, Attendance => 8, _ => 0 };
+        var count = key switch { Due => 9, Delivery => 4, Leave => 3, Attendance => language == "en_US" ? 7 : 8, _ => 0 };
         var body = BodyText(key, language);
-        if (count == 0 || body.Length == 0 || values.Count != count || values.Any(value =>
-            string.IsNullOrWhiteSpace(value) || value.Length > 64 || value.Any(char.IsControl) ||
-            value.Contains("  ", StringComparison.Ordinal) || value.Contains('{') || value.Contains('}'))) return null;
+        if (count == 0 || body.Length == 0 || values.Count != count || values.Select((value, index) =>
+            string.IsNullOrWhiteSpace(value) || value.Length > (key == Attendance && language == "en_US" && index == 6 ? 160 : 64) || value.Any(char.IsControl) ||
+            value.Contains("  ", StringComparison.Ordinal) || value.Contains('{') || value.Contains('}')).Any(invalid => invalid)) return null;
         for (var index = 0; index < values.Count; index++)
             body = body.Replace("{{" + (index + 1) + "}}", values[index], StringComparison.Ordinal);
         return body.Length <= 1024 ? body : null;
@@ -95,9 +95,16 @@ public static class WhatsAppReminderV2
         {
             var snapshot = WhatsAppHrNotifications.ProjectAttendance(
                 await WhatsAppHrNotifications.LoadAttendanceAsync(db, today, now, ct), today, current.Language);
-            values = [Date(today, current.Language), Number(snapshot.Scheduled), Number(snapshot.CheckedIn),
-                Number(snapshot.FullDayLeave), Number(snapshot.Outstation), Number(snapshot.PartialLeaveUnknown),
-                Number(snapshot.ScheduledWithoutCheckIn), Number(snapshot.UnscheduledCheckIns)];
+            var followUp = snapshot.ScheduledWithoutCheckIn switch
+            {
+                0 => "No missing check-ins found for known schedules. Schedule coverage is unverified.",
+                1 => "1 staff member on a known schedule has no check-in recorded. Please review in the portal.",
+                var count => $"{Number(count)} staff on known schedules have no check-in recorded. Please review in the portal."
+            };
+            var asOf = DateTimeOffset.FromUnixTimeSeconds(now).ToOffset(TimeSpan.FromHours(8));
+            values = [Date(today, current.Language), asOf.ToString("HH:mm", CultureInfo.InvariantCulture),
+                Number(snapshot.CheckedIn + snapshot.UnscheduledCheckIns), Number(snapshot.ConfirmedFullDayLeave),
+                Number(snapshot.ConfirmedPartialLeave), Number(snapshot.ApprovedOutstation), followUp];
         }
         else if (key == Leave)
         {

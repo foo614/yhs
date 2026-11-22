@@ -2886,6 +2886,7 @@ export async function saveReviewedLoanLou(
     body: JSON.stringify({
       bankOptionId,
       useAsFinal,
+      requireCompleteTerms: true,
       bankName: values.loanBank,
       loanAmount: values.loanAmount,
       interestRate: values.interestRate,
@@ -4083,6 +4084,26 @@ export type DashboardUpdate = {
   date?: string; time?: string; daysOpen?: number; askingPrice?: number;
   path?: string; louDocumentId?: string;
 };
+export type PendingDocumentReview = {
+  jobId: string;
+  documentId: string;
+  vehicleId: string;
+  plate: string;
+  fileName: string;
+  category: DocumentCategory;
+  createdAt: string;
+  source: "Repair" | "Loan";
+  recordId: string;
+  path: string;
+};
+export type PendingDocumentReviews = { items: PendingDocumentReview[] };
+export function getPendingDocumentReviews(): Promise<PendingDocumentReviews> {
+  return request("/api/dashboard/document-reviews", {}, "Unable to load pending document reviews");
+}
+export function getPendingDocumentReview(jobId: string): Promise<PendingDocumentReview> {
+  return request(`/api/dashboard/document-reviews/${encodeURIComponent(jobId)}`, {}, "This document review is no longer available. Refresh the queue.");
+}
+
 export type DashboardUpdatesResponse = { news: DashboardUpdate[]; reminders: DashboardUpdate[] };
 export function getDashboardUpdates(): Promise<DashboardUpdatesResponse> {
   return request("/api/dashboard/updates", {}, "Unable to load dashboard updates");

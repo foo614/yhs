@@ -347,7 +347,7 @@ public sealed class ApiDocumentationTests
 
         var documentedPaths = ExtractDocumentedPaths(apiDocs).ToArray();
         var mappedRoutes = ExtractMappedRoutes(program).ToHashSet();
-        foreach (var feature in new[] { "LoanBankWorkflow.cs", "LoanBuyerIntake.cs" })
+        foreach (var feature in new[] { "LoanBankWorkflow.cs", "LoanBuyerIntake.cs", "PendingDocumentReviews.cs" })
         {
             var source = File.ReadAllText(Path.Combine(root, "services", "api", "src", "YSHeng.Api", "Features", feature));
             foreach (Match match in Regex.Matches(source, @"(?:routes|endpoints)\.Map(?:Get|Post|Put|Delete)\(""(?<path>/[^""]+)"""))

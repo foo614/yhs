@@ -57,7 +57,7 @@ services:
       WhatsApp__Templates__10__ProviderLanguage: "${WHATSAPP_V2_ATTENDANCE_EN_PROVIDER_LANGUAGE:-en_US}"
       WhatsApp__Templates__10__Approved: "${WHATSAPP_V2_ATTENDANCE_EN_APPROVED:-false}"
       WhatsApp__Templates__10__ApprovalEvidence: "${WHATSAPP_V2_ATTENDANCE_EN_APPROVAL_EVIDENCE:-}"
-      WhatsApp__Templates__10__BodyText: "YS Heng attendance | {{1}}\nKnown scheduled: {{2}}\nChecked in (scheduled): {{3}}\nFull-day leave: {{4}}\nOutstation: {{5}}\nPartial/unclear leave: {{6}}\nScheduled without check-in: {{7}}\nUnscheduled check-ins: {{8}}\nSchedule coverage unverified. No check-in is not an absence decision. Review in Portal."
+      WhatsApp__Templates__10__BodyText: "Date: {{1}}\nAs of: {{2}} MYT\n\nATTENDANCE\nChecked in today: {{3}} staff\n\nAPPROVED ARRANGEMENTS\nFull-day leave: {{4}}\nPartial-day leave: {{5}}\nOutstation duty: {{6}}\n\nHR FOLLOW-UP\n{{7}}\nMissing check-ins require review before recording an absence."
       WhatsApp__Templates__10__PortalUrl: "https://yshenghub.com.my/hr-salary"
       WhatsApp__Templates__11__Key: "ysheng_attendance_summary_v2"
       WhatsApp__Templates__11__Name: "ysheng_attendance_summary_v2_ms"

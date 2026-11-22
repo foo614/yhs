@@ -88,8 +88,6 @@ public static class WhatsAppStaffCommandHelp
         lines.Add(bm ? "🛠️ Lain-lain" : "🛠️ Other commands");
         lines.Add(bm ? "• Lihat panduan ini → help" : "• See this guide → help");
         lines.Add(bm ? "• Pilih daripada senarai → menu" : "• Choose from a list → menu");
-        lines.Add(bm ? "• Pilih bahasa Inggeris → language en" : "• Change to English → language en");
-        lines.Add(bm ? "• Pilih Bahasa Malaysia → language ms" : "• Change to Malay → language ms");
         lines.Add(bm ? "• Semak sambungan → test" : "• Check your connection → test");
         lines.Add(bm ? "• Putuskan akaun WhatsApp anda → stop" : "• Disconnect your WhatsApp account → stop");
         lines.Add(bm ? "Gantikan Honda dengan jenama/model, dan ABC1234 dengan plat kereta sebenar. Ikut arahan seterusnya jika ada lebih banyak hasil." :

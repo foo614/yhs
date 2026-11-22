@@ -115,7 +115,7 @@ public static class WhatsAppStaffQueries
         var culture = CultureInfo.GetCultureInfo(bm ? "ms-MY" : "en-MY");
         if (intent.Name == "linked") return Text(language, "WhatsApp connected.\n\n", "WhatsApp disambungkan.\n\n") + Help(language, roles ?? []);
         if (intent.Name == "test") return Text(language, "YS Heng staff connection is working.", "Sambungan kakitangan YS Heng berfungsi.");
-        if (intent.Name == "language") return Text(language, "Assistant language set to English.", "Bahasa pembantu ditetapkan kepada Bahasa Malaysia.");
+        if (intent.Name == "language") return "Staff WhatsApp uses English.";
         if (intent.Name is "help" or "menu") return Help(language, roles ?? []);
         if (intent.Name == "service") return WhatsAppStaffCommandHelp.ServiceGuide(intent.Argument, language, roles ?? []);
         if (intent.Name == "due")

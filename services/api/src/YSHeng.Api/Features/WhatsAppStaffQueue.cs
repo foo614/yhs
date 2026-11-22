@@ -32,7 +32,7 @@ public static class WhatsAppStaffQueue
         if (intent.Name == "language")
         {
             await db.WhatsAppStaffBindings.Where(item => item.Id == binding.Id && item.RevokedAt == null)
-                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Language, intent.Argument), ct);
+                .ExecuteUpdateAsync(set => set.SetProperty(item => item.Language, "en_US"), ct);
             WhatsAppStaffBindings.Audit(db, binding.Id, "languageChanged", binding.StaffUserId);
         }
         db.WhatsAppStaffRequests.Add(new WhatsAppStaffRequest

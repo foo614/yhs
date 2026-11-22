@@ -52,10 +52,10 @@ public sealed class WhatsAppAssistantOptions
     public bool Allows(string recipient) => Ready && (!TestMode || recipient == TestRecipient);
 }
 
-public sealed record WhatsAppStaffConnection(bool Enabled, string State, string? MaskedNumber = null, string Language = "ms", long? VerifiedAt = null,
+public sealed record WhatsAppStaffConnection(bool Enabled, string State, string? MaskedNumber = null, string Language = "en_US", long? VerifiedAt = null,
     long? ExpiresAt = null, string? InvitationState = null, string? BusinessDisplayNumber = null, bool InvitationAvailable = false,
     long? InvitationCreatedAt = null, IReadOnlyList<string>? InvitationLanguages = null, bool ManualLinkAvailable = false);
-public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "ms", bool ConsentConfirmed = false, bool ManualLink = false);
+public sealed record WhatsAppStaffLinkRequest(string Recipient, string Language = "en_US", bool ConsentConfirmed = false, bool ManualLink = false);
 public sealed record WhatsAppStaffLinkResult(string Command, long ExpiresAt, string InvitationState, string? BusinessDisplayNumber);
 public sealed record WhatsAppStaffConnectionSummary(string StaffUserId, string State, string? MaskedNumber = null,
     long? VerifiedAt = null);
@@ -101,13 +101,13 @@ public static class WhatsAppStaffBindings
     {
         if (!options.Ready) return new(false, "Disabled", InvitationLanguages: []);
         var manualAvailable = options.HasBusinessDisplayNumber;
-        string[] languages = [.. new[] { "ms", "en_US" }.Where(language => InvitationReadyFor(options, dispatch, language))];
+        string[] languages = InvitationReadyFor(options, dispatch, "en_US") ? ["en_US"] : [];
         var binding = await db.WhatsAppStaffBindings.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId && item.RevokedAt == null, ct);
         if (binding is not null)
         {
             var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == userId, ct);
             var verified = IsCurrent(options, binding, user, await RolesAsync(db, userId, ct), now);
-            return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), binding.Language,
+            return new(true, verified ? "Connected" : "RelinkRequired", Mask(binding.Recipient), "en_US",
                 binding.VerifiedAt, InvitationLanguages: [], ManualLinkAvailable: manualAvailable);
         }
         var challenge = await db.WhatsAppStaffChallenges.AsNoTracking().SingleOrDefaultAsync(item => item.StaffUserId == userId, ct);
@@ -116,9 +116,9 @@ public static class WhatsAppStaffBindings
             var invite = await db.WhatsAppOutbox.AsNoTracking().Where(item => item.Audience == "Enrollment" &&
                 item.StaffUserId == userId && item.BusinessReference == challenge.CodeHash)
                 .OrderByDescending(item => item.CreatedAt).Select(item => new { item.State, item.CreatedAt }).FirstOrDefaultAsync(ct);
-            return new(true, "AwaitingVerification", Mask(challenge.Recipient), challenge.Language, null,
+            return new(true, "AwaitingVerification", Mask(challenge.Recipient), "en_US", null,
                 challenge.ExpiresAt, invite?.State ?? "NotRequested", manualAvailable ? options.BusinessDisplayNumber : null,
-                invite is not null && languages.Contains(challenge.Language), invite?.CreatedAt, languages, manualAvailable);
+                invite is not null && languages.Contains("en_US"), invite?.CreatedAt, languages, manualAvailable);
         }
         return new(true, "Disconnected", InvitationAvailable: languages.Length > 0, InvitationLanguages: languages,
             ManualLinkAvailable: manualAvailable);
@@ -163,7 +163,7 @@ public static class WhatsAppStaffBindings
         var recipient = WhatsAppOutboxStore.NormalizeRecipient(request.Recipient);
         if (!options.Allows(recipient) || !request.ConsentConfirmed || request.Language is not ("ms" or "en_US"))
             throw new ArgumentException("Confirm consent, a supported language and an eligible phone number.");
-        var invitationReady = InvitationReadyFor(options, dispatch, request.Language);
+        var invitationReady = InvitationReadyFor(options, dispatch, "en_US");
         if (request.ManualLink)
         {
             if (!options.HasBusinessDisplayNumber || AnyInvitationReady(options, dispatch))
@@ -186,7 +186,7 @@ public static class WhatsAppStaffBindings
         var challenge = new WhatsAppStaffChallenge
         {
             StaffUserId = userId, Recipient = recipient, PhoneNumberId = options.PhoneNumberId,
-            CodeHash = Hash(code), SecurityStampHash = Hash(user!.SecurityStamp!), Language = request.Language,
+            CodeHash = Hash(code), SecurityStampHash = Hash(user!.SecurityStamp!), Language = "en_US",
             CreatedAt = now, ExpiresAt = now + 600, IssueWindowStart = inWindow ? prior!.IssueWindowStart : now,
             IssuesInWindow = inWindow ? prior!.IssuesInWindow + 1 : 1
         };
@@ -242,7 +242,7 @@ public static class WhatsAppStaffBindings
         var binding = new WhatsAppStaffBinding
         {
             StaffUserId = user.Id, Recipient = recipient, PhoneNumberId = options.PhoneNumberId,
-            SecurityStampHash = challenge.SecurityStampHash, Language = challenge.Language, VerifiedAt = now
+            SecurityStampHash = challenge.SecurityStampHash, Language = "en_US", VerifiedAt = now
         };
         db.WhatsAppStaffBindings.Add(binding);
         db.WhatsAppStaffRequests.Add(new WhatsAppStaffRequest
@@ -290,7 +290,7 @@ public static class WhatsAppStaffBindings
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(item => item.Id == binding.StaffUserId, ct);
         if (!Active(user, now) || !EqualHash(binding.SecurityStampHash, Hash(user!.SecurityStamp!))) return null;
         var roles = await RolesAsync(db, user!.Id, ct);
-        return roles.Length == 0 ? null : (binding, roles);
+        return roles.Length == 0 ? null : (binding with { Language = "en_US" }, roles);
     }
 
     private static string Mask(string recipient) => "***" + recipient[^Math.Min(recipient.Length, 4)..];

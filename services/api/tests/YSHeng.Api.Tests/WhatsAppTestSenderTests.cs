@@ -45,7 +45,9 @@ public sealed class WhatsAppTestSenderTests
                 ApprovalEvidence = "synthetic approval", BodyText = WhatsAppReminderV2.BodyText(key, language),
                 PortalUrl = "https://yshenghub.com.my" + (key is WhatsAppReminderV2.Leave or WhatsAppReminderV2.Attendance
                     ? "/hr-salary" : key == WhatsAppReminderV2.Delivery ? "/leads" : "/dashboard") };
-            var values = Enumerable.Repeat("1", count).ToArray();
+            var values = key == WhatsAppReminderV2.Attendance && language == "en_US"
+                ? new[] { "22 Nov 2026", "10:00", "3", "2", "1", "4", "1 staff member on a known schedule has no check-in recorded. Please review in the portal." }
+                : Enumerable.Repeat("1", count).ToArray();
             var item = StaffItem() with { TemplateVersion = key, Language = language, RequiredStaffRole = role,
                 MessageKind = category, TemplateReference = JsonSerializer.Serialize(values), Body = WhatsAppReminderV2.Render(key, language, values)! };
             Assert.Equal("Accepted", (await sender.SendAsync(StaffOptions(manifest), item)).Outcome);
@@ -53,10 +55,8 @@ public sealed class WhatsAppTestSenderTests
             Assert.Equal(expectedName, payload.RootElement.GetProperty("template").GetProperty("name").GetString());
             Assert.Equal(providerLanguage, payload.RootElement.GetProperty("template").GetProperty("language").GetProperty("code").GetString());
             var components = payload.RootElement.GetProperty("template").GetProperty("components");
-            Assert.Equal(count, components[0].GetProperty("parameters").GetArrayLength());
+            Assert.Equal(values, components[0].GetProperty("parameters").EnumerateArray().Select(value => value.GetProperty("text").GetString()));
             Assert.Single(components.EnumerateArray()); // Static URL buttons require no send-time parameters.
-            Assert.All(components[0].GetProperty("parameters").EnumerateArray(), value =>
-                Assert.Equal("1", value.GetProperty("text").GetString()));
             var calls = handler.Calls;
             foreach (var invalid in new[] { "", "\n", "one\ttwo", "one     two", new string('x', 65) })
             {

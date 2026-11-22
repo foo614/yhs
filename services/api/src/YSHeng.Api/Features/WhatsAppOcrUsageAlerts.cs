@@ -88,7 +88,7 @@ public static class WhatsAppOcrUsageAlerts
         {
             var resolved = await WhatsAppStaffBindings.ResolveAsync(db, assistant, binding.Id, now, ct);
             if (resolved is null || !resolved.Value.Roles.Contains("BossAdmin")) continue;
-            var warnings = await CurrentWarningsAsync(db, now, binding.Language, ct);
+            var warnings = await CurrentWarningsAsync(db, now, "en_US", ct);
             foreach (var warning in warnings)
                 if (await StageAsync(db, resolved.Value.Binding, warning, now, actor, ct) is not null)
                     observed++;
@@ -123,7 +123,7 @@ public static class WhatsAppOcrUsageAlerts
             Recipient = binding.Recipient, IdempotencyKey = key, MessageKind = Category,
             RequiredStaffRole = "BossAdmin", BusinessEventKey = eventKey, BusinessEventVersion = 1,
             EventKind = "staff.notification", TemplateVersion = "staff_notice_v1",
-            TemplateReference = warning.Body, Body = warning.Body, Language = binding.Language,
+            TemplateReference = warning.Body, Body = warning.Body, Language = "en_US",
             State = "Queued", CreatedAt = now, ScheduledAt = now, NextAttemptAt = now,
             ExpiresAt = warning.ResetsAt
         };

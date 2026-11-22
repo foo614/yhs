@@ -16,7 +16,7 @@ public sealed record WhatsAppAttendanceFacts(
 
 public sealed record WhatsAppAttendanceSnapshot(int Scheduled, int CheckedIn, int FullDayLeave,
     int Outstation, int PartialLeaveUnknown, int ScheduledWithoutCheckIn, int UnscheduledCheckIns,
-    string Body);
+    string Body, int ConfirmedFullDayLeave, int ConfirmedPartialLeave, int ApprovedOutstation);
 
 public sealed record WhatsAppPendingLeaveSnapshot(int Count, string Body, DateOnly? EarliestStart = null);
 public sealed record WhatsAppPendingLeaveFacts(IReadOnlyCollection<HrLeaveRequest> Requests,
@@ -43,7 +43,9 @@ public static class WhatsAppHrNotifications
             .Where(item => item.Status == HrBusinessTripStatus.Approved && item.StartDate <= today && item.EndDate >= today)
             .ToListAsync(ct);
         var candidateIds = schedules.Select(item => item.StaffUserId)
-            .Concat(attendance.Select(item => item.StaffUserId)).Distinct().ToArray();
+            .Concat(attendance.Select(item => item.StaffUserId))
+            .Concat(leaves.Select(item => item.StaffUserId)).Concat(trips.Select(item => item.StaffUserId))
+            .Distinct().ToArray();
         var users = await db.Users.AsNoTracking().Where(item => candidateIds.Contains(item.Id)).ToListAsync(ct);
         return new(schedules, attendance, leaves, trips,
             users.Where(item => WhatsAppStaffBindings.Active(item, now)).Select(item => item.Id).ToArray());
@@ -82,6 +84,13 @@ public static class WhatsAppHrNotifications
             if (outstation.Contains(staff)) { trip++; continue; }
             notCheckedIn++;
         }
+        // Approved arrangements are independent of check-ins; someone can work half a day and check in.
+        var activeLeaves = leaves.Where(entry => active.Contains(entry.Key)).ToArray();
+        var fullDayStaff = activeLeaves.Where(entry => entry.Value.Any(item =>
+            item.Days >= item.EndDate.DayNumber - item.StartDate.DayNumber + 1)).Select(entry => entry.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        var confirmedPartial = activeLeaves.Count(entry => !fullDayStaff.Contains(entry.Key) && entry.Value.Any(item =>
+            item.StartDate == today && item.EndDate == today && item.Days > 0 && item.Days < 1));
         var checkedScheduled = scheduled.Count(checkedIn.Contains);
         var unscheduledCheckIns = checkedIn.Count(staff => !scheduled.Contains(staff));
         var malay = language == "ms";
@@ -89,7 +98,7 @@ public static class WhatsAppHrNotifications
             ? $"YS Heng kehadiran {today:yyyy-MM-dd}: jadual diketahui {scheduled.Count}; daftar masuk {checkedScheduled}; cuti penuh {fullLeave}; luar kawasan {trip}; cuti separa/tidak jelas {partial}; belum daftar masuk berjadual {notCheckedIn}; daftar masuk tanpa jadual {unscheduledCheckIns}. Liputan jadual tidak disahkan; belum daftar masuk bukan keputusan ponteng."
             : $"YS Heng attendance {today:yyyy-MM-dd}: known scheduled {scheduled.Count}; checked in {checkedScheduled}; full-day leave {fullLeave}; outstation {trip}; partial/unclear leave {partial}; scheduled without check-in {notCheckedIn}; unscheduled check-ins {unscheduledCheckIns}. Schedule coverage unverified; no check-in is not an absence decision.";
         return new(scheduled.Count, checkedScheduled, fullLeave, trip, partial, notCheckedIn,
-            unscheduledCheckIns, body);
+            unscheduledCheckIns, body, fullDayStaff.Count, confirmedPartial, outstation.Count(active.Contains));
     }
 
     public static WhatsAppPendingLeaveSnapshot? ProjectPendingLeave(IEnumerable<HrLeaveRequest> requests,
@@ -201,8 +210,8 @@ public static class WhatsAppHrNotifications
                         resolved.Value.Roles.Contains("HrSalary") ? "HrSalary" : null;
                 if (role is null) continue;
                 var body = policy.Category == AttendanceCategory
-                    ? ProjectAttendance(await LoadAttendanceAsync(db, day, now, ct), day, binding.Language).Body
-                    : (await LoadPendingLeaveAsync(db, binding.StaffUserId, role, day, binding.Language, ct))?.Body;
+                    ? ProjectAttendance(await LoadAttendanceAsync(db, day, now, ct), day, "en_US").Body
+                    : (await LoadPendingLeaveAsync(db, binding.StaffUserId, role, day, "en_US", ct))?.Body;
                 if (body is not null && await StageAsync(db, binding, policy.Category, role, body,
                     day, policy.LocalMinuteOfDay, now, actor, ct) is not null) observed++;
             }
@@ -224,7 +233,7 @@ public static class WhatsAppHrNotifications
             Recipient = binding.Recipient, IdempotencyKey = key, MessageKind = category,
             RequiredStaffRole = role, BusinessEventKey = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             BusinessEventVersion = 1, EventKind = "staff.notification", TemplateVersion = "staff_notice_v1",
-            TemplateReference = body, Body = body, Language = binding.Language, State = "Queued",
+            TemplateReference = body, Body = body, Language = "en_US", State = "Queued",
             CreatedAt = now, ScheduledAt = WhatsAppStaffNotifications.LocalDayDueAt(day, minute),
             NextAttemptAt = now, ExpiresAt = WhatsAppStaffNotifications.LocalDayDueAt(day.AddDays(1), 0)
         };

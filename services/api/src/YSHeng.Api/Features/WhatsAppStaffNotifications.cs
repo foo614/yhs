@@ -181,13 +181,13 @@ public static class WhatsAppStaffNotifications
             var templateKeys = category == "InspectionReminder"
                 ? new[] { "staff_notice_v1", WhatsAppInspectionAttachment.TemplateKey } : new[] { "staff_notice_v1" };
             var minute = category is "OutstandingDigest" or "LeaveApproval" or "CalendarTasks" or "InspectionReminder" or "InsuranceReminder" ? 540 : category == "AttendanceSummary" ? 600 : 0;
-            var templateReady = templateKeys.All(key => dispatch.TemplateFor(key, "ms") is not null || dispatch.TemplateFor(key, "en_US") is not null);
+            var templateReady = templateKeys.All(key => dispatch.TemplateFor(key, "en_US") is not null);
             return new WhatsAppStaffPolicyView(category, row?.Enabled ?? false, row?.LocalMinuteOfDay ?? minute,
                 row?.LeadDays ?? (category == "OutstandingDigest" ? 2 : category == "CalendarTasks" ? 1 : 0),
                 row?.ThresholdPercent ?? (category == "OcrUsage" ? 90 : 0), dispatch.StaffSenderReady,
                 templateReady,
                 true, dispatch.StaffSenderIssues(),
-                templateKeys.SelectMany(key => new[] { dispatch.TemplateReadiness(key, "ms"), dispatch.TemplateReadiness(key, "en_US") }).ToArray(), row?.DelayMinutes ?? 0);
+                templateKeys.Select(key => dispatch.TemplateReadiness(key, "en_US")).ToArray(), row?.DelayMinutes ?? 0);
         }).ToArray();
     }
 
@@ -319,7 +319,7 @@ public static class WhatsAppStaffNotifications
                 if (row.StaffBindingId is null || !bindings.TryGetValue(row.StaffBindingId.Value, out var binding) ||
                     row.StaffUserId is null || !users.TryGetValue(row.StaffUserId, out var user) ||
                     !WhatsAppStaffBindings.IsCurrent(assistant, binding, user, roles[user.Id], now) ||
-                    binding.StaffUserId != row.StaffUserId || binding.Recipient != row.Recipient || binding.Language != row.Language ||
+                    binding.StaffUserId != row.StaffUserId || binding.Recipient != row.Recipient ||
                     !RoleAllowed(row.MessageKind, [row.RequiredStaffRole]) || !roles[user.Id].Contains(row.RequiredStaffRole) ||
                     binding.PhoneNumberId != dispatch.PhoneNumberId)
                     return "The recipient connection or required role has changed. Check My WhatsApp and staff access.";
@@ -328,6 +328,7 @@ public static class WhatsAppStaffNotifications
             }
             else if (!dispatch.InvitationSenderReady)
                 return "Invitation sending is unavailable. Ask an operator to review the invitation sender configuration.";
+            row = row with { Language = "en_US" };
             var dailyV2Key = row.Audience == "Staff" && row.EventKind == "staff.notification" && row.TemplateVersion == "staff_notice_v1"
                 ? WhatsAppReminderV2.KeyFor(row) : null;
             if (dispatch.TemplateFor(row) is null && (dailyV2Key is null || dispatch.TemplateFor(dailyV2Key, row.Language) is null))
