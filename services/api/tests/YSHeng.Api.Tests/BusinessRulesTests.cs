@@ -2781,6 +2781,29 @@ public sealed class BusinessRulesTests
         Assert.Contains(result.Errors, error => error.Code == "invalid_year");
     }
 
+    [Fact]
+    public void Vehicle_create_validation_requires_chassis_and_engine_numbers()
+    {
+        var vehicle = VehicleSeed.Available(publicVisible: false) with
+        {
+            ChassisNumber = "MMBXY12345678901",
+            EngineNumber = "4B11T123456"
+        };
+
+        var missingBoth = VehicleRules.ValidateCreate(vehicle with { ChassisNumber = null, EngineNumber = null });
+        var missingChassis = VehicleRules.ValidateCreate(vehicle with { ChassisNumber = "   " });
+        var missingEngine = VehicleRules.ValidateCreate(vehicle with { EngineNumber = "\t" });
+        var valid = VehicleRules.ValidateCreate(vehicle);
+
+        Assert.Contains(missingBoth.Errors, error => error.Code == "chassis_number_required");
+        Assert.Contains(missingBoth.Errors, error => error.Code == "engine_number_required");
+        Assert.Contains(missingChassis.Errors, error => error.Code == "chassis_number_required");
+        Assert.DoesNotContain(missingChassis.Errors, error => error.Code == "engine_number_required");
+        Assert.Contains(missingEngine.Errors, error => error.Code == "engine_number_required");
+        Assert.DoesNotContain(missingEngine.Errors, error => error.Code == "chassis_number_required");
+        Assert.True(valid.IsValid);
+    }
+
     [Theory]
     [InlineData("BKC3003")]
     [InlineData("SAA1234A")]

@@ -18,7 +18,7 @@ type UploadRequestOption = Parameters<NonNullable<UploadProps["customRequest"]>>
 import { customerCreateBlockReason, normalizeIdentityCardNumber, ownerCreateBlockReason } from "../../contacts";
 import { singaporeTodayIsoDate, type DashboardVehicleFocus } from "../../dashboard";
 import { isRepairCostFinal, isSupplierUsable } from "../../repairs";
-import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "../../vehicles";
+import { isMalaysiaPlateFormat, malaysiaPlateFormatMessage, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason, vehicleCreateIntakeBlockReason } from "../../vehicles";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { isOcrImageMimeType } from "../shared/OcrUploadReview";
 import { VehicleIntakeVocReview, vehicleIntakeVocClearedFields, type VehicleIntakeVocPatch } from "./VehicleIntakeVocReview";
@@ -2204,7 +2204,7 @@ export function VehiclePage({
 
     const vehicleId = newId();
     const vehicle = vehicleFromCreateIntakeValues(values, canApproveVehicles, vehicleId);
-    const blockReason = vehicleCreateBlockReason(vehicle, vehicles);
+    const blockReason = vehicleCreateIntakeBlockReason(vehicle, vehicles);
     if (blockReason) {
       setVehicleCreateError(blockReason);
       return false;
@@ -3326,8 +3326,20 @@ export function VehiclePage({
             >
               <Input autoComplete="off" autoCapitalize="characters" maxLength={16} placeholder="e.g. BKC3003 or MALAYSIA1" />
             </Form.Item>
-            <Form.Item name="chassisNumber" label="Chassis Number"><Input /></Form.Item>
-            <Form.Item name="engineNumber" label="Engine Number"><Input /></Form.Item>
+            <Form.Item
+              name="chassisNumber"
+              label="Chassis Number"
+              rules={[{ required: true, whitespace: true, message: "Enter the chassis number." }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name="engineNumber"
+              label="Engine Number"
+              rules={[{ required: true, whitespace: true, message: "Enter the engine number." }]}
+            >
+              <Input />
+            </Form.Item>
             <VehicleMakeModelFields catalogModels={catalogModels} onCreateCatalogModel={addVehicleCatalogModel} />
             <Form.Item
               name="year"

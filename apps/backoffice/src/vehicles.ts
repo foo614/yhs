@@ -73,6 +73,18 @@ export function vehicleCreateBlockReason(vehicle: Vehicle, existing: Vehicle[] =
   return undefined;
 }
 
+export function vehicleCreateIntakeBlockReason(vehicle: Vehicle, existing: Vehicle[] = []) {
+  if (!vehicle.chassisNumber?.trim()) {
+    return "Chassis number is required.";
+  }
+
+  if (!vehicle.engineNumber?.trim()) {
+    return "Engine number is required.";
+  }
+
+  return vehicleCreateBlockReason(vehicle, existing);
+}
+
 export function purchaseInvoiceCreateBlockReason(invoice: PurchaseInvoice, existing: PurchaseInvoice[] = []) {
   if (!invoice.invoiceNumber?.trim()) {
     return "Purchase invoice number is required.";

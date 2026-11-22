@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PurchaseInvoice, Vehicle } from "./api";
-import { isMalaysiaPlateFormat, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason } from "./vehicles";
+import { isMalaysiaPlateFormat, normalizeMalaysiaPlate, purchaseInvoiceCreateBlockReason, vehicleCreateBlockReason, vehicleCreateIntakeBlockReason } from "./vehicles";
 
 const baseInvoice: PurchaseInvoice = {
   id: "purchase-1",
@@ -12,6 +12,8 @@ const baseInvoice: PurchaseInvoice = {
 const baseVehicle: Vehicle = {
   id: "vehicle-1",
   plateNumber: "VPK1234",
+  chassisNumber: "MMBXY12345678901",
+  engineNumber: "4B11T123456",
   make: "Toyota",
   model: "Vios",
   year: 2021,
@@ -87,6 +89,13 @@ describe("vehicle purchase workflow helpers", () => {
     expect(vehicleCreateBlockReason({ ...baseVehicle, contraRangePrice: -1 })).toBe("Contra range price cannot be negative.");
     expect(vehicleCreateBlockReason({ ...baseVehicle, outstationPickupAllowance: -1 })).toBe("Outstation pickup allowance cannot be negative.");
     expect(vehicleCreateBlockReason(baseVehicle)).toBeUndefined();
+  });
+
+  it("requires both chassis and engine numbers for vehicle creation", () => {
+    expect(vehicleCreateIntakeBlockReason({ ...baseVehicle, chassisNumber: " ", engineNumber: "\t" })).toBe("Chassis number is required.");
+    expect(vehicleCreateIntakeBlockReason({ ...baseVehicle, chassisNumber: undefined })).toBe("Chassis number is required.");
+    expect(vehicleCreateIntakeBlockReason({ ...baseVehicle, engineNumber: undefined })).toBe("Engine number is required.");
+    expect(vehicleCreateIntakeBlockReason(baseVehicle)).toBeUndefined();
   });
 
   it("blocks vehicle intake when the car plate is not a supported Malaysia registration format", () => {

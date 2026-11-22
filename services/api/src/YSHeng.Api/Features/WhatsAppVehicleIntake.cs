@@ -11,7 +11,7 @@ namespace YSHeng.Api.Features;
 public static class WhatsAppVehicleIntake
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    public const string Template = "create-vehicle\nplate: BKC3003\nmake: Honda\nmodel: Civic\nyear: 2020\nsource: YSHeng\nprice: 80000\nseller: Seller name\nphone: 0123456789\ntin: Seller TIN\nic: Seller IC";
+    public const string Template = "create-vehicle\nplate: BKC3003\nchassis: MMBXY12345678901\nengine: 4B11T123456\nmake: Honda\nmodel: Civic\nyear: 2020\nsource: YSHeng\nprice: 80000\nseller: Seller name\nphone: 0123456789\ntin: Seller TIN\nic: Seller IC";
 
     public static bool TryParse(string argument, out VehicleIntakeRequest? request)
     {
@@ -23,15 +23,15 @@ public static class WhatsAppVehicleIntake
             var parts = line.Split(':', 2, StringSplitOptions.TrimEntries);
             if (parts.Length != 2 || !fields.TryAdd(parts[0], parts[1]) || parts[1].Length > 200) return false;
         }
-        string[] required = ["plate", "make", "model", "year", "source", "price", "seller", "phone", "tin"];
+        string[] required = ["plate", "chassis", "engine", "make", "model", "year", "source", "price", "seller", "phone", "tin"];
         if (required.Any(key => !fields.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value)) || fields.Keys.Any(key => !required.Contains(key.ToLowerInvariant()) && !key.Equals("ic", StringComparison.OrdinalIgnoreCase))) return false;
         if (!int.TryParse(fields["year"], out var year) || !Enum.TryParse<VehiclePurchaseSource>(fields["source"], true, out var source) || !Enum.IsDefined(source) || !Enum.GetNames<VehiclePurchaseSource>().Any(name => name.Equals(fields["source"], StringComparison.OrdinalIgnoreCase)) ||
             !decimal.TryParse(fields["price"], NumberStyles.Number, CultureInfo.InvariantCulture, out var price) || price <= 0 || price > 100_000_000m || decimal.Round(price, 2) != price) return false;
         var owner = new Owner { Name = fields["seller"], Phone = fields["phone"], TinNumber = fields["tin"], IcNumber = ContactRules.NormalizeIcNumber(fields.GetValueOrDefault("ic")) };
-        var vehicle = new Vehicle { PlateNumber = VehicleRules.NormalizeMalaysiaPlate(fields["plate"]), Make = fields["make"], Model = fields["model"], Year = year,
+        var vehicle = new Vehicle { PlateNumber = VehicleRules.NormalizeMalaysiaPlate(fields["plate"]), ChassisNumber = fields["chassis"].Trim(), EngineNumber = fields["engine"].Trim(), Make = fields["make"], Model = fields["model"], Year = year,
             PurchaseSource = source, StockOwner = source == VehiclePurchaseSource.KSA ? StockOwner.KS : StockOwner.YSHeng,
             SellingPrice = price, OwnerId = owner.Id };
-        if (!VehicleRules.ValidateIntake(vehicle).IsValid || !VehicleIntakeOwnerRules.Validate(vehicle, owner, [], requireIc: source == VehiclePurchaseSource.YSHeng).IsValid) return false;
+        if (!VehicleRules.ValidateCreate(vehicle).IsValid || !VehicleIntakeOwnerRules.Validate(vehicle, owner, [], requireIc: source == VehiclePurchaseSource.YSHeng).IsValid) return false;
         request = new(vehicle, null, owner);
         return true;
     }
@@ -87,7 +87,7 @@ public static class WhatsAppVehicleIntake
             draft.ConfirmationToken = Guid.NewGuid(); draft.ConfirmBefore = now + 300;
             await db.SaveChangesAsync(ct); await transaction.CommitAsync(ct);
             var owner = request.NewOwner ?? await db.Owners.AsNoTracking().SingleAsync(o => o.Id == request.Vehicle.OwnerId, ct);
-            return $"Review {request.Vehicle.PlateNumber}: {request.Vehicle.Year} {request.Vehicle.Make} {request.Vehicle.Model}\nSource: {request.Vehicle.PurchaseSource}\nSelling price: RM {request.Vehicle.SellingPrice:N2}\nSeller: {owner.Name} | {owner.Phone}\nTIN: {owner.TinNumber} | IC: {owner.IcNumber}\nVOC received; IC {(draft.IcContent is null ? "not supplied (dealer)" : "received")}.\nConfirm within 5 minutes: create-vehicle confirm {draft.ConfirmationToken}";
+            return $"Review {request.Vehicle.PlateNumber}: {request.Vehicle.Year} {request.Vehicle.Make} {request.Vehicle.Model}\nChassis: {request.Vehicle.ChassisNumber} | Engine: {request.Vehicle.EngineNumber}\nSource: {request.Vehicle.PurchaseSource}\nSelling price: RM {request.Vehicle.SellingPrice:N2}\nSeller: {owner.Name} | {owner.Phone}\nTIN: {owner.TinNumber} | IC: {owner.IcNumber}\nVOC received; IC {(draft.IcContent is null ? "not supplied (dealer)" : "received")}.\nConfirm within 5 minutes: create-vehicle confirm {draft.ConfirmationToken}";
         }
         if (!TryParse(argument, out var parsed)) return "Use the existing intake details:\n" + Template + "\nDealer IC is optional. Upload VOC and IC after receiving the draft reference.";
         var existing = await db.WhatsAppVehicleIntakeDrafts.AsNoTracking().SingleOrDefaultAsync(d => d.RequestId == requestId, ct);

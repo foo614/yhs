@@ -139,7 +139,7 @@ public static class VehicleIntake
         var approvalValidation = VehicleApprovalRules.ValidateCreate(vehicle, context.User.IsInRole("BossAdmin"));
         if (!approvalValidation.IsValid) return Results.Json(approvalValidation, statusCode: StatusCodes.Status403Forbidden);
         vehicle = VehicleApprovalRules.EnforceVisibility(vehicle);
-        var validation = VehicleRules.ValidateIntake(vehicle);
+        var validation = VehicleRules.ValidateCreate(vehicle);
         if (!validation.IsValid) return Results.BadRequest(validation);
         var catalogSelection = VehicleCatalogRules.FindActiveSelection(
             vehicle.Make,

@@ -681,7 +681,7 @@ All `/api/insurance` routes require BackOffice and BossAdmin. Receipt and insure
 
 ### Boss WhatsApp vehicle intake
 
-`create-vehicle` returns a multiline template with `plate`, `make`, `model`, `year`, `source`, `price`, `seller`, `phone`, `tin`, and `ic`. Fill these using existing intake data; `source` is YSHeng/Carsome/Carro/KSA. A draft lasts 30 minutes. VOC is required; IC is optional only for dealer sources.
+`create-vehicle` returns a multiline template with `plate`, `chassis`, `engine`, `make`, `model`, `year`, `source`, `price`, `seller`, `phone`, `tin`, and `ic`. Fill these using existing intake data; both chassis and engine numbers are required, and `source` is YSHeng/Carsome/Carro/KSA. A draft lasts 30 minutes. VOC is required; IC is optional only for dealer sources.
 
 Send images/documents with caption `VOC <draft-id>` or `IC <draft-id>`. Then send `create-vehicle preview <draft-id>` and the returned `create-vehicle confirm <token>` within five minutes. File replacement invalidates the old token. Only the same currently verified Boss/Admin binding can attach or confirm. Confirmation calls the shared HTTP intake validation and atomically saves owner/vehicle/documents/audit. Repeated confirmation returns the existing completion status. No public file URL is created.
 

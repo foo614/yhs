@@ -1011,6 +1011,22 @@ public static class VehicleRules
         return new ValidationResult(errors);
     }
 
+    public static ValidationResult ValidateCreate(Vehicle vehicle)
+    {
+        var errors = ValidateIntake(vehicle).Errors.ToList();
+        if (string.IsNullOrWhiteSpace(vehicle.ChassisNumber))
+        {
+            errors.Add(new ValidationError("chassis_number_required", "Chassis number is required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(vehicle.EngineNumber))
+        {
+            errors.Add(new ValidationError("engine_number_required", "Engine number is required."));
+        }
+
+        return new ValidationResult(errors);
+    }
+
     public static ValidationResult ValidateUniquePlate(Vehicle incoming, IEnumerable<Vehicle> existing)
     {
         var normalizedPlate = NormalizeMalaysiaPlate(incoming.PlateNumber);
