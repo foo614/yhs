@@ -205,7 +205,7 @@ All `/api/*` back-office routes require the broad `BackOffice` role policy first
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/vehicles` | `Vehicles` | Full vehicle records for Boss/Admin and Sales, returned newest intake first using `intakeAt` (falling back to `intakeDate`), including `purchasePrice` (real acquisition price), optional `modifiedPurchasePrice` (internal adjusted cost used for margin/profit), and read-only `repairCost`: final repair-job cost when present, otherwise the intake refurbishment total. |
-| `GET` | `/api/vehicles/stock-export?source=all\|MY\|CAR\|YS\|KLG&includeSold=false` | `BossAdmin` | Slide 18 stock-list workbook with only No, Date, Vehicle No, Model, Year, Purchase Source, UCD Date, Bank Loan and S.Key. Defaults to current stock, keeps UCD Date blank pending mapping, and excludes TIN, costs, owner/customer details and sold vehicles. |
+| `GET` | `/api/vehicles/stock-export?source=all\|MY\|CAR\|YS\|KLG&includeSold=false` | `BossAdmin` | Slide 18 stock list. Excel is the default. `format=pdf` returns a paginated PDF with the same filters and fields. Exports only No, Date, Vehicle No, Model, Year, Purchase Source, UCD Date, Bank Loan and S.Key. Defaults to current stock, keeps UCD Date blank pending mapping, and excludes TIN, costs, owner/customer details and sold vehicles. |
 | `GET` | `/api/vehicle-catalog/models` | `Vehicles` | List active and inactive make/model catalogue entries. |
 | `POST` | `/api/vehicle-catalog/models` | `Vehicles` | Add a make/model option for public filters. |
 | `PUT` | `/api/vehicle-catalog/models/{id}` | `Vehicles` | Edit or deactivate a make/model option without changing existing vehicle records. |

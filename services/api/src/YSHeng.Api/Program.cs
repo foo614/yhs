@@ -515,8 +515,9 @@ backOffice.MapGet("/vehicles", async (AppDbContext db, HttpContext context) =>
         canViewPrivateFields,
         VehicleRepairCosts.EffectiveCost(vehicle, repairCostsByVehicle))));
 }).RequireAuthorization("VehicleRead");
-backOffice.MapGet("/vehicles/stock-export", async (string? source, bool? includeSold, AppDbContext db, HttpContext context) =>
+backOffice.MapGet("/vehicles/stock-export", async (string? source, bool? includeSold, string? format, AppDbContext db, HttpContext context) =>
 {
+    if (format is not (null or "xlsx" or "pdf")) return Results.BadRequest(new ApiError("Select Excel or PDF."));
     VehiclePurchaseSource? purchaseSource = null;
     if (!string.IsNullOrWhiteSpace(source) && !string.Equals(source, "all", StringComparison.OrdinalIgnoreCase))
     {
@@ -534,11 +535,15 @@ backOffice.MapGet("/vehicles/stock-export", async (string? source, bool? include
 
     var vehicles = await db.Vehicles.AsNoTracking().ToListAsync();
     var settlements = await db.SettlementReminders.AsNoTracking().ToListAsync();
-    var workbook = StockListExport.Export(vehicles, settlements, new StockListExportFilter(purchaseSource, includeSold == true));
+    var filter = new StockListExportFilter(purchaseSource, includeSold == true);
+    var reportDate = BusinessClock.Today();
+    var pdf = format == "pdf";
+    var content = pdf ? StockListPdf.Export(vehicles, settlements, filter, reportDate) : StockListExport.Export(vehicles, settlements, filter);
     var filterLabel = purchaseSource.HasValue ? StockListExport.SourceCode(purchaseSource.Value).ToLowerInvariant() : "all";
-    ApiAudit.Add(db, context.User, "vehicle.stockListExported", $"StockListExport[{filterLabel}]", Guid.Empty);
+    ApiAudit.Add(db, context.User, pdf ? "vehicle.stockListPdfExported" : "vehicle.stockListExported", $"StockListExport[{filterLabel}]", Guid.Empty);
     await db.SaveChangesAsync();
-    return Results.File(workbook, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"stock-list-{filterLabel}-{BusinessClock.Today():yyyyMMdd}.xlsx");
+    if (pdf) return Results.File(content, "application/pdf", $"stock-list-{filterLabel}-{reportDate:yyyyMMdd}.pdf");
+    return Results.File(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"stock-list-{filterLabel}-{reportDate:yyyyMMdd}.xlsx");
 }).RequireAuthorization("BossAdmin");
 backOffice.MapGet("/vehicle-catalog/models", async (AppDbContext db) =>
     await db.VehicleCatalogModels.AsNoTracking()

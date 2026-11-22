@@ -1030,7 +1030,7 @@ export function VehiclePage({
     ?? (pendingOwnerDraft?.id === vehicleIntakeDraft.ownerId ? pendingOwnerDraft : undefined);
   const sellerIdentityReadFailed = ownerIdentityCardReadFailed(sellerIdentityPreview);
   const [stockExportSource, setStockExportSource] = useState<VehiclePurchaseSource | undefined>();
-  const [stockExportOpen, setStockExportOpen] = useState(false);
+  const [stockExportFormat, setStockExportFormat] = useState<"xlsx" | "pdf">();
   const [stockExporting, setStockExporting] = useState(false);
   const [purchaseInvoiceCreateOpen, setPurchaseInvoiceCreateOpen] = useState(false);
   const [purchaseInvoiceSupplierId, setPurchaseInvoiceSupplierId] = useState<string | undefined>();
@@ -2316,20 +2316,26 @@ export function VehiclePage({
     setSellerIdentityManualEntry(false);
     message.success("New previous owner confirmed. The record will be created with the vehicle.");
   };
+  const openStockExport = (format: "xlsx" | "pdf") => {
+    setStockExportSource(undefined);
+    setStockExportFormat(format);
+  };
+  const stockExportLabel = stockExportFormat === "pdf" ? "PDF" : "Excel";
   const downloadStockList = async () => {
+    if (!stockExportFormat) return;
     setStockExporting(true);
     try {
-      const blob = await exportStockList(stockExportSource);
+      const blob = await exportStockList(stockExportSource, false, stockExportFormat);
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = `stock-list-${stockExportSource ?? "all"}.xlsx`;
+      link.download = `stock-list-${stockExportSource ?? "all"}.${stockExportFormat}`;
       link.click();
       URL.revokeObjectURL(objectUrl);
-      setStockExportOpen(false);
-      message.success("Stock list Excel downloaded.");
+      setStockExportFormat(undefined);
+      message.success(`Stock list ${stockExportLabel} downloaded.`);
     } catch (error) {
-      message.error(humanizeApiError(error, "Stock list Excel could not be downloaded."));
+      message.error(humanizeApiError(error, `Stock list ${stockExportLabel} could not be downloaded.`));
     } finally {
       setStockExporting(false);
     }
@@ -2338,13 +2344,13 @@ export function VehiclePage({
     <>
       {publicationModalContext}
       {canApproveVehicles && <Modal
-        title="Export stock Excel / 导出库存 Excel"
-        open={stockExportOpen}
-        onCancel={() => { if (!stockExporting) setStockExportOpen(false); }}
+        title={`Export stock ${stockExportLabel} / 导出库存 ${stockExportLabel}`}
+        open={Boolean(stockExportFormat)}
+        onCancel={() => { if (!stockExporting) setStockExportFormat(undefined); }}
         onOk={() => void downloadStockList()}
         confirmLoading={stockExporting}
         cancelButtonProps={{ disabled: stockExporting }}
-        okText="Export Excel / 导出 Excel"
+        okText={`Export ${stockExportLabel} / 导出 ${stockExportLabel}`}
         cancelText="Cancel / 取消"
       >
         <Space direction="vertical" className="fullWidth">
@@ -2355,7 +2361,18 @@ export function VehiclePage({
       <Space direction="vertical" size={16} className="fullWidth vehiclesPage">
       <ProCard
         title="Vehicle Inventory / 车辆库存"
-        extra={<Space wrap><Tag color="green">{vehicles.length} vehicles</Tag>{canApproveVehicles ? <Button onClick={() => { setStockExportSource(undefined); setStockExportOpen(true); }}>Export stock Excel / 导出库存 Excel</Button> : null}<Button type="primary" onClick={() => { setVehicleIntakeDraft({}); setVehicleCreateError(null); setVehicleCreateOpen(true); }}>New Vehicle</Button></Space>}
+        extra={<Space wrap>
+          <Tag color="green">{vehicles.length} vehicles</Tag>
+          {canApproveVehicles && <>
+            <Button onClick={() => openStockExport("xlsx")}>Export stock Excel / 导出库存 Excel</Button>
+            <Button onClick={() => openStockExport("pdf")}>Export stock PDF / 导出库存 PDF</Button>
+          </>}
+          <Button type="primary" onClick={() => {
+            setVehicleIntakeDraft({});
+            setVehicleCreateError(null);
+            setVehicleCreateOpen(true);
+          }}>New Vehicle</Button>
+        </Space>}
       >
         {dashboardFocus && <Alert
           className="sectionIntroAlert"
