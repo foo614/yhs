@@ -91,12 +91,17 @@ public sealed class CalendarTaskTests
     }
 
     [Fact]
-    public void Broker_can_update_only_their_own_actual_deal_price()
+    public void Actual_deal_price_updates_follow_current_assignment_and_boss_authority()
     {
         var vehicle = new Vehicle { SalesAgentUserId = "broker-1" };
         Assert.True(BrokerDealPriceRules.CanUpdate(vehicle, Principal("Sales"), "broker-1"));
         Assert.False(BrokerDealPriceRules.CanUpdate(vehicle, Principal("Sales"), "broker-2"));
-        Assert.False(BrokerDealPriceRules.CanUpdate(vehicle, Principal("BossAdmin"), "broker-1"));
+        Assert.False(BrokerDealPriceRules.CanUpdate(vehicle with { SalesAgentUserId = "broker-2" }, Principal("Sales"), "broker-1"));
+        Assert.False(BrokerDealPriceRules.CanUpdate(vehicle with { SalesAgentUserId = null }, Principal("Sales"), "broker-1"));
+        Assert.True(BrokerDealPriceRules.CanUpdate(vehicle, Principal("BossAdmin"), "boss-1"));
+        Assert.True(BrokerDealPriceRules.CanUpdate(vehicle with { SalesAgentUserId = null }, Principal("BossAdmin"), "boss-1"));
+        Assert.True(BrokerDealPriceRules.CanUpdate(vehicle, Principal("BossAdmin", "Sales"), "boss-1"));
+        Assert.False(BrokerDealPriceRules.CanUpdate(vehicle, Principal("Finance"), "finance-1"));
         Assert.Null(BrokerDealPriceRules.Validate(new BrokerDealPriceRequest(58000m)));
         Assert.NotNull(BrokerDealPriceRules.Validate(new BrokerDealPriceRequest(0m)));
     }
@@ -125,6 +130,6 @@ public sealed class CalendarTaskTests
         Assert.Equal(62000m, vehicle.SellingPrice);
     }
 
-    private static ClaimsPrincipal Principal(string role)
-        => new(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "test"));
+    private static ClaimsPrincipal Principal(params string[] roles)
+        => new(new ClaimsIdentity(roles.Select(role => new Claim(ClaimTypes.Role, role)), "test"));
 }

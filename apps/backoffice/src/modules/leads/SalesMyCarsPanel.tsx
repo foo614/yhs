@@ -26,6 +26,12 @@ export function filterSalesMyCars(items: readonly SalesWorkboardItem[], keyword?
   ].some((value) => value?.toLocaleLowerCase().includes(normalizedKeyword)));
 }
 
+export function canEditActualSellingPrice(currentUser: CurrentUser | null, item: SalesWorkboardItem) {
+  if (!currentUser?.isAuthenticated) return false;
+  if (currentUser.roles.includes("BossAdmin")) return true;
+  return currentUser.roles.includes("Sales") && currentUser.id === item.salesAgentUserId;
+}
+
 export function SalesMyCarsPanel({
   currentUser,
   initialData,
@@ -90,7 +96,7 @@ export function SalesMyCarsPanel({
   };
 
   const dealPriceCell = (item: SalesWorkboardItem) => {
-    if (isBoss) return item.actualSellingPrice ? `RM ${item.actualSellingPrice.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Not filled";
+    if (!canEditActualSellingPrice(currentUser, item)) return item.actualSellingPrice ? `RM ${item.actualSellingPrice.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "Not filled";
     return <Space.Compact><InputNumber aria-label={`Actual deal price for ${item.plateNumber}`} min={0.01} precision={2} value={priceDrafts[item.vehicleId]} onChange={value => setPriceDrafts(current => ({ ...current, [item.vehicleId]: value ?? undefined }))} placeholder="RM" /><Button loading={priceSavingFor === item.vehicleId} onClick={() => void savePrice(item)}>Save</Button></Space.Compact>;
   };
 
@@ -119,7 +125,7 @@ export function SalesMyCarsPanel({
         </Space>
       )
     },
-    { title: "Actual deal price / 成交价", width: isBoss ? 170 : 260, render: (_, item) => dealPriceCell(item) },
+    { title: "Actual deal price / 成交价", width: 260, render: (_, item) => dealPriceCell(item) },
     ...(showAgentColumn ? [{ title: "Broker / 经纪人", dataIndex: "salesAgentName", width: 170, render: (value: string | null | undefined) => value || "Unassigned" } as ColumnsType<SalesWorkboardItem>[number]] : [])
   ];
 

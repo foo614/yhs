@@ -1019,6 +1019,18 @@ const leadsGuide: ModuleGuideDefinition = {
       completeWhen: "Status is Closed and the closure outcome is saved.",
       handoff: "A genuine sale continues through confirmed buyer, Vehicle, Delivery, and Finance workflows.",
       warnings: ["Sold closes the enquiry only; it does not sell the vehicle or prove delivery/payment completion."]
+    },
+    {
+      key: "cars-handling",
+      label: "Cars I’m Handling / 我负责的车辆",
+      kind: "section",
+      audience: "Broker and Admin",
+      purpose: "Review each car's current handoff and record the actual deal price without changing the stock or public asking price.",
+      actions: ["Open Cars I’m Handling.", "Confirm the correct vehicle and current Broker assignment.", "Enter the actual deal price and select Save."],
+      requiredItems: ["Correct vehicle", "Positive actual deal price"],
+      completeWhen: "The saved actual deal price reflects the confirmed sale amount.",
+      handoff: "Continue the vehicle's current Loan, Delivery, or Finance process.",
+      warnings: ["Broker can update only a car currently assigned to their account; Admin can update any listed car, including unassigned cars.", "The server rechecks current assignment when saving, so a reassigned car may require a refresh."]
     }
   ],
   completionReminder: "Do not leave contacted leads without an owner, follow-up, release, or final outcome."
