@@ -4034,7 +4034,7 @@ public static class LoanDocumentRules
         var originalCount = explicitCount + (loan.RequiresExplicitOriginal ? 0 : matchingDocuments.Count(document => LegacyOriginalCategories.Contains(document.Category)));
         var editedCount = matchingDocuments.Count(document => EditedCategories.Contains(document.Category));
         var louCount = matchingDocuments.Count(document => document.Category == FileCategory.LoanDocument);
-        var missing = originalCount > 0 ? [] : OriginalCategories.ToList();
+        var missing = originalCount > 0 || louCount > 0 ? [] : OriginalCategories.ToList();
         return new LoanDocumentCheck(missing.Count == 0, missing, originalCount, editedCount, louCount, explicitCount > 0);
     }
 
@@ -4048,7 +4048,7 @@ public static class LoanDocumentRules
             ? new ValidationResult([])
             : new ValidationResult([new ValidationError(
                 "loan_documents_incomplete",
-                $"Loan cannot be marked done until at least one original loan document is uploaded for this vehicle: {string.Join(", ", check.MissingCategories)}.")]);
+                $"Loan cannot be marked done until a valid LOU or an accepted original loan document is linked to this loan: {string.Join(", ", check.MissingCategories)}.")]);
     }
 }
 

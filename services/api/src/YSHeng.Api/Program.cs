@@ -1361,7 +1361,7 @@ backOffice.MapPost("/vehicles/{id:guid}/documents", async (Guid id, IFormFile fi
     if (deliveryTransaction is not null) await deliveryTransaction.CommitAsync();
     if (collectionUploadTransaction is not null) await collectionUploadTransaction.CommitAsync();
     if (loanUploadTransaction is not null) await loanUploadTransaction.CommitAsync();
-    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.BankSettlementId, document.DeliveryScheduleId, document.InspectionId, document.Checksum, document.UploadedBy, document.UploadedAt });
+    return Results.Created($"/api/documents/{document.Id}", new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.BankSettlementId, document.DeliveryScheduleId, document.InspectionId, document.LoanApplicationId, document.Checksum, document.UploadedBy, document.UploadedAt });
 }).DisableAntiforgery();
 
 backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext db, HttpContext context) =>
@@ -1380,7 +1380,7 @@ backOffice.MapGet("/vehicles/{id:guid}/documents", async (Guid id, AppDbContext 
         .Where(document => DepartmentAccess.CanViewDocument(roles, document.Category)
             || (document.Category == FileCategory.Voc && document.DeliveryScheduleId.HasValue && roles.Contains("Delivery")))
         .Where(document => LoanDocumentRules.CanAccessDocument(document, vehicle, vehicleLoans, context.User, actorId))
-        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.BankSettlementId, document.DeliveryScheduleId, document.InspectionId, document.Checksum, document.UploadedBy, document.UploadedAt }));
+        .Select(document => new { document.Id, document.FileName, document.MimeType, document.Category, document.OwnershipType, document.CustomerId, document.OwnerId, document.RepairJobId, document.PaymentRecordId, document.CollectionTransactionId, document.BankSettlementId, document.DeliveryScheduleId, document.InspectionId, document.LoanApplicationId, document.Checksum, document.UploadedBy, document.UploadedAt }));
 });
 
 backOffice.MapDelete("/vehicles/{id:guid}/loan-documents/{documentId:guid}", async (Guid id, Guid documentId, AppDbContext db, HttpContext context) =>

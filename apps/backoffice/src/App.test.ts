@@ -3,8 +3,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, postLoginRoute, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, formatModuleDocumentTimestamp, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, postLoginRoute, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
+import { newestRecordsFirst } from "./recordDates";
 
 describe("admin sidebar layout", () => {
   it("reserves expanded space for complete bilingual labels without changing collapsed mode", () => {
@@ -431,6 +432,21 @@ describe("supplier and refurbishment records", () => {
 });
 
 describe("module document lists", () => {
+  it("shows Loan upload instants in Malaysia time without inventing legacy times", () => {
+    expect(formatModuleDocumentTimestamp("2026-11-23T08:15:00Z", true)).toBe("23 Nov 2026, 16:15 MYT");
+    expect(formatModuleDocumentTimestamp("2026-11-23", true)).toBe("23 Nov 2026");
+  });
+
+  it("sorts same-day Loan uploads by the full timestamp", () => {
+    const records = [
+      { id: "morning-lou", uploadedAt: "2026-11-23T01:00:00Z" },
+      { id: "afternoon-lou", uploadedAt: "2026-11-23T09:30:00Z" }
+    ];
+
+    expect(newestRecordsFirst(records, record => record.uploadedAt).map(record => record.id))
+      .toEqual(["afternoon-lou", "morning-lou"]);
+  });
+
   it("keeps repair and loan document failures visible with a retry action", () => {
     const markup = renderToStaticMarkup(createElement(DocumentLoadFailureNotice, {
       message: "Loan document checks could not be loaded",
@@ -447,7 +463,9 @@ describe("module document lists", () => {
     const loanMarkup = renderToStaticMarkup(createElement(ModuleDocumentList, {
       vehicleId: "vehicle-1",
       categories: ["Voc", "ApDocument", "StatusReceipt", "LoanDocument"],
-      showOcrResults: false
+      showOcrResults: false,
+      loanApplicationId: "loan-1",
+      showUploadTime: true
     }));
     const deliveryMarkup = renderToStaticMarkup(createElement(ModuleDocumentList, {
       vehicleId: "vehicle-1",
@@ -461,7 +479,7 @@ describe("module document lists", () => {
     expect(deliveryMarkup).not.toContain("No OCR results for these documents yet.");
     expect(loanMarkup).toContain("ant-pro-query-filter");
     expect(deliveryMarkup).toContain("ant-pro-query-filter");
-    expect(loanMarkup).toContain("Uploaded / 日期");
+    expect(loanMarkup).toContain("Uploaded / 上传时间 (MYT)");
     expect(deliveryMarkup).toContain("Uploaded / 日期");
     expect(loanMarkup).not.toContain("Search table records");
     expect(deliveryMarkup).not.toContain("Search table records");

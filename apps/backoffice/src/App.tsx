@@ -2159,6 +2159,15 @@ export function DocumentLoadFailureNotice({
   return <Alert type="error" showIcon message={message} description={description} action={<Button size="small" onClick={onRetry}>Retry</Button>} />;
 }
 
+export function formatModuleDocumentTimestamp(value: unknown, showTime = false) {
+  const timestamp = typeof value === "string" ? value.trim() : "";
+  if (!timestamp) return "-";
+  if (!showTime) return timestamp.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestamp)) return formatDisplayDate(timestamp);
+  const formatted = formatDisplayDateTime(timestamp);
+  return formatted === "-" ? "-" : `${formatted} MYT`;
+}
+
 export function ModuleDocumentList({
   vehicleId,
   categories,
@@ -2169,6 +2178,7 @@ export function ModuleDocumentList({
   reloadKey = 0,
   showOcrResults = true,
   enablePreview = false,
+  showUploadTime = false,
   onDelete
 }: {
   vehicleId?: string;
@@ -2180,6 +2190,7 @@ export function ModuleDocumentList({
   reloadKey?: number;
   showOcrResults?: boolean;
   enablePreview?: boolean;
+  showUploadTime?: boolean;
   onDelete?: (document: VehicleDocument) => Promise<void>;
 }) {
   const [documents, setDocuments] = useState<VehicleDocument[]>([]);
@@ -2285,7 +2296,7 @@ export function ModuleDocumentList({
   };
 
   const columns: ColumnsType<VehicleDocument> = [
-    { title: "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => String(value).slice(0, 10) },
+    { title: showUploadTime ? "Uploaded / 上传时间 (MYT)" : "Uploaded / 日期", dataIndex: "uploadedAt", render: (value) => formatModuleDocumentTimestamp(value, showUploadTime) },
     {
       title: "Type / 类型",
       dataIndex: "category",
@@ -4542,7 +4553,7 @@ export function LoanPage({
     const check = documentChecks[loanId];
     if (!check) return "Document check is still loading.";
     if (check.isComplete) return "";
-    return `Upload ${check.missingCategories.map(documentCategoryLabel).join(", ")} before marking the loan done.`;
+    return "Link a valid LOU or upload an original Loan document before marking the loan done.";
   };
 
   const renderLoanNextAction = (loan: LoanApplication, inDetails = false) => {
@@ -4819,7 +4830,7 @@ export function LoanPage({
             ? "Loan file complete and ready for Finance and Delivery follow-up."
             : check?.isComplete
               ? "Approval and all required documents are recorded. Mark the loan file complete when the final check is finished."
-              : "Approval recorded. Upload at least one original loan document before finishing the loan file. Edited Loan Documents are optional.";
+              : "Approval recorded. Link a valid LOU or upload an original Loan document before finishing the loan file. Edited Loan Documents are optional.";
     return (
       <Space direction="vertical" size={16} className="fullWidth">
         <Button onClick={() => { setUploadLoanId(""); onBackToList(); }}>Back to Loan List</Button>
@@ -4839,7 +4850,7 @@ export function LoanPage({
             <Descriptions.Item label="Document Check / 文件检查">
               {documentChecksError ? <Tag color="warning">Unavailable</Tag> : check?.isComplete ? <Tag color="green">Complete</Tag> : <Tag color="red">Incomplete</Tag>}
             </Descriptions.Item>
-            {check && <Descriptions.Item label="Original / 原件">{check.originalDocumentCount ?? 0} received · {check.missingCategories.length} missing</Descriptions.Item>}
+            {check && <Descriptions.Item label="Completion evidence / 完成文件">{check.louDocumentCount ?? 0} LOU · {check.originalDocumentCount ?? 0} original · {check.missingCategories.length} missing</Descriptions.Item>}
             {check && <Descriptions.Item label="Edited / 修改件">{check.editedDocumentCount ?? 0} optional</Descriptions.Item>}
             {check && <Descriptions.Item label="LOU">{check.louDocumentCount ?? 0} received</Descriptions.Item>}
             {selectedLoan.decisionBy && <Descriptions.Item label="Decision by / 决定人">{selectedLoan.decisionBy}</Descriptions.Item>}
@@ -5028,7 +5039,9 @@ export function LoanPage({
         <ProCard title="Loan Documents / 贷款文件">
           <Space direction="vertical" size={12} className="fullWidth">
             {selectedLoan.status !== "Rejected" && check && !documentChecksError && (
-              canUploadLoanChecklistDocument(roles, nextDocumentCategory)
+              check.isComplete && !check.hasExplicitOriginal
+                ? <Typography.Text type="secondary">{(check.louDocumentCount ?? 0) > 0 ? "The existing LOU satisfies completion. No duplicate original Loan document is required." : "Existing accepted Loan evidence satisfies completion. No duplicate original Loan document is required."}</Typography.Text>
+                : canUploadLoanChecklistDocument(roles, nextDocumentCategory)
                 ? <PreviewDocumentUpload
                     documentLabel={documentCategoryLabel(nextDocumentCategory)}
                     buttonLabel="Upload loan document / 上传贷款文件"
@@ -5041,7 +5054,7 @@ export function LoanPage({
                 type="warning"
                 showIcon
                 message={`${missingLoanDocuments.length} document${missingLoanDocuments.length === 1 ? "" : "s"} still needed before completion`}
-                description="Optional edited Loan Documents and LOU files do not satisfy the original checklist. Upload at least one original Loan document; legacy VOC, AP Document, and Status Receipt files remain visible but are no longer individual requirements."
+                description="Link a valid LOU for this loan or upload at least one original Loan document. Optional edited Loan Documents do not satisfy completion; legacy VOC, AP Document, and Status Receipt files remain visible but are no longer individual requirements."
               />
             )}
             {selectedLoan.status === "Rejected" && (
@@ -5056,6 +5069,7 @@ export function LoanPage({
               reloadKey={documentReloadKey}
               showOcrResults={false}
               enablePreview
+              showUploadTime
               onDelete={selectedLoan.status !== "Rejected" ? removeLoanDocument : undefined}
             />
           </Space>

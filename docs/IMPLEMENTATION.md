@@ -172,7 +172,7 @@ Loan status filters retain a visible All loan statuses default. Customer 360 cho
 - The Repair screen now exposes repair-owned document uploads for Repair Invoice files linked to the repair car plate.
 - Plate-linked repair cost validation, loan document completeness, and delivery release readiness are covered by backend rules.
 - Vehicle `LoanProcessing` and `Sold` statuses are workflow-owned: ordinary vehicle intake edits cannot set them, active work remains private in `LoanProcessing`, and `Sold` requires both a reconciled payment and a released delivery.
-- Active Pending, Approved, or Done loans atomically establish or verify the vehicle's canonical buyer; loan completion requires all four document categories for that same buyer and vehicle.
+- Active Pending, Approved, or Done loans atomically establish or verify the vehicle's canonical buyer; loan completion accepts a valid same-loan LOU or a previously accepted original Loan document for that buyer and vehicle while preserving every other completion gate.
 - Existing loan documents without recorded buyer ownership stay readable but must be re-uploaded through the loan checklist before an in-flight loan can be completed; no automatic ownership backfill is performed.
 - Repair approval is a Boss/Admin-only server action. Ordinary repair edits cannot supply approval identity, and changing the vehicle, task, repair part, or cost resets the prior approval.
 - Finance management review is a Boss/Admin-only server action. Ordinary payment edits cannot assert the review flag, and changes to payment evidence, amounts, banking details, or finance checklist invalidate the prior review.
@@ -192,14 +192,14 @@ Loan status filters retain a visible All loan statuses default. Customer 360 cho
 - Delivery preparation reminders still stop after staff mark the 2-day notice as sent.
 - Document upload authorization remains category-aware: Sales owns intake documents, Loan owns loan documents, Delivery owns schedule-bound delivery evidence, Repair owns repair invoices, and Finance owns payment evidence; Boss/Admin retains cross-department access.
 - Repair jobs reject blank task descriptions and negative costs before they affect dashboard repair cost or estimated profit.
-- The Loan screen now calls the backend document-check rule and shows missing VOC, AP Document, Status Receipt, or Loan Document items directly in the loan workflow table.
+- The Loan screen calls the backend document-check rule and shows whether a same-loan LOU or accepted original Loan document satisfies completion without asking staff for a duplicate upload.
 - Loan quick actions now keep LOU Done consistent by marking LOU Approved before completing the loan workflow.
 - Loan records can now be edited from the Loan screen so the taken processor or Boss/Admin can maintain LOU/deal fields, bank-specific options, workflow status, and LOU approval/done flags without recreating the loan. Take ownership and its actor/time are persisted across sessions.
 - The Loan submission form warns before submitting manual Approved/Done status combinations that are missing the required LOU Approved or LOU Done flags.
 - Loan creation assigns the created date server-side when the intake does not provide one; active follow-up uses that date.
 - The API rejects loan records where the loan is approved before LOU Approved is recorded, where LOU is marked done before approval, or where the loan is completed before LOU Done is recorded.
 - The Loan submission form now uses a searchable customer selector with name, phone, and IC labels instead of requiring staff to paste a customer GUID.
-- The Loan screen exposes the four-category checklist while enforcing category ownership: Loan staff upload Loan Document, Sales supplies shared vehicle evidence, and Boss/Admin may upload all four.
+- The Loan screen keeps category ownership intact: Loan staff upload LOU and optional edited documents, Sales supplies original Loan evidence, and Boss/Admin retains cross-role access. Uploaded Loan files show actual Malaysia date/time in MYT and sort newest-first by full timestamp; legacy date-only values remain date-only.
 - Pending loans now use an explicit decision action from the taken case details. Approval and rejection are server-audited with actor/time, rejection requires a reason, and rejected files remain available read-only while the vehicle returns to Available/private unless another workflow owns its state. Old rejected records are hidden from the default list after one month but remain searchable.
 - Loan document uploads now open a review drawer before transfer, show upload progress, and require explicit confirmation; uploaded PDF, JPEG, PNG, and WebP files can be previewed through authenticated content fetches, while other types remain download-only.
 - Loan Document image uploads can use the existing OCR review flow to extract bank, LOU amount, rate, tenure, and terms; staff must review and confirm values before they update the loan. Insurance AI remains outside this scope.
