@@ -134,7 +134,7 @@ services:
       WhatsApp__Templates__10__Language: "en_US"
       WhatsApp__Templates__10__ProviderLanguage: "${WHATSAPP_V2_ATTENDANCE_EN_PROVIDER_LANGUAGE:-en}"
       WhatsApp__Templates__10__Approved: "${WHATSAPP_V2_ATTENDANCE_EN_APPROVED:-true}"
-      WhatsApp__Templates__10__ApprovalEvidence: "${WHATSAPP_V2_ATTENDANCE_EN_APPROVAL_EVIDENCE:-Meta 1272276398401414 APPROVED UTILITY 2026-10-26; FOO-236}"
+      WhatsApp__Templates__10__ApprovalEvidence: "${WHATSAPP_V2_ATTENDANCE_EN_APPROVAL_EVIDENCE:-Meta English attendance body confirmed in the template editor; 22 Nov 2026}"
       WhatsApp__Templates__10__BodyText: "Date: {{1}}\nAs of: {{2}} MYT\n\nATTENDANCE\nChecked in today: {{3}} staff\n\nAPPROVED ARRANGEMENTS\nFull-day leave: {{4}}\nPartial-day leave: {{5}}\nOutstation duty: {{6}}\n\nHR FOLLOW-UP\n{{7}}\nMissing check-ins require review before recording an absence."
       WhatsApp__Templates__10__PortalUrl: "https://yshenghub.com.my/hr-salary"
       WhatsApp__Templates__11__Key: "ysheng_attendance_summary_v2"

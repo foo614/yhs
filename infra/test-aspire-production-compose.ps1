@@ -91,6 +91,7 @@ $testEnvironment = [ordered]@{
 # fallback; also prove an operator can disable v2 without removing v1.
 $v2Pack = @(Get-Content -LiteralPath (Join-Path $repoRoot "docs/whatsapp/reminder-v2-submission.json") -Raw | ConvertFrom-Json)
 $v2Approval = Get-Content -LiteralPath (Join-Path $repoRoot "docs/whatsapp/reminder-v2-approval-2026-10-26.json") -Raw | ConvertFrom-Json
+$attendanceEditor = Get-Content -LiteralPath (Join-Path $repoRoot "docs/whatsapp/attendance-en-editor-2026-11-22.json") -Raw | ConvertFrom-Json
 foreach ($template in $v2Pack) {
   $setting = "WHATSAPP_V2_" + ($template.name -replace '^ysheng_', '' -replace '_summary_v2', '').ToUpperInvariant()
   foreach ($suffix in @("APPROVED", "APPROVAL_EVIDENCE", "PROVIDER_LANGUAGE")) {
@@ -212,9 +213,15 @@ try {
     Assert-Equal -Name "$prefix logical language" -Actual $whatsApp."${prefix}Language" -Expected $template.language
     Assert-Equal -Name "$prefix provider language" -Actual $whatsApp."${prefix}ProviderLanguage" -Expected $approval.language
     Assert-Equal -Name "$prefix approval" -Actual $whatsApp."${prefix}Approved" -Expected "true"
-    Assert-Equal -Name "$prefix evidence" -Actual $whatsApp."${prefix}ApprovalEvidence" -Expected "Meta $($approval.id) APPROVED $($approval.category) 2026-10-26; FOO-236"
-    $body = @($template.components | Where-Object type -eq BODY)[0].text
+    $expectedEvidence = "Meta $($approval.id) APPROVED $($approval.category) 2026-10-26; FOO-236"
     $approvedBody = @($approval.components | Where-Object type -eq BODY)[0].text
+    if ($template.name -ceq $attendanceEditor.name) {
+      Assert-Equal -Name "$prefix editor language" -Actual $attendanceEditor.language -Expected $approval.language
+      $approvedBody = $attendanceEditor.body
+      $expectedEvidence = $attendanceEditor.evidence
+    }
+    Assert-Equal -Name "$prefix evidence" -Actual $whatsApp."${prefix}ApprovalEvidence" -Expected $expectedEvidence
+    $body = @($template.components | Where-Object type -eq BODY)[0].text
     if ($whatsApp."${prefix}BodyText" -cne $body -or $body -cne $approvedBody) {
       throw "$prefix body must exactly match the application pack and approved provider text."
     }
