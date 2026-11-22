@@ -6572,7 +6572,7 @@ function SystemFlowReference() {
       title: "5. Loan or Cash / 贷款或现金",
       owner: "Loan or Finance",
       records: ["Loan Application", "Customer Receipt", "Bank Follow-up"],
-      detail: "Complete Loan before booking Delivery for financed sales. Cash buyers proceed to collection. Finance can record a deposit before issuing the sales invoice. / 贷款成交须完成贷款个案后再预约交车。现金成交直接收款，财务可在开票前记录订金。"
+      detail: "Complete Loan before booking Delivery for financed sales. For cash sales, Finance issues the sales invoice and records collections against it. / 贷款成交须完成贷款个案后再预约交车。现金成交由财务开具销售发票，再按发票登记收款。"
     },
     {
       title: "6. Bank Settlement / 银行结清",
@@ -6672,7 +6672,7 @@ function SystemFlowReference() {
           size="small"
           items={[
             { title: "Intake and price approval / 入库与价格审批", description: "Verify vehicle identity and ownership documents. Boss/Admin reviews costs and approves publication. / 核对车辆资料与车主文件，由 Boss/Admin 核对成本并批准上架。" },
-            { title: "Buyer and payment path / 买家与付款方式", description: "Confirm the buyer in the sale workflow. Finance can record a deposit before invoicing. / 在成交流程确认买家，财务可在开票前记录订金。" },
+            { title: "Buyer and payment path / 买家与付款方式", description: "Confirm the buyer in the sale workflow. Issue the Finance sales invoice before adding a collection. / 在成交流程确认买家，开具销售发票后再登记收款。" },
             { title: "Loan handoff / 贷款交接", description: "Complete Loan before booking Delivery for financed sales. Cash sales go directly to collection. / 贷款成交须完成贷款个案后再预约交车，现金成交直接收款。" },
             { title: "Inspection and handover / 验车与交车", description: "Keep inspection evidence in Inspection. Complete Delivery documents and check Finance clearance before handover. / 验车凭证存于验车模块。交车前备齐交车文件并确认财务已放行。" },
             { title: "Final close / 结案", description: "Reconcile the money received and retain the customer, vehicle and handover history. / 核对到账款项，保留客户、车辆及交付记录。" }
