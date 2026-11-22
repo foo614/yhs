@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canShowCustomer360SourceLink,
   customer360SourceTarget,
+  customerRelationshipLabel,
   customerProfileOptionLabel,
   customer360CoverageStatus,
   formatCustomer360Date,
@@ -51,9 +52,17 @@ describe("Customer360Page", () => {
     expect(customer360CoverageStatus(null, midnight)).toBe("Expiry date missing");
   });
 
-  it("deep-links only loan and delivery records and labels module fallbacks", () => {
+  it("deep-links each source record using its module route contract", () => {
+    expect(customer360SourceTarget("/vehicles", "vehicle-1", "Vehicles")).toEqual({ path: "/vehicles?vehicleId=vehicle-1", label: "Open vehicle" });
     expect(customer360SourceTarget("/loans", "loan/1", "Loan")).toEqual({ path: "/loans?loanId=loan%2F1", label: "Open loan" });
     expect(customer360SourceTarget("/delivery", "delivery-1", "Delivery")).toEqual({ path: "/delivery?deliveryId=delivery-1", label: "Open delivery" });
-    expect(customer360SourceTarget("/finance", "payment-1", "Finance")).toEqual({ path: "/finance", label: "Open Finance" });
+    expect(customer360SourceTarget("/finance", "payment-1", "Finance")).toEqual({ path: "/finance?tab=payments&paymentId=payment-1", label: "Open finance record" });
+    expect(customer360SourceTarget("/leads", "lead-1", "Leads")).toEqual({ path: "/leads?leadId=lead-1", label: "Open enquiry" });
+  });
+
+  it("labels inferred history distinctly from confirmed customer relationships", () => {
+    expect(customerRelationshipLabel("CurrentBuyer")).toBe("Current buyer");
+    expect(customerRelationshipLabel("LegacyLoanInference")).toBe("Legacy loan link · inferred");
+    expect(customerRelationshipLabel("VehicleHistoryInference")).toBe("Vehicle history · inferred");
   });
 });

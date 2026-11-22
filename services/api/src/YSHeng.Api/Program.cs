@@ -1720,11 +1720,16 @@ backOffice.MapPost("/customers", async (Customer customer, AppDbContext db, Http
 {
     var validation = ContactRules.ValidateCustomer(customer);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    var uniquePhoneValidation = ContactRules.ValidateUniqueCustomerPhone(customer, await db.Customers.AsNoTracking().ToListAsync());
+    await using var transaction = await CustomerIdentityConcurrencyLock.BeginAsync(db, customer);
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    var uniquePhoneValidation = ContactRules.ValidateUniqueCustomerPhone(customer, customers);
     if (!uniquePhoneValidation.IsValid) return Results.BadRequest(uniquePhoneValidation);
+    var uniqueIcValidation = ContactRules.ValidateUniqueCustomerIcNumber(customer, customers);
+    if (!uniqueIcValidation.IsValid) return Results.BadRequest(uniqueIcValidation);
     db.Customers.Add(customer);
     ApiAudit.Add(db, context.User, "customer.created", nameof(Customer), customer.Id);
     await db.SaveChangesAsync();
+    await transaction.CommitAsync();
     return Results.Created($"/api/customers/{customer.Id}", customer);
 }).RequireAuthorization("Vehicles");
 backOffice.MapPut("/customers/{id:guid}", async (Guid id, Customer customer, AppDbContext db, HttpContext context) =>
@@ -1733,11 +1738,16 @@ backOffice.MapPut("/customers/{id:guid}", async (Guid id, Customer customer, App
     if (!await db.Customers.AnyAsync(item => item.Id == id)) return Results.NotFound();
     var validation = ContactRules.ValidateCustomer(customer);
     if (!validation.IsValid) return Results.BadRequest(validation);
-    var uniquePhoneValidation = ContactRules.ValidateUniqueCustomerPhone(customer, await db.Customers.AsNoTracking().ToListAsync());
+    await using var transaction = await CustomerIdentityConcurrencyLock.BeginAsync(db, customer);
+    var customers = await db.Customers.AsNoTracking().ToListAsync();
+    var uniquePhoneValidation = ContactRules.ValidateUniqueCustomerPhone(customer, customers);
     if (!uniquePhoneValidation.IsValid) return Results.BadRequest(uniquePhoneValidation);
+    var uniqueIcValidation = ContactRules.ValidateUniqueCustomerIcNumber(customer, customers);
+    if (!uniqueIcValidation.IsValid) return Results.BadRequest(uniqueIcValidation);
     db.Customers.Update(customer);
     ApiAudit.Add(db, context.User, "customer.updated", nameof(Customer), customer.Id);
     await db.SaveChangesAsync();
+    await transaction.CommitAsync();
     return Results.Ok(customer);
 }).RequireAuthorization("Vehicles");
 
@@ -6498,6 +6508,39 @@ internal static class DeliveryConcurrencyLock
 
     private static Task AcquireAsync(AppDbContext db, string resourceKey) =>
         db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({resourceKey}, 0))");
+}
+
+internal static class CustomerIdentityConcurrencyLock
+{
+    public static async Task<IDbContextTransaction> BeginAsync(AppDbContext db, Customer customer)
+    {
+        var transaction = await db.Database.BeginTransactionAsync();
+        try
+        {
+            await AcquireAsync(db, customer);
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync();
+            throw;
+        }
+    }
+
+    public static async Task AcquireAsync(AppDbContext db, Customer customer, CancellationToken cancellationToken = default)
+    {
+        if (!db.Database.IsNpgsql()) return;
+        var keys = new[]
+        {
+            (Type: "ic", Value: ContactRules.NormalizeIcNumber(customer.IcNumber)),
+            (Type: "phone", Value: ContactRules.NormalizePhone(customer.Phone))
+        };
+        foreach (var key in keys.Where(key => key.Value.Length > 0).OrderBy(key => key.Type).ThenBy(key => key.Value, StringComparer.Ordinal))
+        {
+            var resourceKey = $"customer-identity:{key.Type}:{key.Value}";
+            await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({resourceKey}, 0))", cancellationToken);
+        }
+    }
 }
 
 internal sealed record DeliveryPicResolution(AppUser? User, string? DisplayName, ValidationResult Validation);

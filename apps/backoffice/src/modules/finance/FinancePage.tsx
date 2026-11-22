@@ -376,6 +376,7 @@ export function PurchaseInvoiceConfirmationError({ error, onClose }: { error?: s
 }
 
 export function FinancePage({
+  initialPaymentId,
   vehicles,
   customers,
   loans,
@@ -439,6 +440,7 @@ export function FinancePage({
   onAcceptCashHandover,
   onRejectCashHandover
 }: {
+  initialPaymentId?: string;
   vehicles: VehicleLookup[];
   customers: Customer[];
   loans: LoanApplication[];
@@ -542,6 +544,20 @@ export function FinancePage({
   const [invoiceReviewInput, setInvoiceReviewInput] = useState<FinanceSaleInput>();
   const [invoiceSubmitError, setInvoiceSubmitError] = useState<string>();
   const [salesAgents, setSalesAgents] = useState<StaffUser[]>([]);
+
+  useEffect(() => {
+    if (!initialPaymentId) return;
+    const payment = payments.find((item) => item.id === initialPaymentId);
+    if (!payment) return;
+    setFinanceTab("payments");
+    setUploadPaymentId(payment.id);
+    if (isFinanceV2(payment)) {
+      setV2DetailsPaymentId(payment.id);
+    } else {
+      setEditPaymentId(payment.id);
+      setFinanceEditorOpen("payment");
+    }
+  }, [initialPaymentId, payments]);
   const [deliveryAccountingCharges, setDeliveryAccountingCharges] = useState<DeliveryAccountingCharge[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
   const [purchaseInvoiceLoad, setPurchaseInvoiceLoad] = useState<{ loading: boolean; error: string | null }>({ loading: true, error: null });

@@ -30,6 +30,15 @@ describe("contact creation helpers", () => {
     expect(customerCreateBlockReason(baseCustomer)).toBeUndefined();
   });
 
+  it("blocks duplicate customer IC numbers regardless of separators", () => {
+    expect(customerCreateBlockReason({
+      ...baseCustomer,
+      id: "customer-new",
+      phone: "019-888 7777",
+      icNumber: "900101101234"
+    }, [baseCustomer])).toBe("A customer with this IC number already exists.");
+  });
+
   it("blocks owners with blank names, blank phones, or duplicate normalized phones", () => {
     expect(ownerCreateBlockReason({ ...baseOwner, name: " " })).toBe("Owner name is required.");
     expect(ownerCreateBlockReason({ ...baseOwner, phone: " " })).toBe("Owner phone is required.");

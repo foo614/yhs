@@ -1148,7 +1148,9 @@ export type CustomerProfileContact = {
   notes?: string;
 };
 
-export type CustomerProfileVehicle = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "year" | "status">;
+export type CustomerProfileVehicle = Pick<Vehicle, "id" | "plateNumber" | "make" | "model" | "year" | "status"> & {
+  relationship: "CurrentBuyer" | "DeliveryHistory" | "LegacyLoanInference";
+};
 
 export type CustomerProfileLoan = Pick<LoanApplication, "id" | "vehicleId" | "status" | "louApproved" | "louDone" | "submittedAt">;
 
@@ -1156,12 +1158,15 @@ export type CustomerProfileDelivery = Pick<DeliverySchedule,
   "id" | "vehicleId" | "status" | "scheduledDate" | "pic" |
   "insuranceHandled" | "insurancePolicyReference" | "insuranceExpiryDate" |
   "roadTaxHandled" | "roadTaxReceiptReference" | "roadTaxExpiryDate" |
-  "windscreenInsuranceHandled" | "windscreenPolicyReference" | "windscreenInsuranceExpiryDate">;
+  "windscreenInsuranceHandled" | "windscreenPolicyReference" | "windscreenInsuranceExpiryDate"> & {
+  relationship: "ConfirmedCustomer" | "LegacyVehicleInference";
+};
 
 export type CustomerProfilePayment = Pick<PaymentRecord, "id" | "vehicleId" | "nettPrice" | "status" | "receiptNumber" | "invoiceNumber" | "createdAt"> & {
   collectedAmount: number;
   balanceAmount: number;
   receivableStatus: ReceivableStatus;
+  relationship: "InvoiceOwner" | "ConfirmedCustomer" | "VehicleHistoryInference";
 };
 
 export type CustomerProfileInvoice = Pick<FinanceInvoice, "id" | "paymentRecordId" | "vehicleId" | "invoiceNumber" | "invoiceDate" | "amount">;

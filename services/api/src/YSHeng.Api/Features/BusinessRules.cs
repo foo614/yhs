@@ -1308,6 +1308,16 @@ public static class ContactRules
             : new ValidationResult([]);
     }
 
+    public static ValidationResult ValidateUniqueCustomerIcNumber(Customer incoming, IEnumerable<Customer> existing)
+    {
+        var normalizedIncoming = NormalizeIcNumber(incoming.IcNumber);
+        return normalizedIncoming.Length > 0 && existing.Any(customer =>
+                customer.Id != incoming.Id &&
+                string.Equals(NormalizeIcNumber(customer.IcNumber), normalizedIncoming, StringComparison.Ordinal))
+            ? new ValidationResult([new ValidationError("duplicate_customer_ic", "A customer with this IC number already exists.")])
+            : new ValidationResult([]);
+    }
+
     public static ValidationResult ValidateOwner(Owner owner)
     {
         var errors = new List<ValidationError>();
@@ -1360,8 +1370,8 @@ public static class ContactRules
             string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string NormalizePhone(string phone) =>
-        new(phone.Where(char.IsLetterOrDigit).ToArray());
+    public static string NormalizePhone(string? phone) =>
+        string.IsNullOrWhiteSpace(phone) ? "" : new string(phone.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
 }
 
 public static class StaffUserRules

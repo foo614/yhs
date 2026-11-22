@@ -4,7 +4,7 @@ namespace YSHeng.Api.Features;
 
 public sealed record CustomerProfileOption(Guid Id, string Name, string? Phone);
 public sealed record CustomerProfileContact(Guid Id, string Name, string? Phone, string? IcNumber, string? TinNumber, string? Email, string? Address, string? Notes);
-public sealed record CustomerProfileVehicle(Guid Id, string PlateNumber, string Make, string Model, int Year, VehicleStatus Status);
+public sealed record CustomerProfileVehicle(Guid Id, string PlateNumber, string Make, string Model, int Year, VehicleStatus Status, string Relationship);
 public sealed record CustomerProfileLoan(Guid Id, Guid VehicleId, LoanStatus Status, bool LouApproved, bool LouDone, DateOnly? SubmittedAt);
 public sealed record CustomerProfileDelivery(
     Guid Id,
@@ -20,7 +20,8 @@ public sealed record CustomerProfileDelivery(
     DateOnly? RoadTaxExpiryDate,
     bool WindscreenInsuranceHandled,
     string? WindscreenPolicyReference,
-    DateOnly? WindscreenInsuranceExpiryDate);
+    DateOnly? WindscreenInsuranceExpiryDate,
+    string Relationship);
 public sealed record CustomerProfilePayment(
     Guid Id,
     Guid VehicleId,
@@ -31,7 +32,8 @@ public sealed record CustomerProfilePayment(
     DateTime CreatedAt,
     decimal CollectedAmount,
     decimal BalanceAmount,
-    ReceivableStatus ReceivableStatus);
+    ReceivableStatus ReceivableStatus,
+    string Relationship);
 public sealed record CustomerProfileInvoice(Guid Id, Guid PaymentRecordId, Guid VehicleId, string InvoiceNumber, DateOnly InvoiceDate, decimal Amount);
 public sealed record CustomerProfileReceipt(
     Guid? CashHandoverId,
@@ -146,7 +148,7 @@ public static class CustomerProfileFactory
     {
         var roleSet = roles.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var canViewIdentity = roleSet.Overlaps(DepartmentAccess.CustomerReaders);
-        var canViewLoans = roleSet.Contains("BossAdmin") || roleSet.Contains("Loan");
+        var canViewLoans = roleSet.Contains("BossAdmin") || roleSet.Contains("Loan") || roleSet.Contains("Sales");
         var canViewDelivery = roleSet.Contains("BossAdmin") || roleSet.Contains("Delivery");
         var canViewFinance = roleSet.Contains("BossAdmin") || roleSet.Contains("Finance");
         var canViewEnquiries = roleSet.Contains("BossAdmin") || roleSet.Contains("Sales");
@@ -216,11 +218,11 @@ public static class CustomerProfileFactory
                         : !document.CustomerId.HasValue)
             .ToList();
         var visibleDocuments = profileDocuments
-            .Where(document => DepartmentAccess.CanUploadDocument(roleSet, document.Category)
+            .Where(document => DepartmentAccess.CanViewDocument(roleSet, document.Category)
                 || (roleSet.Contains("Delivery") && document.DeliveryScheduleId.HasValue && document.Category == FileCategory.Voc))
             .OrderByDescending(document => document.UploadedAt)
             .ToList();
-        var canViewDocuments = visibleDocuments.Count > 0 || roleSet.Any(role => Enum.GetValues<FileCategory>().Any(category => DepartmentAccess.CanUploadDocument([role], category)));
+        var canViewDocuments = visibleDocuments.Count > 0 || roleSet.Any(role => Enum.GetValues<FileCategory>().Any(category => DepartmentAccess.CanViewDocument([role], category)));
 
         return new CustomerProfile(
             new CustomerProfileContact(
@@ -232,7 +234,18 @@ public static class CustomerProfileFactory
                 canViewIdentity ? customer.Email : null,
                 canViewIdentity ? customer.Address : null,
                 canViewIdentity ? customer.Notes : null),
-            profileVehicles.Select(vehicle => new CustomerProfileVehicle(vehicle.Id, vehicle.PlateNumber, vehicle.Make, vehicle.Model, vehicle.Year, vehicle.Status)).ToList(),
+            profileVehicles.Select(vehicle => new CustomerProfileVehicle(
+                vehicle.Id,
+                vehicle.PlateNumber,
+                vehicle.Make,
+                vehicle.Model,
+                vehicle.Year,
+                vehicle.Status,
+                vehicle.CustomerId == customer.Id
+                    ? "CurrentBuyer"
+                    : exactDeliveryVehicleIds.Contains(vehicle.Id)
+                        ? "DeliveryHistory"
+                        : "LegacyLoanInference")).ToList(),
             canViewLoans
                 ? profileLoans.Select(loan => new CustomerProfileLoan(loan.Id, loan.VehicleId, loan.Status, loan.LouApproved, loan.LouDone, loan.SubmittedAt)).ToList()
                 : [],
@@ -241,7 +254,8 @@ public static class CustomerProfileFactory
                     delivery.Id, delivery.VehicleId, delivery.Status, delivery.ScheduledDate, delivery.Pic,
                     delivery.InsuranceHandled, delivery.InsurancePolicyReference, delivery.InsuranceExpiryDate,
                     delivery.RoadTaxHandled, delivery.RoadTaxReceiptReference, delivery.RoadTaxExpiryDate,
-                    delivery.WindscreenInsuranceHandled, delivery.WindscreenPolicyReference, delivery.WindscreenInsuranceExpiryDate)).ToList()
+                    delivery.WindscreenInsuranceHandled, delivery.WindscreenPolicyReference, delivery.WindscreenInsuranceExpiryDate,
+                    delivery.CustomerId == customer.Id ? "ConfirmedCustomer" : "LegacyVehicleInference")).ToList()
                 : [],
             canViewFinance
                 ? profilePayments.Select(payment =>
@@ -260,7 +274,12 @@ public static class CustomerProfileFactory
                         payment.CreatedAt,
                         summary.CollectedAmount,
                         summary.BalanceAmount,
-                        summary.ReceivableStatus);
+                        summary.ReceivableStatus,
+                        invoiceByPayment.ContainsKey(payment.Id)
+                            ? "InvoiceOwner"
+                            : payment.FinanceWorkflowVersion == 2 && payment.CustomerId == customer.Id
+                                ? "ConfirmedCustomer"
+                                : "VehicleHistoryInference");
                 }).ToList()
                 : [],
             canViewFinance

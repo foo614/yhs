@@ -1115,12 +1115,15 @@ public sealed class BusinessRulesTests
         var documents = new[]
         {
             new DocumentBlob { VehicleId = vehicle.Id, Category = FileCategory.IdentityCard, FileName = "ic.png", MimeType = "image/png", Checksum = "ic" },
+            new DocumentBlob { VehicleId = vehicle.Id, CustomerId = customer.Id, OwnershipType = DocumentOwnershipType.Buyer, Category = FileCategory.LoanOriginalDocument, FileName = "loan-original.pdf", MimeType = "application/pdf", Checksum = "loan-original" },
             new DocumentBlob { VehicleId = vehicle.Id, CustomerId = customer.Id, DeliveryScheduleId = delivery.Id, OwnershipType = DocumentOwnershipType.Buyer, Category = FileCategory.Policy, FileName = "policy.pdf", MimeType = "application/pdf", Checksum = "policy" }
         };
         var lead = new Lead { CustomerId = customer.Id, VehicleId = vehicle.Id, CustomerName = customer.Name, Phone = customer.Phone };
 
         var deliveryProfile = CustomerProfileFactory.Create(customer, ["Delivery"], [vehicle], [loan], [delivery], [payment], [invoice], [handover], [receipt], documents, [lead]);
         var financeProfile = CustomerProfileFactory.Create(customer, ["Finance"], [vehicle], [loan], [delivery], [payment], [invoice], [handover], [receipt], documents, [lead]);
+        var salesProfile = CustomerProfileFactory.Create(customer, ["Sales"], [vehicle], [loan], [delivery], [payment], [invoice], [handover], [receipt], documents, [lead]);
+        var loanProfile = CustomerProfileFactory.Create(customer, ["Loan"], [vehicle], [loan], [delivery], [payment], [invoice], [handover], [receipt], documents, [lead]);
 
         Assert.Equal(customer.Id, deliveryProfile.Contact.Id);
         Assert.Equal(customer.Name, deliveryProfile.Contact.Name);
@@ -1142,6 +1145,9 @@ public sealed class BusinessRulesTests
         Assert.Empty(financeProfile.Deliveries);
         Assert.Empty(financeProfile.Documents);
         Assert.Empty(financeProfile.Enquiries);
+        Assert.Single(salesProfile.Loans);
+        Assert.Contains(loanProfile.Documents, document => document.Category == FileCategory.LoanOriginalDocument);
+        Assert.Equal("CurrentBuyer", Assert.Single(salesProfile.Vehicles).Relationship);
     }
 
     [Fact]
@@ -1431,7 +1437,9 @@ public sealed class BusinessRulesTests
             []);
 
         Assert.Equal([legacyVehicle.Id], profile.Vehicles.Select(vehicle => vehicle.Id));
+        Assert.Equal("LegacyLoanInference", Assert.Single(profile.Vehicles).Relationship);
         Assert.Equal([legacyVehicle.Id], profile.Deliveries.Select(delivery => delivery.VehicleId));
+        Assert.Equal("LegacyVehicleInference", Assert.Single(profile.Deliveries).Relationship);
         Assert.Empty(profile.Payments);
         Assert.Equal([legacyVehicle.Id], profile.Documents.Select(document => document.VehicleId));
     }
@@ -1508,11 +1516,16 @@ public sealed class BusinessRulesTests
             []);
 
         Assert.Equal([vehicle.Id], firstProfile.Vehicles.Select(item => item.Id));
+        Assert.Equal("DeliveryHistory", Assert.Single(firstProfile.Vehicles).Relationship);
         Assert.Equal([historicalDelivery.Id], firstProfile.Deliveries.Select(item => item.Id));
+        Assert.Equal("ConfirmedCustomer", Assert.Single(firstProfile.Deliveries).Relationship);
         Assert.Equal([firstPayment.Id], firstProfile.Payments.Select(item => item.Id));
+        Assert.Equal("InvoiceOwner", Assert.Single(firstProfile.Payments).Relationship);
         Assert.Equal([firstInvoice.Id], firstProfile.Invoices.Select(item => item.Id));
         Assert.Equal([firstEvidence.Id], firstProfile.Documents.Select(item => item.Id));
         Assert.Equal(new[] { secondPayment.Id, secondOrphanPayment.Id }.Order(), secondProfile.Payments.Select(item => item.Id).Order());
+        Assert.Equal("InvoiceOwner", secondProfile.Payments.Single(item => item.Id == secondPayment.Id).Relationship);
+        Assert.Equal("VehicleHistoryInference", secondProfile.Payments.Single(item => item.Id == secondOrphanPayment.Id).Relationship);
         Assert.Equal([secondInvoice.Id], secondProfile.Invoices.Select(item => item.Id));
         Assert.Empty(secondProfile.Deliveries);
         Assert.Empty(secondProfile.Documents);
@@ -1880,6 +1893,18 @@ public sealed class BusinessRulesTests
         var result = ContactRules.ValidateUniqueCustomerPhone(incoming, [existing]);
 
         Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Customer_validation_rejects_duplicate_ic_regardless_of_separators()
+    {
+        var existing = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan", Phone = "0123456789", IcNumber = "900101-01-1234" };
+        var incoming = new Customer { Id = Guid.NewGuid(), Name = "Ali Tan 2", Phone = "0198765432", IcNumber = "900101011234" };
+
+        var result = ContactRules.ValidateUniqueCustomerIcNumber(incoming, [existing]);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, error => error.Code == "duplicate_customer_ic");
     }
 
     [Fact]

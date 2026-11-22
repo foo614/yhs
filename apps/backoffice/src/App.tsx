@@ -488,6 +488,16 @@ export function deliveryIdFromRouteUrl(routeUrl: string) {
   return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("deliveryId") ?? undefined;
 }
 
+export function paymentIdFromRouteUrl(routeUrl: string) {
+  const queryIndex = routeUrl.indexOf("?");
+  return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("paymentId") ?? undefined;
+}
+
+export function leadIdFromRouteUrl(routeUrl: string) {
+  const queryIndex = routeUrl.indexOf("?");
+  return new URLSearchParams(queryIndex >= 0 ? routeUrl.slice(queryIndex + 1) : "").get("leadId") ?? undefined;
+}
+
 export function vehicleLoanCustomerId(vehicle: Pick<Vehicle, "customerId">, existingLoan?: Pick<LoanApplication, "customerId">) {
   return existingLoan?.customerId ?? vehicle.customerId;
 }
@@ -1495,6 +1505,7 @@ export default function App() {
           {pathname === "/inspection" && <InspectionPage vehicles={vehicleLookup} canExportAutoCount={currentRoles.includes("BossAdmin")} />}
           {pathname === "/finance" && (
             <FinancePage
+              initialPaymentId={paymentIdFromRouteUrl(routeUrl)}
               vehicles={financeVehicles}
               customers={customers}
               loans={loans}
@@ -1570,6 +1581,7 @@ export default function App() {
           {pathname === "/leads" && (
             <LeadsPage
               key={routeUrl}
+              initialLeadId={leadIdFromRouteUrl(routeUrl)}
               budgetSearchQuery={routeUrl.split("?")[1]}
               initialMyCarsPlate={new URLSearchParams(routeUrl.split("?")[1] ?? "").get("myCarsPlate") ?? undefined}
               currentUser={currentUser}
@@ -5412,7 +5424,7 @@ export function DeliveryPage({
   );
 }
 
-export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate, budgetSearchQuery, onLinkVehicle }: { initialMyCarsPlate?: string; currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void; budgetSearchQuery?: string; onLinkVehicle: (id: string, vehicleId: string) => Promise<Lead> }) {
+export function LeadsPage({ initialMyCarsPlate, initialLeadId, currentUser, vehicles, customers, leads, onCreateCustomer, onUpdate, budgetSearchQuery, onLinkVehicle }: { initialMyCarsPlate?: string; initialLeadId?: string; currentUser: CurrentUser | null; vehicles: Vehicle[]; customers: Customer[]; leads: Lead[]; onCreateCustomer: (lead: Lead) => Promise<void>; onUpdate: (lead: Lead) => Promise<void> | void; budgetSearchQuery?: string; onLinkVehicle: (id: string, vehicleId: string) => Promise<Lead> }) {
   const [leadKeyword, setLeadKeyword] = useState("");
   const [leadStatusFilter, setLeadStatusFilter] = useState<Lead["status"] | "All">("All");
   const [leadLinkFilter, setLeadLinkFilter] = useState<LeadLinkFilter>("All");
@@ -5450,6 +5462,7 @@ export function LeadsPage({ initialMyCarsPlate, currentUser, vehicles, customers
   const budgetFrom = budgetParams.get("from");
   const budgetTo = budgetParams.get("to");
   const filteredLeads = filterLeadsForTriage(leads, { status: leadStatusFilter, link: leadLinkFilter })
+    .filter((lead) => !initialLeadId || lead.id === initialLeadId)
     .filter((lead) => !budgetOnly || (lead.budgetSearchDate
       && (!budgetFrom || lead.budgetSearchDate >= budgetFrom)
       && (!budgetTo || lead.budgetSearchDate <= budgetTo)));
