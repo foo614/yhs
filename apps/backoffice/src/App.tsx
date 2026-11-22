@@ -2,7 +2,6 @@ import { RepairReviewPanel } from "./modules/repairs/RepairReviewPanel";
 import { LoanBankNameInput } from "./LoanBankNameInput";
 import { formatDisplayDate, formatDisplayDateTime } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { PendingDocumentReviews } from "./modules/dashboard/PendingDocumentReviews";
 import { DashboardUpdatesPanel } from "./modules/dashboard/DashboardUpdatesPanel";
 import { OperationsCalendar } from "./modules/shared/OperationsCalendar";
 import { CollectionAgeingPanel } from "./modules/dashboard/CollectionAgeingPanel";
@@ -1378,7 +1377,7 @@ export default function App() {
           <div ref={moduleContentRef}>
           {pathname === "/dashboard" && <div className="dashboardOperational">
             <DashboardUpdatesPanel roles={currentRoles} onNavigate={navigateTo} />
-            {currentRoles.includes("BossAdmin") ? <DashboardPage roles={currentRoles} dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} staffUsers={staffUsers} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} /> : <OperationsCalendar compact onOpenDelivery={currentRoles.includes("Delivery") ? (id) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(id)}`) : undefined} />}
+            {currentRoles.includes("BossAdmin") ? <DashboardPage dashboard={dashboard} dashboardLoadError={dashboardLoadError} reminders={reminders} priorityActions={priorityActions} reminderLoadError={reminderLoadError} vehicles={vehicles} staffUsers={staffUsers} lastCheckedAt={dashboardLastCheckedAt} refreshing={dashboardRefreshing} actionsLastCheckedAt={actionsLastCheckedAt} actionsRefreshing={actionsRefreshing} onRefreshActions={refreshDashboardActions} analyticsPeriod={dashboardPeriod} analyticsRangePreset={dashboardRangePreset} onRefresh={() => refreshDashboard()} onAnalyticsPeriodChange={changeDashboardPeriod} onNavigate={navigateTo} onOpenDelivery={currentRoles.includes("BossAdmin") || currentRoles.includes("Delivery") ? (deliveryId) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(deliveryId)}`) : undefined} /> : <OperationsCalendar compact onOpenDelivery={currentRoles.includes("Delivery") ? (id) => navigateTo(`/delivery?deliveryId=${encodeURIComponent(id)}`) : undefined} />}
           </div>}
           {pathname === "/vehicles" && (
             <VehiclePage
@@ -2445,7 +2444,6 @@ function ocrFieldSummary(job: VehicleOcrJob) {
 }
 
 export function DashboardPage({
-  roles = [],
   dashboard,
   dashboardLoadError,
   reminders,
@@ -2465,7 +2463,6 @@ export function DashboardPage({
   onNavigate,
   onOpenDelivery
 }: {
-  roles?: readonly string[];
   dashboard: DashboardSummary | null;
   dashboardLoadError: string | null;
   reminders: DashboardReminder[];
@@ -2587,7 +2584,6 @@ export function DashboardPage({
     <div className="dashboardPage dashboardWorkspace">
       <section className="dashboardCurrentWork" aria-labelledby="dashboard-work-title">
         <h2 id="dashboard-work-title" className="dashboardSectionTitle">Current work / 当前工作</h2>
-        <PendingDocumentReviews canReview={roles.includes("BossAdmin")} onNavigate={onNavigate} />
         <div className="dashboardWorkGrid">
           <div className="dashboardWorkPrimary">
             <ProCard title="Act now / 立即处理" className="dashboardPriorityCard" extra={<Space size={8} wrap><Tag color={priorityStatus.color}>{priorityStatus.label}</Tag><Button aria-label="Refresh actions" onClick={() => void onRefreshActions()} loading={actionsRefreshing}>Refresh actions</Button></Space>}>
