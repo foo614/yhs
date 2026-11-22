@@ -40,7 +40,8 @@ internal static class BrandedPdf
         Text(page, 438, 34, 8, copy, color: Muted);
     }
 
-    internal static byte[] Create(IReadOnlyList<string> pageContents, IEnumerable<string> searchableText)
+    internal static byte[] Create(IReadOnlyList<string> pageContents, IEnumerable<string> searchableText,
+        int pageWidth = PageWidth, int pageHeight = PageHeight)
     {
         const int pageObjectStart = 9;
         var contentObjectStart = pageObjectStart + pageContents.Count;
@@ -56,7 +57,7 @@ internal static class BrandedPdf
             Ascii("<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [-250 -143 1000 857] /ItalicAngle 0 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>"),
             StreamObject(Ascii(ToUnicodeCMap(searchableText)))
         };
-        objects.AddRange(pageContents.Select((_, index) => Ascii($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PageWidth} {PageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {contentObjectStart + index} 0 R >>")));
+        objects.AddRange(pageContents.Select((_, index) => Ascii($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {pageWidth} {pageHeight}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents {contentObjectStart + index} 0 R >>")));
         objects.AddRange(pageContents.Select(content => StreamObject(Ascii(content))));
 
         using var stream = new MemoryStream();
@@ -116,7 +117,8 @@ internal static class BrandedPdf
             Text(page, x, y - index * lineHeight, size, line, bold, color);
     }
 
-    internal static IEnumerable<string> WrapToWidth(string value, double fontSize, double maximumWidth)
+    internal static IEnumerable<string> WrapToWidth(string value, double fontSize, double maximumWidth,
+        Func<char, double>? measure = null)
     {
         var remaining = value.Trim();
         while (remaining.Length > 0)
@@ -126,7 +128,7 @@ internal static class BrandedPdf
             var index = 0;
             for (; index < remaining.Length; index++)
             {
-                var characterWidth = EstimatedWidth(remaining[index].ToString(), fontSize);
+                var characterWidth = measure?.Invoke(remaining[index]) ?? EstimatedWidth(remaining[index].ToString(), fontSize);
                 if (width + characterWidth > maximumWidth && index > 0) break;
                 width += characterWidth;
                 if (char.IsWhiteSpace(remaining[index])) lastSpace = index;

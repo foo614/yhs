@@ -14,6 +14,24 @@ public static class StockListExport
 
     public static byte[] Export(IEnumerable<Vehicle> vehicles, IEnumerable<SettlementReminder> settlements, StockListExportFilter filter)
     {
+        var rows = Rows(vehicles, settlements, filter);
+        using var output = new MemoryStream();
+        using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteEntry(archive, "[Content_Types].xml", ContentTypesXml);
+            WriteEntry(archive, "_rels/.rels", RootRelationshipsXml);
+            WriteEntry(archive, "xl/workbook.xml", WorkbookXml);
+            WriteEntry(archive, "xl/_rels/workbook.xml.rels", WorkbookRelationshipsXml);
+            WriteEntry(archive, "xl/styles.xml", StylesXml);
+            WriteEntry(archive, "xl/worksheets/sheet1.xml", WorksheetXml(rows));
+        }
+
+        return output.ToArray();
+    }
+
+    internal static IReadOnlyList<IReadOnlyList<string>> Rows(IEnumerable<Vehicle> vehicles,
+        IEnumerable<SettlementReminder> settlements, StockListExportFilter filter)
+    {
         var settlementByVehicle = settlements
             .GroupBy(item => item.VehicleId)
             .ToDictionary(group => group.Key, group => group.Where(item => !item.SupersededById.HasValue).ToArray());
@@ -40,18 +58,7 @@ public static class StockListExport
             ]);
         }
 
-        using var output = new MemoryStream();
-        using (var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true))
-        {
-            WriteEntry(archive, "[Content_Types].xml", ContentTypesXml);
-            WriteEntry(archive, "_rels/.rels", RootRelationshipsXml);
-            WriteEntry(archive, "xl/workbook.xml", WorkbookXml);
-            WriteEntry(archive, "xl/_rels/workbook.xml.rels", WorkbookRelationshipsXml);
-            WriteEntry(archive, "xl/styles.xml", StylesXml);
-            WriteEntry(archive, "xl/worksheets/sheet1.xml", WorksheetXml(rows));
-        }
-
-        return output.ToArray();
+        return rows;
     }
 
     private static string BankLoanLabel(Vehicle vehicle, IReadOnlyList<SettlementReminder> settlements)

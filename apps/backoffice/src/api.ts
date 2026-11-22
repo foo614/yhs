@@ -2634,10 +2634,11 @@ export async function updateVehicle(vehicle: Vehicle): Promise<Vehicle> {
   });
 }
 
-export async function exportStockList(source?: VehiclePurchaseSource, includeSold = false): Promise<Blob> {
+export async function exportStockList(source?: VehiclePurchaseSource, includeSold = false, format: "xlsx" | "pdf" = "xlsx"): Promise<Blob> {
   const query = new URLSearchParams();
   if (source) query.set("source", source);
   if (includeSold) query.set("includeSold", "true");
+  if (format === "pdf") query.set("format", "pdf");
   const suffix = query.toString() ? `?${query.toString()}` : "";
   const response = await fetch(`${apiBaseUrl}/api/vehicles/stock-export${suffix}`, { credentials: "include" });
   if (!response.ok) throw new Error(await responseErrorMessage(response, `Stock list export failed with status ${response.status}`));

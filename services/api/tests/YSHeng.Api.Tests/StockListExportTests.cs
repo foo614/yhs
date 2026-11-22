@@ -70,6 +70,48 @@ public sealed class StockListExportTests
         Assert.Contains("<c r=\"H2\" t=\"inlineStr\"><is><t xml:space=\"preserve\">CASH</t>", sheet);
     }
 
+    [Fact]
+    public void Pdf_repeats_headers_and_preserves_the_filtered_workbook_rows()
+    {
+        var source = VehiclePurchaseSource.YSHeng;
+        var vehicles = Enumerable.Range(1, 43).Select(index => VehicleSeed.Available(publicVisible: false) with
+        {
+            PlateNumber = $"DEMO{index:000}",
+            Model = "Hybrid Touring",
+            PurchaseSource = source,
+            HasBankDebt = false,
+            HasSpareKey = true
+        }).ToArray();
+        var selected = vehicles.Take(41).ToArray();
+        vehicles[41] = vehicles[41] with { Status = VehicleStatus.Sold };
+        vehicles[42] = vehicles[42] with { PurchaseSource = VehiclePurchaseSource.Carro };
+        var filter = new StockListExportFilter(source);
+        var sheet = ReadSheet(StockListExport.Export(vehicles, [], filter));
+        using var pdf = UglyToad.PdfPig.PdfDocument.Open(
+            StockListPdf.Export(vehicles, [], filter, new DateOnly(2026, 11, 23)));
+
+        Assert.True(pdf.NumberOfPages > 1);
+        foreach (var page in pdf.GetPages())
+        {
+            Assert.Contains("Vehicle No", page.Text);
+            Assert.Contains("Purchase Source", page.Text);
+            Assert.Contains("UCD Date", page.Text);
+            Assert.Contains("Bank Loan", page.Text);
+            Assert.Contains("41 vehicles", page.Text);
+        }
+
+        var words = pdf.GetPages().SelectMany(page => page.GetWords()).Select(word => word.Text).ToArray();
+        foreach (var vehicle in selected)
+        {
+            Assert.Contains(vehicle.PlateNumber, sheet);
+            Assert.Single(words, word => word == vehicle.PlateNumber);
+        }
+        Assert.DoesNotContain("DEMO042", words);
+        Assert.DoesNotContain("DEMO043", words);
+        Assert.Equal(selected.Length, words.Count(word => word == "CASH"));
+        Assert.Equal(selected.Length, words.Count(word => word == "Yes"));
+    }
+
     private static string ReadSheet(byte[] workbook)
     {
         using var archive = new ZipArchive(new MemoryStream(workbook), ZipArchiveMode.Read);
