@@ -13,6 +13,50 @@ namespace YSHeng.Api.Tests;
 public sealed class InspectionRulesTests
 {
     [Fact]
+    public void Regular_booking_accepts_no_type_and_persists_no_special_type()
+    {
+        var request = new CreateInspectionRequest(
+            Guid.NewGuid(), default, InspectionCompany.YSHengAutomotive, false,
+            new DateOnly(2026, 11, 23), null, "BOOK-REGULAR", "INV-REGULAR", 100m, 100m, null, "INV-REGULAR");
+
+        Assert.True(InspectionRules.Validate(request, []).IsValid);
+        var record = InspectionRules.PrepareCreate(request, "synthetic-staff", request.SupplierInvoiceReference!);
+        Assert.Null(record.Type);
+        Assert.Equal(InspectionCompany.YSHengAutomotive, record.Company);
+        Assert.Equal(new DateOnly(2027, 3, 23), record.ReportExpiryDate);
+        Assert.Equal(["appointment-1day"], WhatsAppInspectionReminders.DueFor(record,
+            VehicleStatus.Available, new DateOnly(2026, 11, 22)).Select(item => item.Kind));
+        Assert.Equal(["expiry-7days"], WhatsAppInspectionReminders.DueFor(record with { Status = InspectionStatus.Completed },
+            VehicleStatus.Available, new DateOnly(2027, 3, 16)).Select(item => item.Kind));
+    }
+
+    [Theory]
+    [InlineData(InspectionCompany.YSHengAuto, null, "inspection_type_required")]
+    [InlineData(InspectionCompany.YSHengAuto, (InspectionType)999, "inspection_type_invalid")]
+    [InlineData(InspectionCompany.YSHengAutomotive, InspectionType.Awalan, "inspection_type_not_applicable")]
+    public void Create_enforces_type_applicability(InspectionCompany company, InspectionType? type, string code)
+    {
+        var request = new CreateInspectionRequest(Guid.NewGuid(), type, company, false,
+            new DateOnly(2026, 11, 23), null, "BOOK-1", "INV-1", 100m, 100m, null, "INV-1");
+        Assert.Contains(InspectionRules.Validate(request, []).Errors, error => error.Code == code);
+    }
+
+    [Fact]
+    public void Updates_preserve_historical_regular_types_without_allowing_new_stale_types()
+    {
+        var historical = new InspectionRecord { Company = InspectionCompany.YSHengAutomotive, Type = InspectionType.Awalan };
+        var request = new UpdateInspectionRequest(historical.Type, historical.Company, InspectionStatus.Completed,
+            false, new DateOnly(2026, 11, 23), null, "BOOK-1", 100m, 100m, null);
+        Assert.True(InspectionRules.Validate(request, historical).IsValid);
+        Assert.Equal(historical.Type, InspectionRules.ApplyUpdate(historical, request, "staff").Type);
+        Assert.Contains(InspectionRules.Validate(request, historical with { Type = null }).Errors,
+            error => error.Code == "inspection_type_not_applicable");
+        Assert.True(InspectionRules.Validate(request with { Type = null }, historical with { Type = null }).IsValid);
+        Assert.Contains(InspectionRules.Validate(request with { Company = InspectionCompany.YSHengAuto, Type = null }, historical).Errors,
+            error => error.Code == "inspection_type_required");
+    }
+
+    [Fact]
     public void Supported_types_match_the_client_inspection_dropdown()
     {
         Assert.Equal([9001, 9002, 9003, 9004, 9011], InspectionRules.SupportedTypes.Select(type => (int)type));
@@ -93,30 +137,44 @@ public sealed class InspectionRulesTests
         Assert.Equal("INV-101 (2)", row["SupplierDONumber"]);
         Assert.Equal("125.00", row["AllocatedAmount"]);
         Assert.Equal("", row["AutoCountInvoiceNumber"]);
-        Assert.Contains(NativeRows(archive, "PI_0001"), item => item.Count == 2 && item[0] == "Description" && item[1] == "9011 - PERTUKARAN HAK MILIK");
+        Assert.Contains(NativeRows(archive, "PI_0001"), item => item.Count == 2 && item[0] == "Description" && item[1] == "");
     }
 
-    [Fact]
-    public void Inspection_export_is_company_isolated_and_keeps_each_vehicle_allocation()
+    [Theory]
+    [InlineData(InspectionCompany.YSHengAuto)]
+    [InlineData(InspectionCompany.YSHengAutomotive)]
+    public void Inspection_export_is_company_isolated_and_keeps_each_vehicle_allocation(InspectionCompany company)
     {
-        var firstVehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000111"), PlateNumber = "ABC111" };
-        var secondVehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000112"), PlateNumber = "ABC112" };
+        var firstVehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000111"), PlateNumber = "MDQ154" };
+        var secondVehicle = new Vehicle { Id = Guid.Parse("00000000-0000-0000-0000-000000000112"), PlateNumber = "VJU8536" };
+        var otherCompany = company == InspectionCompany.YSHengAuto ? InspectionCompany.YSHengAutomotive : InspectionCompany.YSHengAuto;
         var inspections = new[]
         {
-            Inspection(firstVehicle, InspectionCompany.YSHengAuto, "INV-111", 70m),
-            Inspection(secondVehicle, InspectionCompany.YSHengAuto, "INV-112", 50m),
-            Inspection(firstVehicle, InspectionCompany.YSHengAutomotive, "INV-113", 999m)
+            Inspection(firstVehicle, company, "INV-111", 70m) with { Type = company == InspectionCompany.YSHengAuto ? InspectionType.Awalan : null },
+            Inspection(secondVehicle, company, "INV-112", 50m) with { Type = company == InspectionCompany.YSHengAuto ? InspectionType.Awalan : null },
+            Inspection(firstVehicle, otherCompany, "INV-113", 999m)
         };
 
         using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new(
-            inspections, [firstVehicle, secondVehicle], InspectionCompany.YSHengAuto))), ZipArchiveMode.Read);
+            inspections, [firstVehicle, secondVehicle], company))), ZipArchiveMode.Read);
         var rows = SheetRows(archive, "InspectionBookings");
 
         Assert.Equal(2, rows.Count);
-        Assert.Equal(["ABC111", "ABC112"], rows.Select(row => row["CarPlate"]));
+        Assert.Equal(["MDQ154", "VJU8536"], rows.Select(row => row["CarPlate"]));
         Assert.Equal(["70.00", "50.00"], rows.Select(row => row["AllocatedAmount"]));
         Assert.DoesNotContain(rows, row => row["SupplierInvoiceReference"] == "INV-113");
         Assert.Equal(2, SheetRows(archive, "PasteGuide").Count);
+        var firstPi = NativeRows(archive, "PI_0001");
+        var secondPi = NativeRows(archive, "PI_0002");
+        Assert.Contains(firstPi, row => row.Contains("INSPECTION FEE - MDQ154"));
+        Assert.DoesNotContain(firstPi, row => row.Any(cell => cell.Contains("VJU8536")));
+        Assert.Contains(secondPi, row => row.Contains("INSPECTION FEE - VJU8536"));
+        Assert.DoesNotContain(secondPi, row => row.Any(cell => cell.Contains("MDQ154")));
+        if (company == InspectionCompany.YSHengAutomotive)
+        {
+            Assert.Contains(firstPi, row => row.Count == 2 && row[0] == "Description" && row[1] == "");
+            Assert.Contains(secondPi, row => row.Count == 2 && row[0] == "Description" && row[1] == "");
+        }
     }
 
     [Theory]
@@ -125,7 +183,7 @@ public sealed class InspectionRulesTests
     [InlineData(InspectionCompany.YSHengAuto, InspectionType.Khas, "6020-O01", "9003 - Khas")]
     [InlineData(InspectionCompany.YSHengAuto, InspectionType.BerkalaSemula, "6020-O01", "9004 - Berkala Semula")]
     [InlineData(InspectionCompany.YSHengAuto, InspectionType.PertukaranHakMilik, "6020-O01", "9011 - Pertukaran Hak")]
-    [InlineData(InspectionCompany.YSHengAutomotive, InspectionType.Khas, "6I00-0000", "9003 - KHAS")]
+    [InlineData(InspectionCompany.YSHengAutomotive, InspectionType.Khas, "6I00-0000", "")]
     public void Inspection_native_pi_uses_saved_company_account_and_header(
         InspectionCompany company, InspectionType type, string account, string description)
     {
@@ -157,6 +215,23 @@ public sealed class InspectionRulesTests
         using var archive = new ZipArchive(new MemoryStream(first), ZipArchiveMode.Read);
         Assert.Single(WorkbookSheetNames(archive), name => name == "PI_0001");
         Assert.Contains(SheetRows(archive, "PasteGuide"), row => row["ReviewStatus"] == "BlockedForPaste" && row["Sheet"] == "");
+    }
+
+    [Fact]
+    public void Untyped_regular_export_retains_account_and_receipt_without_a_header_description()
+    {
+        var vehicle = new Vehicle { PlateNumber = "REG123" };
+        var inspection = Inspection(vehicle, InspectionCompany.YSHengAutomotive, "INV-REG", 100m) with { Type = null };
+        using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new(
+            [inspection], [vehicle], inspection.Company))), ZipArchiveMode.Read);
+        var row = Assert.Single(SheetRows(archive, "InspectionBookings"));
+        Assert.Equal("", row["InspectionTypeCode"]);
+        Assert.Equal("", row["InspectionType"]);
+        Assert.Equal("6I00-0000", row["AccountCode"]);
+        Assert.Equal(inspection.SourceReceiptNumber, row["SourceReceiptNumber"]);
+        Assert.Equal("ReviewRequired", row["ReviewStatus"]);
+        Assert.Equal("", Assert.Single(SheetRows(archive, "PasteGuide"))["Description"]);
+        Assert.Contains(NativeRows(archive, "PI_0001"), item => item.Count == 2 && item[0] == "Description" && item[1] == "");
     }
 
     [Fact]

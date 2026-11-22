@@ -350,7 +350,7 @@ public static class SeedData
             CREATE TABLE IF NOT EXISTS "InspectionRecords" (
                 "Id" uuid NOT NULL,
                 "VehicleId" uuid NOT NULL,
-                "Type" integer NOT NULL,
+                "Type" integer NULL,
                 "Company" integer NOT NULL,
                 "Status" integer NOT NULL,
                 "IsLorry" boolean NOT NULL,
@@ -369,6 +369,7 @@ public static class SeedData
                 "CompletedBy" text NULL,
                 CONSTRAINT "PK_InspectionRecords" PRIMARY KEY ("Id")
             );
+            ALTER TABLE "InspectionRecords" ALTER COLUMN "Type" DROP NOT NULL;
             CREATE INDEX IF NOT EXISTS "IX_InspectionRecords_VehicleId" ON "InspectionRecords" ("VehicleId");
             CREATE UNIQUE INDEX IF NOT EXISTS "UX_InspectionRecords_SourceReceipt_Vehicle"
                 ON "InspectionRecords" ("SourceReceiptNumber", "VehicleId")

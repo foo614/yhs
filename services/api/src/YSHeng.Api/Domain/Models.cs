@@ -250,7 +250,7 @@ public sealed record InspectionRecord
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public Guid VehicleId { get; init; }
-    public InspectionType Type { get; init; }
+    public InspectionType? Type { get; init; }
     public InspectionCompany Company { get; init; }
     public InspectionStatus Status { get; init; } = InspectionStatus.Booked;
     public bool IsLorry { get; init; }

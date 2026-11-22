@@ -310,6 +310,15 @@ public sealed class WhatsAppPostgresTests
                 ALTER TABLE "WhatsAppOutbox" DROP COLUMN "BusinessReference";
                 ALTER TABLE "WhatsAppOutbox" DROP COLUMN "TemplateReference";
                 """);
+            var historicalInspection = new InspectionRecord
+            {
+                Type = InspectionType.Awalan, Company = InspectionCompany.YSHengAutomotive,
+                BookingReference = "LEGACY-INSPECTION", SourceReceiptNumber = "LEGACY-INSPECTION",
+                SupplierInvoiceReference = "LEGACY-INSPECTION", AppointmentDate = new DateOnly(2026, 11, 23)
+            };
+            db.InspectionRecords.Add(historicalInspection);
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("""ALTER TABLE "InspectionRecords" ALTER COLUMN "Type" SET NOT NULL""");
             await SeedData.EnsureWhatsAppSchemaAsync(db);
             await SeedData.EnsureWhatsAppSchemaAsync(db);
             Assert.Equal(retained.Id, (await db.WhatsAppConsents.AsNoTracking().SingleAsync()).Id);
@@ -384,6 +393,7 @@ public sealed class WhatsAppPostgresTests
             }
             finally { finish.TrySetResult(); await first; }
             await VerifyApplicationAsync(config.ConnectionString);
+            Assert.Equal(InspectionType.Awalan, (await db.InspectionRecords.AsNoTracking().SingleAsync(item => item.Id == historicalInspection.Id)).Type);
             await using (var schemaDb = new AppDbContext(options))
             {
                 await schemaDb.Database.ExecuteSqlRawAsync("""
@@ -867,11 +877,12 @@ public sealed class WhatsAppPostgresTests
             secondVehicleId = secondVehicle.Id;
         }
 
-        static object Request(Guid vehicleId, string receipt, string supplierReference) => new
+        static object Request(Guid vehicleId, string receipt, string supplierReference,
+            InspectionType? type = InspectionType.Awalan, InspectionCompany company = InspectionCompany.YSHengAuto) => new
         {
             vehicleId,
-            type = (int)InspectionType.Awalan,
-            company = (int)InspectionCompany.YSHengAuto,
+            type = (int?)type,
+            company = (int)company,
             isLorry = false,
             appointmentDate = new DateOnly(2026, 12, 10),
             appointmentTime = new TimeOnly(9, 0),
@@ -915,6 +926,33 @@ public sealed class WhatsAppPostgresTests
             "/api/inspections/invoice-number-check?invoiceNumber=" + Uri.EscapeDataString(" " + invoiceNumber.ToLowerInvariant() + " ")));
         Assert.False(checkDocument.RootElement.GetProperty("available").GetBoolean());
         Assert.Equal(invoiceNumber.ToLowerInvariant() + " (1)", checkDocument.RootElement.GetProperty("suggestedInvoiceNumber").GetString());
+
+        var regularRequest = JsonSerializer.SerializeToNode(Request(firstVehicleId,
+            "REGULAR-" + invoiceNumber, "REGULAR-" + invoiceNumber, null, InspectionCompany.YSHengAutomotive))!.AsObject();
+        regularRequest.Remove("type");
+        using var regularResponse = await admin.PostAsJsonAsync("/api/inspections", regularRequest);
+        Assert.Equal(HttpStatusCode.Created, regularResponse.StatusCode);
+        using var regularDocument = JsonDocument.Parse(await regularResponse.Content.ReadAsStringAsync());
+        var regularId = regularDocument.RootElement.GetProperty("id").GetGuid();
+        using var regularRead = JsonDocument.Parse(await admin.GetStringAsync($"/api/inspections/{regularId}"));
+        Assert.Equal(JsonValueKind.Null, regularRead.RootElement.GetProperty("type").ValueKind);
+        Assert.Equal("YSHengAutomotive", regularRead.RootElement.GetProperty("company").GetString());
+        Assert.Equal("2027-04-10", regularRead.RootElement.GetProperty("reportExpiryDate").GetString());
+        regularRequest["type"] = null;
+        regularRequest["status"] = "Booked";
+        using var regularUpdate = await admin.PutAsJsonAsync($"/api/inspections/{regularId}", regularRequest);
+        Assert.Equal(HttpStatusCode.OK, regularUpdate.StatusCode);
+        using var updatedRegular = JsonDocument.Parse(await regularUpdate.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Null, updatedRegular.RootElement.GetProperty("type").ValueKind);
+
+        using var missingSpecialType = await admin.PostAsJsonAsync("/api/inspections",
+            Request(firstVehicleId, "MISSING-" + invoiceNumber, "MISSING-" + invoiceNumber, null));
+        Assert.Equal(HttpStatusCode.BadRequest, missingSpecialType.StatusCode);
+        Assert.Contains("inspection_type_required", await missingSpecialType.Content.ReadAsStringAsync());
+        using var staleRegularType = await admin.PostAsJsonAsync("/api/inspections",
+            Request(firstVehicleId, "STALE-" + invoiceNumber, "STALE-" + invoiceNumber, InspectionType.Khas, InspectionCompany.YSHengAutomotive));
+        Assert.Equal(HttpStatusCode.BadRequest, staleRegularType.StatusCode);
+        Assert.Contains("inspection_type_not_applicable", await staleRegularType.Content.ReadAsStringAsync());
     }
 
     private sealed class StaffApplicationFactory(ConcurrentQueue<string> submitted) : WebApplicationFactory<Program>

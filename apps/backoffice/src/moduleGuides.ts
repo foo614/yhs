@@ -590,8 +590,8 @@ const inspectionGuide: ModuleGuideDefinition = {
   roleLabel: "Inspection operations / 验车作业",
   summary: "Book vehicle inspections, keep receipts and appointment confirmations with the correct plate, and close the record only after the completion report is uploaded.",
   quickSteps: [
-    { title: "Create the booking / 开预约", description: "Select the vehicle, inspection type, Special inspection option, date, Supplier Invoice No, and appointment confirmation reference." },
-    { title: "Upload the evidence / 上传文件", description: "Attach the receipt and appointment confirmation to this inspection, then upload the completion report after the inspection is done." },
+    { title: "Create the booking / 开预约", description: "Select the vehicle and appointment details. Check Special inspection for YS Heng Auto and select its required type; leave unchecked for a regular Automotive booking without a type." },
+    { title: "Upload the evidence / 上传文件", description: "After saving, use the file drawer's separate Upload buttons under Receipt and Appointment confirmation. Reopen it with View files on an existing booking; upload the completion report after the inspection." },
     { title: "Complete with expiry / 完成并跟到期日", description: "Mark the inspection completed only after its report is attached; the system keeps the four-month expiry for reminders." }
   ],
   sections: [
@@ -601,8 +601,8 @@ const inspectionGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Admin and Delivery",
       purpose: "Create one standalone inspection record with the exact plate, company, type, appointment, and receipt allocation.",
-      actions: ["Select the correct plate.", "Choose 9001, 9002, 9003, 9004, or 9011 independently of Special inspection.", "Check Special inspection for YS Heng Auto; leave unchecked for YS Heng Automotive Sdn Bhd.", "Enter appointment details, Supplier Invoice No, and allocated amount; use a manually confirmed bracket suffix for another vehicle on the same receipt."],
-      requiredItems: ["Vehicle", "Inspection type", "Appointment date", "Booking reference", "Supplier Invoice No", "Receipt total and allocation"],
+      actions: ["Select the correct plate.", "Check Special inspection for YS Heng Auto and choose 9001, 9002, 9003, 9004, or 9011.", "Leave Special inspection unchecked for YS Heng Automotive Sdn Bhd; no type is needed.", "Enter appointment details, Supplier Invoice No, and allocated amount; use a manually confirmed bracket suffix for another vehicle on the same receipt."],
+      requiredItems: ["Vehicle", "Inspection type for Special inspection only", "Appointment date", "Booking reference", "Supplier Invoice No", "Receipt total and allocation"],
       completeWhen: "The booking is saved against the correct vehicle and its source receipt.",
       handoff: "Inspection documents / 验车文件.",
       warnings: ["Receipt references are retained per vehicle allocation and are not renumbered when rows are reordered."]

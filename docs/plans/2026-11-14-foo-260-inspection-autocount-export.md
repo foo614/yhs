@@ -17,14 +17,19 @@ add AutoCount import, posting, WhatsApp, or other inspection workflow changes.
 
 The 21 November clarification replaces booking company selection with an
 independent Special inspection checkbox: checked routes to Auto, unchecked to
-Automotive, regardless of inspection type. Account codes above retain the literal
+Automotive. The 22 November clarification requires a supported type only for
+checked Special inspection; unchecked bookings store no type. Account codes above retain the literal
 letters I and O supplied in that clarification. Historical company assignments
 remain unchanged. Auto header descriptions use the selected type in title case,
-with `9011 - Pertukaran Hak`; Automotive retains the existing uppercase format.
+with `9011 - Pertukaran Hak`. INTERNAL SYSTEM 5 slide 21 (Automotive) has no
+header Description field, unlike slide 22 (Auto); Automotive's native header
+description value stays blank, and the plate description belongs only on its detail line.
+The letters I and O in the account codes were explicitly reconfirmed on 22 November.
 
-The inspection type code is retained in the review listing (`9001`, `9002`,
-`9003`, `9004`, `9011`) and the native header Description uses
-`<type code> - <type name>` as shown in the source slide. Each native PI has
+The inspection type code, when present, is retained in the review listing (`9001`, `9002`,
+`9003`, `9004`, `9011`); regular bookings have blank type code/name cells. Auto's
+native header Description uses `<type code> - <type name>`; Automotive's header
+description stays blank, even on historical typed records. Each native PI has
 one quantity-1 line described as `INSPECTION FEE - <plate>` and priced from
 that vehicle's `AllocatedAmount`.
 The original `SourceReceiptNumber` is retained, including when reused across

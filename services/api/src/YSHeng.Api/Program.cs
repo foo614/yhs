@@ -2505,7 +2505,7 @@ backOffice.MapPut("/inspections/{id:guid}", async (Guid id, UpdateInspectionRequ
         var sourceLockKey = $"inspection-receipt:{inspection.SourceReceiptNumber.Trim().ToUpperInvariant()}";
         await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({sourceLockKey}, 0))");
     }
-    var validation = InspectionRules.Validate(request);
+    var validation = InspectionRules.Validate(request, inspection);
     if (!validation.IsValid) return Results.BadRequest(validation);
     var siblingAllocations = await db.InspectionRecords.AsNoTracking()
         .Where(item => item.Id != id)
