@@ -251,18 +251,14 @@ System numbering skips normalized existing legacy numbers and reserves the `YSH-
 
 Owner-invoice revision requests allow at most 100 classified lines, each with a recognized `PurchaseInvoiceLineType`, a description up to 500 characters, a positive net amount up to RM10 million and an optional non-negative `DiscountAmount` up to RM10 million. Canonical issue prices, discount amounts and revision line amounts must have at most two decimal places; fractional cents return structured precision errors without issuing or silently rounding a PDF. The reason is at most 500 characters; seller fields and payment reference are at most 200, and seller address at most 1,000. Validation is performed before creating a revision. Version metadata includes readable `createdBy` and `accountingConfirmedBy` labels, their timestamps and separate staff user-ID fields for audit correlation. Historical PDFs and prior-version confirmation evidence are retained.
 
-## Pending Document Reviews
+## Stored Document Review Resume
 
 | Method | Path | Policy | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/api/dashboard/document-reviews` | `BackOffice` + `Dashboard` (Boss/Admin) | Return `{ items }` for stored OCR jobs that can resume through an existing linked module workflow. The Current Work count is exactly `items.length`. |
-| `GET` | `/api/dashboard/document-reviews/{jobId}` | `BackOffice` + `Dashboard` (Boss/Admin) | Revalidate one actionable item before navigation and before first application; return HTTP 409 when it is no longer resumable. |
+| `GET` | `/api/dashboard/document-reviews` | `BackOffice` + `Dashboard` (Boss/Admin) | Return `{ items }` for stored OCR jobs that remain resumable through their linked module workflow. Retained for compatibility; the Dashboard does not render a pending-review tile or count. |
+| `GET` | `/api/dashboard/document-reviews/{jobId}` | `BackOffice` + `Dashboard` (Boss/Admin) | Revalidate one stored review before module resume and before first application; return HTTP 409 when it is no longer resumable. |
 
-Rows contain the original filename, vehicle plate, linked record, source and capture time, plus the permitted module path. They do not contain extracted identity values, raw OCR text or original file bytes. Existing protected OCR-job and document-content endpoints retain their authorization checks.
-
-Only the latest usable pending extraction for a document is considered. Supported destinations are a linked active Pending Repair receipt and a linked active Loan LOU with the correct vehicle/buyer. Unsupported, superseded, historical, unlinked, closed and already-applied records are omitted entirely from this shortcut, drawer and count; their original documents and history remain untouched. This queue is independent of the Dashboard analytics date range.
-
-Continue review opens the stored extraction and original document in the existing module controls without reupload or provider calls. Staff still correct and explicitly apply values. Existing module validation and target-first partial-save retry behavior remain in force. Reviewed LOU saves send `requireCompleteTerms=true`; missing or conflicting replay terms return HTTP 409 while identical retries remain safe. Legacy empty lookups remain read-only and compatible. The lower monitoring panel retains activity/accuracy/capacity analytics without duplicating the old global pending counter.
+Rows contain metadata needed to reopen the original Loan LOU or Repair receipt workflow without reuploading or rerunning OCR. They do not contain extracted identity values, raw OCR text, or original file bytes. Existing module permissions, target validation, manual correction, partial-save retry behavior, and protected document endpoints remain in force.
 
 ## Shared Operations Calendar
 

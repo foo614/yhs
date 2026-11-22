@@ -4116,10 +4116,6 @@ export type PendingDocumentReview = {
   recordId: string;
   path: string;
 };
-export type PendingDocumentReviews = { items: PendingDocumentReview[] };
-export function getPendingDocumentReviews(): Promise<PendingDocumentReviews> {
-  return request("/api/dashboard/document-reviews", {}, "Unable to load pending document reviews");
-}
 export function getPendingDocumentReview(jobId: string): Promise<PendingDocumentReview> {
   return request(`/api/dashboard/document-reviews/${encodeURIComponent(jobId)}`, {}, "This document review is no longer available. Refresh the queue.");
 }
