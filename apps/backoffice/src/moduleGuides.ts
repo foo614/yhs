@@ -465,12 +465,12 @@ const loanGuide: ModuleGuideDefinition = {
       label: "Loan Documents / 贷款文件",
       kind: "section",
       audience: "Loan uploads Loan Document; Broker supplies shared vehicle files; Admin may upload all",
-      purpose: "Complete the original-document requirement for the current vehicle and buyer while keeping edited copies and the LOU separate.",
-      actions: ["Review missing items.", "Preview the file and its assigned version before confirming upload.", "Request or review Broker-provided original Loan documents.", "Upload optional edited Loan documents or the LOU when available.", "Preview or download uploaded evidence when checking it.", "Mark Done only when at least one original Loan document is present."],
-      requiredItems: ["At least one original Loan document", "Optional edited Loan documents", "Optional LOU", "Every file linked to the same vehicle and current buyer"],
-      completeWhen: "The API reports the loan document checklist Complete.",
+      purpose: "Confirm a valid LOU or previously accepted original Loan document for the current loan while keeping edited copies separate.",
+      actions: ["Review missing items.", "Preview the file and its assigned version before confirming upload.", "Use the existing same-loan LOU when present; do not upload a duplicate original Loan document.", "Request or review a Broker-provided original Loan document only when no valid LOU or accepted original exists.", "Upload optional edited Loan documents when needed.", "Preview or download uploaded evidence when checking it.", "Mark Done only when the API reports the evidence complete."],
+      requiredItems: ["Valid LOU or at least one accepted original Loan document", "Optional edited Loan documents", "Every file linked to the same loan, vehicle, and current buyer"],
+      completeWhen: "The API reports the Loan evidence Complete from a same-loan LOU or accepted original Loan document.",
       handoff: "Status Done, then Delivery and Finance.",
-      warnings: ["Broker supplies original Loan documents; Loan role uploads edited copies and LOU; Admin can upload all.", "Inline preview supports PDF, JPEG, PNG, and WebP; other allowed upload types remain download-only.", "A file for another buyer or vehicle never satisfies this loan."]
+      warnings: ["Broker supplies original Loan documents; Loan role uploads edited copies and LOU; Admin can upload all.", "Inline preview supports PDF, JPEG, PNG, and WebP; other allowed upload types remain download-only.", "A file for another loan, buyer, or vehicle never satisfies this loan."]
     },
     {
       key: "manual-loan",
@@ -490,8 +490,8 @@ const loanGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Loan and Admin",
       purpose: "Confirm a financed sale is ready for downstream delivery and finance work.",
-      actions: ["Confirm canonical buyer.", "Confirm Submitted date.", "Confirm LOU Approved and LOU Done.", "Confirm at least one original Loan document and review optional edited/LOU files.", "Set Done and notify Delivery/Finance."],
-      requiredItems: ["Canonical buyer", "Submitted date", "LOU Approved", "LOU Done", "At least one original Loan document"],
+      actions: ["Confirm canonical buyer.", "Confirm Submitted date.", "Confirm LOU Approved and LOU Done.", "Confirm a valid same-loan LOU or an accepted original Loan document and review optional edited files.", "Set Done and notify Delivery/Finance."],
+      requiredItems: ["Canonical buyer", "Submitted date", "LOU Approved", "LOU Done", "Valid LOU or accepted original Loan document"],
       completeWhen: "The loan is Done with every gate satisfied.",
       handoff: "Financed sale to Delivery and Finance; cash sale may skip Loan.",
       warnings: ["Done remains an active loan state and the vehicle stays Loan Processing/private until payment reconciliation derives Sold.", "Rejected and Done have no reopen action."]

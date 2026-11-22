@@ -41,7 +41,7 @@ description: Work on the YS Heng .NET 10 backend API. Use for Minimal API endpoi
 - Documents are limited to 10 MB.
 - Public photos use the latest uploaded thumbnail, falling back to full content when appropriate.
 - Supplier invoices must link to an existing vehicle and be unique by supplier plus invoice number.
-- Loan completeness requires status receipt, VOC, and loan document.
+- Loan completion evidence requires a valid same-loan LOU or a previously accepted original Loan document, alongside the existing workflow and deal-field gates.
 - Delivery release requires readiness status plus all required checklist and document conditions.
 - Dashboard metrics aggregate stock, pending loan, outstanding payment, settlement due, repair cost, estimated and total profit, reminders, and vehicle aging.
 

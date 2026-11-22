@@ -5205,7 +5205,7 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Loan_document_check_requires_an_original_loan_document()
+    public void Loan_document_check_accepts_a_same_case_lou_without_a_duplicate_original()
     {
         var loan = new LoanApplication
         {
@@ -5217,13 +5217,15 @@ public sealed class BusinessRulesTests
         };
         var documents = new[]
         {
-            new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument }
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument }
         };
 
         var result = LoanDocumentRules.CheckCompleteness(loan, documents);
 
-        Assert.False(result.IsComplete);
-        Assert.Contains(FileCategory.LoanOriginalDocument, result.MissingCategories);
+        Assert.True(result.IsComplete);
+        Assert.Empty(result.MissingCategories);
+        Assert.Equal(1, result.LouDocumentCount);
+        Assert.Equal(0, result.OriginalDocumentCount);
     }
 
     [Fact]
@@ -5256,15 +5258,14 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
-    public void Loan_document_check_accepts_multiple_originals_and_keeps_edited_and_lou_optional()
+    public void Loan_document_check_accepts_previously_recorded_originals_without_a_lou()
     {
         var loan = new LoanApplication { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid() };
         var documents = new[]
         {
             new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanOriginalDocument },
             new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanOriginalDocument },
-            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanEditedDocument },
-            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument }
+            new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanEditedDocument }
         };
 
         var result = LoanDocumentRules.CheckCompleteness(loan, documents);
@@ -5272,8 +5273,26 @@ public sealed class BusinessRulesTests
         Assert.True(result.IsComplete);
         Assert.Equal(2, result.OriginalDocumentCount);
         Assert.Equal(1, result.EditedDocumentCount);
-        Assert.Equal(1, result.LouDocumentCount);
+        Assert.Equal(0, result.LouDocumentCount);
         Assert.Empty(result.MissingCategories);
+    }
+
+    [Fact]
+    public void Loan_document_check_rejects_missing_removed_and_wrong_case_lou_evidence()
+    {
+        var loan = new LoanApplication { Id = Guid.NewGuid(), VehicleId = Guid.NewGuid(), CustomerId = Guid.NewGuid(), RequiresExplicitOriginal = true };
+        var wrongCase = new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = Guid.NewGuid(), CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument };
+        var wrongBuyer = new DocumentBlob { VehicleId = loan.VehicleId, CustomerId = Guid.NewGuid(), Category = FileCategory.LoanDocument };
+        var wrongVehicle = new DocumentBlob { VehicleId = Guid.NewGuid(), LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument };
+        var validLou = new DocumentBlob { VehicleId = loan.VehicleId, LoanApplicationId = loan.Id, CustomerId = loan.CustomerId, Category = FileCategory.LoanDocument };
+
+        var invalidEvidence = new[] { wrongCase, wrongBuyer, wrongVehicle };
+        Assert.False(LoanDocumentRules.CheckCompleteness(loan, []).IsComplete);
+        Assert.False(LoanDocumentRules.CheckCompleteness(loan, invalidEvidence).IsComplete);
+        var evidence = invalidEvidence.Append(validLou).ToList();
+        Assert.True(LoanDocumentRules.CheckCompleteness(loan, evidence).IsComplete);
+        evidence.Remove(validLou);
+        Assert.False(LoanDocumentRules.CheckCompleteness(loan, evidence).IsComplete);
     }
 
     [Fact]
