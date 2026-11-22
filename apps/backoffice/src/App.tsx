@@ -6545,90 +6545,96 @@ function AdminPage({
 function SystemFlowReference() {
   const flowSteps = [
     {
-      title: "1. Lead / Enquiry",
+      title: "1. Lead / Enquiry · 客户询问",
       owner: "Broker",
       records: ["Lead", "Customer"],
-      detail: "Public enquiry or walk-in customer is captured, qualified, and linked to a customer record."
+      detail: "Record website, QR or walk-in enquiries. Link qualified enquiries to a customer record. / 登记网站、二维码或到店询问，将有效询问关联至客户档案。"
     },
     {
-      title: "2. Vehicle Intake & Cost",
-      owner: "Broker + Admin",
+      title: "2. Vehicle Intake / 车辆入库",
+      owner: "Broker + Boss/Admin",
       records: ["Vehicle", "Previous Owner", "VOC", "Purchase Invoice"],
-      detail: "Create the stock record, verify the previous owner and VOC, record the real purchase cost and internal modified purchase cost, then obtain management price approval before publishing."
+      detail: "Enter the chassis and engine numbers and attach the VOC. Verify the previous owner and attach IC where required. Boss/Admin reviews costs and approves publication. / 填写车架号和引擎号，上传车辆注册文件，核对前车主并按要求上传身份证。由 Boss/Admin 核对成本并批准上架。"
     },
     {
-      title: "3. Refurbishment",
+      title: "3. Repair / 维修",
       owner: "Repair",
-      records: ["Repair Job", "Supplier Invoice"],
-      detail: "Active suppliers, repair work, receipts, classified costs, and completion evidence stay linked to the car plate."
+      records: ["Repair Job", "Supplier Receipt"],
+      detail: "Link supplier receipts to the vehicle and send them to Boss/Admin for approval before payment. / 将供应商收据关联至车辆，交由 Boss/Admin 审批后再付款。"
     },
     {
-      title: "4. Confirm Buyer & Sale",
+      title: "4. Buyer and Sale / 买家与成交",
       owner: "Broker + Finance",
       records: ["Buyer", "Broker", "Sales Invoice"],
-      detail: "Confirm the canonical buyer and broker, then Finance reviews the approved sale amounts before issuing the formal sales invoice."
+      detail: "Confirm the buyer and Broker in the sale workflow. Finance reviews the deal before issuing the sales invoice. / 在成交流程确认买家和 Broker，由财务核对成交资料后开具销售发票。"
     },
     {
-      title: "5. Finance Path",
+      title: "5. Loan or Cash / 贷款或现金",
       owner: "Loan or Finance",
       records: ["Loan Application", "Customer Receipt", "Bank Follow-up"],
-      detail: "Use the Loan workflow only for financed sales. Cash sales go directly to Finance collection. Record receipts against the issued invoice and reconcile the actual money received."
+      detail: "Complete Loan before booking Delivery for financed sales. Cash buyers proceed to collection. Finance can record a deposit before issuing the sales invoice. / 贷款成交须完成贷款个案后再预约交车。现金成交直接收款，财务可在开票前记录订金。"
     },
     {
-      title: "6. Previous Owner Settlement",
-      owner: "Finance",
-      records: ["Settlement", "Payment Voucher", "Payment Evidence"],
-      detail: "Review the real purchase amount and bank debt, then collect or pay the difference with maker, approver, and payer controls."
+      title: "6. Bank Settlement / 银行结清",
+      owner: "Boss/Admin",
+      records: ["Bank Settlement", "Payment Evidence"],
+      detail: "Confirm the outstanding debt, pay the bank and attach settlement evidence. / 确认未结银行贷款，向银行付款并上传结清凭证。"
     },
     {
-      title: "7. Delivery & Handover",
+      title: "7. Inspection / 验车",
+      owner: "Delivery + Boss/Admin",
+      records: ["Booking", "Receipt", "Appointment Confirmation", "Report"],
+      detail: "Book first and complete the paperwork later. Special inspection requires a type and routes to YS Heng Auto. Other bookings route to Automotive. Upload the receipt and appointment confirmation separately. AutoCount export uses the receipt date. / 可先预约，再补齐资料。勾选特别验车须选择验车类型，记录归入 YS Heng Auto，其余归入 Automotive。分别上传收据和预约确认单，按收据日期导出 AutoCount。"
+    },
+    {
+      title: "8. Delivery & Handover / 交车",
       owner: "Delivery",
-      records: ["Delivery Schedule", "Inspection", "Policy", "Road Tax", "Handover"],
-      detail: "Complete the vehicle, document, customer-notice, and handover gates. Release only after Finance reconciliation and required evidence are complete."
+      records: ["Delivery Schedule", "Policy", "Road Tax", "Handover"],
+      detail: "Review the read-only sale amounts carried over from Loan. Complete the Delivery documents, Policy, applicable road-tax evidence and Finance clearance before release. / 核对贷款带入的只读成交金额。备齐交车文件、保单及适用的路税凭证，并确认财务已放行后交车。"
     },
     {
-      title: "8. Final Close",
-      owner: "Finance + Admin",
+      title: "9. Final Close / 结案",
+      owner: "Finance + Boss/Admin",
       records: ["Finance Clearance", "Audit Log", "Customer 360"],
-      detail: "Confirm delivery release and money reconciliation, close remaining exceptions, and retain the full customer, vehicle, document, and audit history."
+      detail: "Confirm handover and reconciliation. Use Customer 360 and Audit Log to trace the sale and resolve exceptions. / 确认交车与对账，通过客户 360 和操作记录追踪成交过程并处理异常。"
     }
   ];
 
   const ownershipRows = [
     {
       role: "BossAdmin" as StaffRole,
-      owns: "Approve pricing, manage staff/RBAC, inspect audit trail, review dashboard exceptions.",
-      handoff: "Confirms vehicle economics before website/loan/sold workflow progresses."
+      owns: "Approve vehicle pricing and repair receipts. Manage bank settlements, Insurance cases and staff access. / 审批车价与维修收据，管理银行结清、保险个案与员工权限。",
+      handoff: "Use Dashboard Updates for News and Pending Work. In Insurance & Road Tax, reconcile payments before copying rows to AutoCount. / 在工作动态查看公司动态与待办事项。在保险与路税模块核对款项后，再复制记录到 AutoCount。"
     },
     {
       role: "Sales" as StaffRole,
-      owns: "Leads, customer follow-up, vehicle intake, buyer confirmation, broker ownership, and website stock visibility.",
-      handoff: "Hands the confirmed buyer to Loan for financed sales or directly to Finance for cash collection."
+      owns: "Manage enquiries and vehicle intake. Record the buyer and final deal. / 管理询问和车辆入库，登记买家与成交资料。",
+      handoff: "Hand financed cases to Loan and cash sales to Finance collection. / 贷款个案交给贷款人员，现金成交交给财务收款。"
     },
     {
       role: "Repair" as StaffRole,
-      owns: "Refurbishment jobs, parts checklist, supplier invoice validation.",
-      handoff: "Updates repair total so Finance can estimate real profit."
+      owns: "Record repairs and attach supplier receipts to the vehicle. / 登记维修并将供应商收据关联至车辆。",
+      handoff: "Send receipts to Boss/Admin for approval before payment. / 将收据交给 Boss/Admin 审批后再付款。"
     },
     {
       role: "Loan" as StaffRole,
-      owns: "Loan submission, document checklist, LOU approve/done, 2-day follow-up.",
-      handoff: "Handles financed sales only, then hands the approved buyer to Finance collection and Delivery preparation."
+      owns: "Take the case, check original documents, record bank submissions, review LOU and follow up after two days. / 接手贷款个案，核对原件，记录提交银行的情况，审核 LOU，并在两天后跟进。",
+      handoff: "Complete the case after the final LOU, deal and documents are ready. / 确定最终采用的 LOU、成交资料和所需文件后完成个案。"
     },
     {
       role: "Delivery" as StaffRole,
-      owns: "Inspection booking, release schedule, document prep, road tax, policy, final cleaning checklist.",
-      handoff: "Sends the customer notice and completes handover only after operational evidence and Finance clearance are ready."
+      owns: "Manage Inspection bookings and Delivery schedules. / 管理验车预约及交车安排。",
+      handoff: "Keep PUSPAKOM files in Inspection and handover files in Delivery. Check release readiness before handover. / 验车文件存于验车模块，交车文件存于交车模块。交车前检查放行条件。"
     },
     {
       role: "Finance" as StaffRole,
-      owns: "Sales invoices, customer receipts, bank follow-up, previous-owner settlement, vouchers, and reconciliation.",
-      handoff: "Clears money movement for Delivery release and flags unresolved collection or settlement exceptions."
+      owns: "Manage sales invoices, customer receipts, disbursement and reconciliation. / 管理销售发票、客户收据、放款及对账。",
+      handoff: "Flag unresolved collection or disbursement issues before close. / 结案前标记未解决的收款或放款问题。"
     },
     {
       role: "HrSalary" as StaffRole,
-      owns: "Salary/commission reference, leave/MC controls, CP58 preparation as a planned extension.",
-      handoff: "Uses approved commission/payment records for year-end staff tax reporting."
+      owns: "Manage attendance, work schedules, leave balances and payroll within assigned permissions. / 按权限管理出勤、排班、假期余额和薪资。",
+      handoff: "Without an MC slip, use annual leave if it covers the full request. Otherwise treat the full request as unpaid. / 未附病假单时，年假余额足够则扣年假，否则整笔转为无薪假。"
     }
   ];
 
@@ -6638,7 +6644,7 @@ function SystemFlowReference() {
         <div>
           <span className="moduleEyebrow">Operating Model</span>
           <Typography.Title level={3}>System Flow Reference / 系统流程参考</Typography.Title>
-          <Typography.Text>Use this page as the standard department handoff map before configuring users and roles.</Typography.Text>
+          <Typography.Text>Check who owns each step and where to hand over the record. / 查看各步负责人及记录交接位置。</Typography.Text>
         </div>
         <div className="rbacSummary">
           <span><strong>{flowSteps.length}</strong> workflow steps</span>
@@ -6665,11 +6671,11 @@ function SystemFlowReference() {
           direction="vertical"
           size="small"
           items={[
-            { title: "Intake and price approval", description: "Broker records the vehicle, previous owner, VOC, real purchase cost, internal modified cost, and selling price; management approves before publishing." },
-            { title: "Buyer and invoice confirmed", description: "Broker confirms the buyer and broker. Finance reviews the approved amounts and issues the formal sales invoice." },
-            { title: "Cash or loan path completed", description: "Financed sales complete the Loan workflow; cash sales proceed directly to collection. Finance records receipts and reconciles cleared money." },
-            { title: "Settlement and delivery cleared", description: "Finance completes the previous-owner settlement and payment controls. Delivery releases only after operational evidence and Finance clearance are complete." },
-            { title: "Final close retained", description: "Customer 360 and the Audit Log retain the complete sale, finance, document, and handover history." }
+            { title: "Intake and price approval / 入库与价格审批", description: "Verify vehicle identity and ownership documents. Boss/Admin reviews costs and approves publication. / 核对车辆资料与车主文件，由 Boss/Admin 核对成本并批准上架。" },
+            { title: "Buyer and payment path / 买家与付款方式", description: "Confirm the buyer in the sale workflow. Finance can record a deposit before invoicing. / 在成交流程确认买家，财务可在开票前记录订金。" },
+            { title: "Loan handoff / 贷款交接", description: "Complete Loan before booking Delivery for financed sales. Cash sales go directly to collection. / 贷款成交须完成贷款个案后再预约交车，现金成交直接收款。" },
+            { title: "Inspection and handover / 验车与交车", description: "Keep inspection evidence in Inspection. Complete Delivery documents and check Finance clearance before handover. / 验车凭证存于验车模块。交车前备齐交车文件并确认财务已放行。" },
+            { title: "Final close / 结案", description: "Reconcile the money received and retain the customer, vehicle and handover history. / 核对到账款项，保留客户、车辆及交付记录。" }
           ]}
         />
       </ProCard>
@@ -6679,7 +6685,7 @@ function SystemFlowReference() {
           <article className="mobileRecordCard" key={row.role}>
             <div className="mobileRecordHeader">
               <div>
-                <Typography.Text className="mobileRecordEyebrow">Department Role</Typography.Text>
+                <Typography.Text className="mobileRecordEyebrow">Department Role / 部门角色</Typography.Text>
                 <Typography.Title level={5}>{roleLabel(row.role)}</Typography.Title>
               </div>
               <Tag color={row.role === "BossAdmin" ? "green" : "blue"}>{roleLabel(row.role)}</Tag>
@@ -6701,7 +6707,7 @@ function SystemFlowReference() {
         className="systemOwnershipTable desktopDataTable"
         columns={[
           {
-            title: "Department Role",
+            title: "Department Role / 部门角色",
             dataIndex: "role",
             width: 160,
             render: (role: StaffRole) => <Tag color={role === "BossAdmin" ? "green" : "blue"}>{roleLabel(role)}</Tag>
@@ -6718,7 +6724,7 @@ function SystemFlowReference() {
         className="operationalInfoAlert"
         type="info"
         showIcon
-        message="Loan is optional. Cash sales move from confirmed buyer and sales invoice directly to Finance collection; financed sales pass through Loan first."
+        message="Cash sales go directly to Finance collection. Financed sales complete Loan before Delivery booking. / 现金成交直接进入财务收款。贷款成交须完成贷款个案后再预约交车。"
       />
     </Space>
   );
