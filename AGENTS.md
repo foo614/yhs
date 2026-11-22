@@ -35,7 +35,7 @@ Codex must also follow `docs/BRANCHING_STRATEGY.md` for branch creation, commits
 ## Loop engineering
 
 - Use `docs/CODEX_LOOP_ENGINEERING.md` for Codex automation, worktree, subagent, and loop-state guidance.
-- Keep recurring loops read-only by default. Use worktrees for isolated implementation after a human approves a finding.
+- Keep recurring loops read-only by default. Reuse an appropriate checkout for approved implementation and create a separate worktree only when concurrent or mixed work needs isolation.
 
 ## Compatibility note
 

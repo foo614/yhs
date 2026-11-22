@@ -9,7 +9,7 @@ Use this as the project-shared operating guide for Codex automations, worktrees,
 - Keep project behavior in repo-local files: `AGENTS.md`, `codex-agent.md`, `.codex/skills/`, `.codex/agents/`, and `docs/`.
 - Define the method in a skill before scheduling it as an automation.
 - Keep recurring loops read-only until a human approves a specific finding for implementation.
-- Use a dedicated worktree for independent implementation. Child agent threads share the workspace unless explicitly isolated; separate chats alone do not prevent overlapping edits.
+- Reuse an appropriate existing checkout for related or sequential implementation. Create a dedicated worktree when concurrent edits, mixed ownership, or release isolation make reuse unsafe. Child agent threads share the workspace unless explicitly isolated; separate chats alone do not prevent overlapping edits.
 - Split maker and checker roles for non-trivial work.
 - Keep high-risk gates from `codex-agent.md` active for every loop.
 - Record durable decisions in repo docs, GitHub issues, pull requests, or Codex automation triage, not in teammate-specific global config.
@@ -20,7 +20,7 @@ Use this as the project-shared operating guide for Codex automations, worktrees,
 | --- | --- |
 | Discovery | `.codex/skills/ysheng-loop-triage/SKILL.md` |
 | Project knowledge | `AGENTS.md`, `codex-agent.md`, `.codex/skills/ysheng-*` |
-| Isolation | Codex app worktrees for independent implementation; bounded ownership within a shared task |
+| Isolation | Checkout reuse by default; Codex app worktrees when concurrent or mixed work needs isolation |
 | Review | One appropriate `.codex/agents/` reviewer or `/review`; a new standalone chat only when requested |
 | Security review | `.codex/agents/ysheng-security-reviewer.toml` and `.codex/skills/ysheng-security-review/SKILL.md` |
 | State | Codex Triage, GitHub issues/PRs, or a small repo doc when a loop needs shared state |
@@ -59,7 +59,7 @@ Use this as the first scheduled loop.
 
 - Skill: `$ysheng-loop-triage`
 - Cadence: weekday morning or weekly
-- Environment: dedicated worktree
+- Environment: reuse a maintained read-only checkout; do not create a new worktree for every run
 - Default action: report findings only
 - Allowed inputs: git status, recent commits, CI or PR metadata when available, repo docs, tests, and source files
 - Disallowed actions: file edits, staging, commits, pushes, Docker, deployment, database restore, backups, smoke tests, production data access, and secret handling
@@ -75,7 +75,7 @@ Use $ysheng-loop-triage. Read AGENTS.md, codex-agent.md, and docs/CODEX_LOOP_ENG
 Use when GitHub Actions or local validation fails.
 
 - Skill: `$ysheng-fix-ci`
-- Environment: worktree if edits are expected
+- Environment: reuse a suitable checkout if edits are expected; isolate only when work would conflict
 - Default action: identify root cause and propose or implement a focused fix only after the user asks for implementation
 - Verification: rerun the smallest failing command first
 
@@ -87,54 +87,15 @@ Use when review comments or requested changes arrive.
 - Optional helper: `.agents/skills/code-review-testing/SKILL.md`
 - Default action: inspect unresolved feedback, classify actionable items, and make focused edits only for approved comments
 
-### Linear Ticket Delegation
+### Repository-Native Task Delegation
 
-Use when YS Heng work starts from a Linear issue.
+Use a user request, Codex triage result, GitHub issue or pull request, or a small repository document as the task record. A tracker ticket is optional.
 
-- Integration: Codex for Linear
-- Trigger: assign the issue to Codex or mention `@Codex` in an issue comment
-- Repo pin: include `YHS` or the repository name in the comment when the issue context is ambiguous
-- Assignee: keep YS Heng Linear issues assigned to `me` unless the user names a different owner
-- Default action: create a Codex cloud task, post progress back to Linear, and produce a result summary or pull-request-ready change
-- Completion action: after implementation or triage deliverables are done, update the Linear issue to `Done` or the team's completed state, then re-read the issue to confirm completion before reporting success
-- Risk gate: tickets touching auth, finance, uploads, public data, persistence, deployment, secrets, or backups must ask for approval before implementation
-
-Recommended issue labels:
-
-- `codex-ready`: clear enough for Codex to pick up.
-- `codex-triage`: needs Codex to inspect and propose next steps only.
-- `codex-done`: completed and verified locally or in Codex Cloud.
-- `codex-blocked`: needs a human decision before Codex can continue.
-- `codex-risk-review`: likely high-risk; review only unless a human explicitly approves implementation.
-
-Recommended `@Codex` comment:
-
-```text
-@Codex implement this in the YS Heng repo.
-
-Follow AGENTS.md, codex-agent.md, and docs/CODEX_LOOP_ENGINEERING.md.
-Use the matching ysheng-* skill.
-Keep the change focused and open a pull-request-ready branch.
-Do not deploy, touch databases, handle secrets, or change auth, finance, uploads, public data, persistence, deployment, backups, or role policies without asking for approval first.
-Done when the smallest relevant validation passes and the Linear issue has been updated to a completed state.
-```
-
-For triage-only tickets:
-
-```text
-@Codex triage this in the YS Heng repo.
-
-Use $ysheng-loop-triage. Do not edit files. Report severity, evidence, owner skill, smallest validation, and whether this is safe for Codex implementation.
-```
-
-Linear triage-rule setup:
-
-1. In Linear, open `Settings`.
-2. Select the YS Heng team under `Your teams`.
-3. Enable `Triage` if it is not already enabled.
-4. Add a triage rule for selected incoming issues.
-5. Choose `Delegate` > `Codex`.
-6. Start with `codex-ready` only; expand automation after the first few runs are reviewed.
+- Linear is no longer an active YS Heng workflow tool. Do not create, reopen, assign, comment on, label, or status-update Linear issues.
+- Preserve existing Linear links and keys as historical context; do not rewrite old plans, commits, branches, or review records solely to remove them.
+- Use a descriptive `codex/<purpose>` branch. A ticket key is not required in branch names, commits, or pull requests.
+- Record the outcome, verification, review findings, and remaining work in the pull request. Link a GitHub issue, design note, incident, or other repository context when one exists.
+- Keep the risk gates below active regardless of where the task originated.
 
 ### Security-Sensitive Review
 
@@ -164,7 +125,7 @@ If there are no findings, say that and archive the automation run.
 
 1. Triage loop reports a finding.
 2. Human accepts, rejects, or asks for more detail.
-3. Accepted independent implementation gets its own worktree; bounded subtasks may use child agents with explicit ownership.
+3. Accepted implementation reuses an appropriate checkout when safe. Create a separate worktree when concurrent edits, mixed ownership, or release isolation require it; bounded subtasks may use child agents with explicit ownership.
 4. Codex uses the matching YS Heng skill to implement the smallest fix.
 5. Codex runs focused existing verification and adds cases only under the critical-coverage policy in `codex-agent.md`.
 6. A separate reviewer checks non-trivial changes for correctness, relevant security risks, and critical coverage gaps before merge or PR. Do not request tests merely because code changed.
@@ -187,4 +148,4 @@ Do not automate these actions without explicit user approval:
 
 Follow the model, delegation, and token-use policies in `codex-agent.md`; the TOML files hold executable model and concurrency defaults. Small tasks stay with the main agent. For larger tasks, delegate only bounded independent work or a justified reviewer pass, and return short results to the main chat. Do not duplicate exploration or launch every specialist for each change.
 
-Two active implementation worktrees are usually enough for this repo because the API, back office, front office, and docs share contracts. Prefer finishing and reviewing one finding before starting another that touches the same module.
+Prefer finishing and reviewing one finding before starting another that touches the same module. Reuse suitable checkouts for related sequential work, group changes intended for the same release when they form one coherent review scope, and avoid duplicate dependency installations or generated build outputs across worktrees.

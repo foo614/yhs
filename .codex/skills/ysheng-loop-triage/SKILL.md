@@ -85,14 +85,10 @@ Recommended next action: fix, review, defer, or close
 - Include exact file paths when available.
 - Keep summaries brief.
 - Name validation that should be run later; do not claim it passed unless it was actually run in the current loop.
-- When the next step needs implementation, recommend the matching YS Heng skill and a separate worktree or thread.
+- When the next step needs implementation, recommend the matching YS Heng skill and an appropriate existing checkout or thread. Recommend a separate worktree only when concurrent or mixed work needs isolation.
 
-## Linear-backed runs
+## Task records
 
-When the triage run is tied to a Linear issue:
-
-- If tracker writes are not explicitly allowed, include the recommended Linear state or label in the report instead of changing the issue.
-- If tracker writes are allowed and the issue has no assignee, set the Linear assignee to `me` unless the user names a different owner.
-- If tracker writes are allowed, post the triage result to Linear, update the issue state to `Done` only when the triage deliverable is complete, then re-read the issue and confirm the completed state before the final response.
-- If the issue is ready for implementation rather than done, recommend `codex-ready` and leave the issue open.
-- If the issue needs a human decision, recommend `codex-blocked` and state the missing decision.
+- Do not create, reopen, or update Linear issues. Existing Linear references are historical context only.
+- When a finding needs durable tracking, recommend a GitHub issue, pull request, Codex triage record, or small repository document that matches the scope.
+- Tracker records are optional for routine work. A clear user request and pull-request record are sufficient when no separate issue is useful.
