@@ -1,6 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OcrJob } from "../../api";
-import { groupOcrFields, isOcrImageMimeType, isOcrUploadMimeType, ocrFailureMessage, ocrFieldConflicts, ocrSupportsLineItems, repairLineItemsFromRawText, runOcrApplySteps, supportsManualOcrFallback, type OcrApplyProgress, type OcrReviewValues } from "./OcrUploadReview";
+import { groupOcrFields, isOcrImageMimeType, isOcrUploadMimeType, loadStoredOcrReview, ocrFailureMessage, ocrFieldConflicts, ocrSupportsLineItems, repairLineItemsFromRawText, runOcrApplySteps, supportsManualOcrFallback, type OcrApplyProgress, type OcrReviewValues } from "./OcrUploadReview";
+
+describe("persisted OCR resume boundaries", () => {
+  const item = { jobId: "job", documentId: "original", vehicleId: "vehicle", category: "RepairInvoice", recordId: "repair", source: "Repair" };
+  const stored = { id: "job", documentId: "original", category: "RepairInvoice", status: "NeedsReview", reviewDecision: "Pending", result: { fields: { amount: "100" } } };
+  // Prevent a stored extraction being applied to another vehicle/module or after a concurrent review.
+  it("reads the original pending job without uploading or analyzing again", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(item))).mockResolvedValueOnce(new Response(JSON.stringify(stored)));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      await expect(loadStoredOcrReview("job", "vehicle", "RepairInvoice", { repairJobId: "repair" })).resolves.toEqual(stored);
+      expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual(["/api/dashboard/document-reviews/job", "/api/ocr-jobs/job"]);
+      expect(fetch.mock.calls.every(([, options]) => !options.method || options.method === "GET")).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("rejects a mismatched record before reading extracted values", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(item)));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      await expect(loadStoredOcrReview("job", "vehicle", "RepairInvoice", { repairJobId: "other" })).rejects.toThrow("another record");
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("rejects a job processed between queue validation and extraction loading", async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(item))).mockResolvedValueOnce(new Response(JSON.stringify({ ...stored, status: "Reviewed", reviewDecision: "Reviewed" })));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      await expect(loadStoredOcrReview("job", "vehicle", "RepairInvoice", { repairJobId: "repair" })).rejects.toThrow("no longer pending");
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
 
 describe("OCR partial-save recovery", () => {
   const reviewedJob: OcrJob = { id: "reviewed-job", documentId: "document", category: "Voc", status: "Reviewed", progress: 100, warnings: [], createdAt: "2026-09-07T00:00:00Z", reviewDecision: "Reviewed" };

@@ -65,22 +65,22 @@ public static class WhatsAppNotificationDispatcher
                 options.TemplateFor(template.Key, "en_US") is not null).Select(template => template.Key).Distinct().ToArray();
             // Daily rows retain their v1 identity. Admit an approved matching v2
             // even when that language has no v1 fallback; other categories stay gated.
-            string[] V2Languages(string key) => refreshStaff is null ? [] :
-                new[] { "ms", "en_US" }.Where(language => options.TemplateFor(key, language) is not null).ToArray();
-            var dueLanguages = V2Languages(WhatsAppReminderV2.Due);
-            var deliveryLanguages = V2Languages(WhatsAppReminderV2.Delivery);
-            var leaveLanguages = V2Languages(WhatsAppReminderV2.Leave);
-            var attendanceLanguages = V2Languages(WhatsAppReminderV2.Attendance);
+            bool V2Ready(string key) => refreshStaff is not null && options.TemplateFor(key, "en_US") is not null;
+            var dueReady = V2Ready(WhatsAppReminderV2.Due);
+            var deliveryReady = V2Ready(WhatsAppReminderV2.Delivery);
+            var leaveReady = V2Ready(WhatsAppReminderV2.Leave);
+            var attendanceReady = V2Ready(WhatsAppReminderV2.Attendance);
             candidate = await db.WhatsAppOutbox.AsNoTracking().Where(row => row.EventKind != "test" && row.ProviderMessageId == null &&
                 ((row.Audience == "Customer" && options.Ready) || (row.Audience == "Staff" && options.StaffReady) ||
                  (row.Audience == "Enrollment" && options.InvitationReady)) &&
                 (row.State == "HeldForApproval" || row.State == "Queued" || row.State == "RetryScheduled") && row.TemplateReference != "" && row.NextAttemptAt <= now &&
-                ((row.Language == "ms" && ms.Contains(row.TemplateVersion)) || (row.Language == "en_US" && en.Contains(row.TemplateVersion)) ||
+                ((row.Audience == "Customer" && row.Language == "ms" && ms.Contains(row.TemplateVersion)) ||
+                 ((row.Audience != "Customer" || row.Language == "en_US") && en.Contains(row.TemplateVersion)) ||
                  (row.Audience == "Staff" && row.EventKind == "staff.notification" && row.TemplateVersion == "staff_notice_v1" &&
-                  ((row.MessageKind == "OutstandingDigest" && row.RequiredStaffRole == "BossAdmin" && dueLanguages.Contains(row.Language)) ||
-                   (row.MessageKind == "OutstandingDigest" && row.RequiredStaffRole == "Sales" && deliveryLanguages.Contains(row.Language)) ||
-                   (row.MessageKind == "LeaveApproval" && (row.RequiredStaffRole == "BossAdmin" || row.RequiredStaffRole == "HrSalary") && leaveLanguages.Contains(row.Language)) ||
-                   (row.MessageKind == "AttendanceSummary" && row.RequiredStaffRole == "BossAdmin" && attendanceLanguages.Contains(row.Language))))))
+                  ((row.MessageKind == "OutstandingDigest" && row.RequiredStaffRole == "BossAdmin" && dueReady) ||
+                   (row.MessageKind == "OutstandingDigest" && row.RequiredStaffRole == "Sales" && deliveryReady) ||
+                   (row.MessageKind == "LeaveApproval" && (row.RequiredStaffRole == "BossAdmin" || row.RequiredStaffRole == "HrSalary") && leaveReady) ||
+                   (row.MessageKind == "AttendanceSummary" && row.RequiredStaffRole == "BossAdmin" && attendanceReady)))))
                 .OrderBy(row => row.CreatedAt).ThenBy(row => row.Id).FirstOrDefaultAsync(ct);
             if (candidate is null)
             {
@@ -144,6 +144,11 @@ public static class WhatsAppNotificationDispatcher
         if (refreshed is not null) candidate = refreshed;
         if (refreshed is not null && refreshStaff is not null)
             candidate = await WhatsAppReminderV2.SelectAsync(db, options, candidate, now, ct);
+        if (candidate.Audience == "Enrollment")
+        {
+            var reference = WhatsAppStaffInvitation.ReferenceFor("en_US");
+            candidate = candidate with { Language = "en_US", Body = reference, TemplateReference = reference };
+        }
         var invitationEligible = candidate.Audience == "Enrollment" && assistant is not null &&
             await WhatsAppStaffInvitation.EligibleAsync(db, candidate, assistant, options, now, ct, lockChallenge: true);
         var owned = await db.WhatsAppOutbox.AnyAsync(row => row.Id == candidate.Id && row.Attempts == attempt && row.State == "Sending", ct);
@@ -167,8 +172,7 @@ public static class WhatsAppNotificationDispatcher
                             .SetProperty(row => row.SubmittedBody,
                                 WhatsAppReminderV2.Known(candidate.TemplateVersion) ? candidate.Body : candidate.TemplateReference)
                             .SetProperty(row => row.SubmittedTemplateName, approvedTemplate.Name)
-                            .SetProperty(row => row.SubmittedLanguage, WhatsAppReminderV2.Known(candidate.TemplateVersion)
-                                ? approvedTemplate.EffectiveProviderLanguage : approvedTemplate.Language), ct);
+                            .SetProperty(row => row.SubmittedLanguage, approvedTemplate.EffectiveProviderLanguage), ct);
                 }
                 result = await send(options, candidate, ct);
             }
@@ -226,13 +230,13 @@ public static class WhatsAppNotificationDispatcher
         var resolved = await WhatsAppStaffBindings.ResolveAsync(db, assistant, item.StaffBindingId.Value, now, ct);
         var allowed = resolved is not null && resolved.Value.Binding.PhoneNumberId == options.PhoneNumberId &&
             resolved.Value.Binding.StaffUserId == item.StaffUserId &&
-            resolved.Value.Binding.Recipient == item.Recipient && resolved.Value.Binding.Language == item.Language &&
+            resolved.Value.Binding.Recipient == item.Recipient &&
             WhatsAppStaffNotifications.RoleAllowed(item.MessageKind, [item.RequiredStaffRole]) &&
             resolved.Value.Roles.Contains(item.RequiredStaffRole) &&
             await db.WhatsAppStaffNotificationPolicies.AnyAsync(row => row.Category == item.MessageKind && row.Enabled, ct);
         if (!allowed) return null;
-        if (refreshStaff is not null) return await refreshStaff(db, item, now, ct);
-        return currentStaffFacts is not null && await currentStaffFacts(db, item, ct) ? item : null;
+        if (refreshStaff is not null) return await refreshStaff(db, item with { Language = "en_US" }, now, ct);
+        return item.Language == "en_US" && currentStaffFacts is not null && await currentStaffFacts(db, item, ct) ? item : null;
     }
 
     private static async Task<bool> ReceiptEligibleAsync(AppDbContext db, WhatsAppOutbox item, CancellationToken ct, bool lockReceipt = false)

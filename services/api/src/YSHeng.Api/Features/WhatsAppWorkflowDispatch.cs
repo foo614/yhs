@@ -34,7 +34,7 @@ public static class WhatsAppWorkflowDispatch
                 if (resolved is null || !await WhatsAppWorkflowEvents.CurrentFactsAsync(db, source, binding.StaffUserId, now, ct)) continue;
                 var recipientRole = source.RequiredRole == "AllStaff" ? resolved.Value.Roles.FirstOrDefault(role => WhatsAppStaffNotifications.RoleAllowed(source.Category, [role])) : source.RequiredRole;
                 if (recipientRole is null) continue;
-                var body = WhatsAppWorkflowEvents.RenderBody(source, vehicle, binding.Language);
+                var body = WhatsAppWorkflowEvents.RenderBody(source, vehicle, "en_US");
                 if (!ValidBody(body)) continue;
                 var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"staff|workflow|{source.Id:N}|{binding.StaffUserId}")));
                 if (await db.WhatsAppOutbox.AnyAsync(row => row.IdempotencyKey == key, ct)) continue;
@@ -44,7 +44,7 @@ public static class WhatsAppWorkflowDispatch
                     Recipient = binding.Recipient, RequiredStaffRole = recipientRole, MessageKind = source.Category,
                     BusinessEventKey = $"workflow:{source.Id:N}", BusinessEventVersion = source.SourceVersion,
                     EventKind = "staff.notification", TemplateVersion = "staff_notice_v1", TemplateReference = body,
-                    Body = body, Language = binding.Language, State = "Queued", CreatedAt = now,
+                    Body = body, Language = "en_US", State = "Queued", CreatedAt = now,
                     ScheduledAt = dueAt, NextAttemptAt = Math.Max(now, dueAt), ExpiresAt = source.ExpiresAt
                 };
                 db.WhatsAppOutbox.Add(row);

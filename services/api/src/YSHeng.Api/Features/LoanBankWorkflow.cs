@@ -111,6 +111,15 @@ public static class LoanBankWorkflow
             {
                 if (existing.LoanApplicationId != id || (request.BankOptionId.HasValue && request.BankOptionId != existing.Id))
                     return Results.Conflict(new ApiError("This LOU is already linked to another bank option."));
+                var hasReviewedTerms = request.RequireCompleteTerms || request.BankName is not null || request.LoanAmount.HasValue ||
+                    request.InterestRate.HasValue || request.TenureMonths.HasValue || request.Terms is not null;
+                if ((hasReviewedTerms && (string.IsNullOrWhiteSpace(request.BankName) || !request.LoanAmount.HasValue ||
+                    !request.InterestRate.HasValue || !request.TenureMonths.HasValue ||
+                    !string.Equals(existing.BankName, request.BankName.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                    existing.LoanAmount != request.LoanAmount || existing.InterestRate != request.InterestRate ||
+                    existing.TenureMonths != request.TenureMonths || (existing.Terms ?? "") != (request.Terms ?? "").Trim())) ||
+                    (request.UseAsFinal && !existing.IsSelected))
+                    return Results.Conflict(new ApiError("This LOU has already been applied with different reviewed terms. Refresh the loan before continuing."));
                 return Results.Ok(existing);
             }
             var bankName = (request.BankName ?? "").Trim();
@@ -214,4 +223,4 @@ public static class LoanBankWorkflow
 }
 
 public sealed record LoanBankRejectionRequest(string? RejectionReason);
-public sealed record LoanLouReviewRequest(string? BankName, decimal? LoanAmount, decimal? InterestRate, int? TenureMonths, string? Terms, Guid? BankOptionId = null, bool UseAsFinal = false);
+public sealed record LoanLouReviewRequest(string? BankName, decimal? LoanAmount, decimal? InterestRate, int? TenureMonths, string? Terms, Guid? BankOptionId = null, bool UseAsFinal = false, bool RequireCompleteTerms = false);

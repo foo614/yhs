@@ -58,7 +58,7 @@ describe("backoffice API contract types", () => {
     const apiClient = readFileSync(join(root, "apps", "backoffice", "src", "api.ts"), "utf8");
     const program = readFileSync(join(root, "services", "api", "src", "YSHeng.Api", "Program.cs"), "utf8");
     const backendRoutes = extractBackendRoutes(program);
-    for (const feature of ["LoanBankWorkflow", "LoanBuyerIntake"]) {
+    for (const feature of ["LoanBankWorkflow", "LoanBuyerIntake", "PendingDocumentReviews"]) {
       expect(program).toContain(`backOffice.Map${feature}()`);
       const source = readFileSync(join(root, "services", "api", "src", "YSHeng.Api", "Features", `${feature}.cs`), "utf8");
       for (const route of extractBackendRoutes(source.replaceAll("routes.Map", "backOffice.Map"))) backendRoutes.add(route);

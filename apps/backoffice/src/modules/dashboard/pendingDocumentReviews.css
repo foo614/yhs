@@ -1,0 +1,16 @@
+.pendingDocumentReviews { margin-bottom: 12px; }
+.pendingDocumentReviewsShortcut.ant-btn { display: flex; width: 100%; height: auto; min-height: 48px; justify-content: flex-start; gap: 10px; padding: 10px 12px; white-space: normal; text-align: left; }
+.pendingDocumentReviewsShortcut > span:nth-child(2) { flex: 1; }
+.pendingDocumentReviewsShortcut .ant-tag { margin: 0; }
+.pendingDocumentReviews > .ant-alert { margin-top: 8px; }
+.pendingDocumentReviewsToolbar { display: flex; justify-content: space-between; margin-bottom: 16px; }
+.pendingDocumentReviewsDrawer .ant-drawer-content-wrapper { max-width: 100vw; }
+.pendingDocumentReviewRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
+.pendingDocumentReviewDetails { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.pendingDocumentReviewDetails .ant-typography { max-width: 100%; }
+.pendingDocumentReviewsDrawer .ant-alert { margin-block: 12px; }
+@media (max-width: 720px) {
+  .pendingDocumentReviewRow { flex-direction: column; align-items: stretch; }
+  .pendingDocumentReviewRow > .ant-btn { align-self: flex-end; min-height: 44px; height: auto; white-space: normal; }
+  .pendingDocumentReviewsDrawer .ant-drawer-body { padding: 16px; }
+}

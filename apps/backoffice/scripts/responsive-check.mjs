@@ -7,6 +7,7 @@ export const routes = (process.env.RESPONSIVE_ROUTES ?? "dashboard,vehicles,repa
 export const widths = (process.env.RESPONSIVE_WIDTHS ?? "360,390,720,721,767,768,820,1024,1025,1440").split(",").map(Number);
 const vehicle = { id: "test-vehicle", plateNumber: "TEST1234", make: "Toyota", model: "Corolla Cross Hybrid Premium", year: 2024, stockOwner: "YSHeng", customerId: "test-customer", status: "Available", isPublic: false, purchasePrice: 80000, sellingPrice: 98000, additionalCharges: 0, refurbishmentTotal: 0, commissionTotal: 0, bossConfirmed: true };
 const fixtures = {
+  "/api/dashboard/document-reviews": { items: [] },
   "/api/dashboard/updates": { news: [], reminders: Array.from({ length: 6 }, (_, index) => ({ id: `update-${index}`, kind: "Loan", plate: `TEST${index}`, title: "Loan case / 贷款个案", status: "Approved", date: "2026-11-01", daysOpen: 17, recordedBy: "Synthetic Staff", path: "/loans" })) },
   "/api/auth/me": { isAuthenticated: true, id: "responsive-test", name: "Layout Test", roles: ["BossAdmin"] },
   "/api/vehicles": [vehicle],

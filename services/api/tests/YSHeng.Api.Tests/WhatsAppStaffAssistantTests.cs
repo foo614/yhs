@@ -1093,13 +1093,13 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     [Fact]
-    public async Task Quotas_language_changes_and_expired_requests_apply_without_relogin()
+    public async Task Quotas_english_only_and_expired_requests_apply_without_relogin()
     {
         await using var fixture = await Fixture.Create(limit: 2);
         Assert.True(await fixture.Verify(await fixture.Issue(language: "ms")));
         var confirmation = await fixture.DispatchAccepted();
-        Assert.Contains("disambungkan", confirmation);
-        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("language", "en_US"), "language-event", fixture.Now));
+        Assert.Contains("WhatsApp connected", confirmation);
+        Assert.True(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("language", "ms"), "language-event", fixture.Now));
         Assert.False(await WhatsAppStaffQueue.EnqueueAsync(fixture.Db, fixture.Options, fixture.Options.TestRecipient, new("help"), "over-limit", fixture.Now));
         var reply = await fixture.DispatchAccepted();
         Assert.Contains("English", reply);
@@ -1216,12 +1216,11 @@ public sealed class WhatsAppStaffAssistantTests
             dispatch: dispatch);
         Assert.True(disconnected.InvitationAvailable);
         Assert.Equal(["en_US"], disconnected.InvitationLanguages);
-        await Assert.ThrowsAsync<ArgumentException>(() => WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options,
-            "staff", new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch));
-        Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
         var issued = await WhatsAppStaffBindings.IssueAsync(fixture.Db, fixture.Options, "staff",
-            new(fixture.Options.TestRecipient, "en_US", true), "synthetic", fixture.Now, dispatch: dispatch);
+            new(fixture.Options.TestRecipient, "ms", true), "synthetic", fixture.Now, dispatch: dispatch);
         Assert.Equal("Queued", issued.InvitationState);
+        Assert.Equal("en_US", (await fixture.Db.WhatsAppStaffChallenges.SingleAsync()).Language);
+        Assert.Equal("en_US", (await fixture.Db.WhatsAppOutbox.SingleAsync()).Language);
         var awaiting = await WhatsAppStaffBindings.StatusAsync(fixture.Db, fixture.Options, "staff", fixture.Now,
             dispatch: dispatch);
         Assert.True(awaiting.InvitationAvailable);
@@ -1304,12 +1303,12 @@ public sealed class WhatsAppStaffAssistantTests
         Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
         Assert.Empty(await fixture.Db.WhatsAppOutbox.ToListAsync());
         var dispatch = InvitationDispatch();
-        var missingLanguage = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, dispatch,
+        var missingLanguage = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, InvitationDispatchFor("ms"),
             new(fixture.Options.TestRecipient, "en_US", true), default);
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.BadRequest<ApiError>>(missingLanguage);
         Assert.Empty(await fixture.Db.WhatsAppStaffChallenges.ToListAsync());
         var duplicate = InvitationDispatch(new WhatsAppApprovedTemplate { Key = "staff_invite_v1",
-            Name = "duplicate_invite", Language = "ms", Approved = true, ApprovalEvidence = "synthetic approval" });
+            Name = "duplicate_invite", Language = "en_US", Approved = true, ApprovalEvidence = "synthetic approval" });
         var duplicateLanguage = await WhatsAppStaffApi.ConnectAsync(context, fixture.Db, fixture.Options, duplicate,
             new(fixture.Options.TestRecipient, "ms", true), default);
         Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Conflict<ApiError>>(duplicateLanguage);
@@ -1369,7 +1368,7 @@ public sealed class WhatsAppStaffAssistantTests
         var result = await sender.SendAsync(dispatch, item);
         Assert.Equal("Accepted", result.Outcome);
         Assert.Contains("approved_staff_invite", payload);
-        Assert.Contains("Buka portal YS Heng", payload);
+        Assert.Contains("Open your YS Heng portal", payload);
         Assert.DoesNotContain(issued.Command[5..], payload);
         Assert.DoesNotContain(item.BusinessReference, payload);
     }
@@ -1408,7 +1407,7 @@ public sealed class WhatsAppStaffAssistantTests
     }
 
     private static WhatsAppDispatchOptions InvitationDispatch(params WhatsAppApprovedTemplate[] extraTemplates) =>
-        InvitationDispatchFor("ms", extraTemplates);
+        InvitationDispatchFor("en_US", extraTemplates);
 
     private static WhatsAppDispatchOptions InvitationDispatchFor(string language, params WhatsAppApprovedTemplate[] extraTemplates) => new()
     {

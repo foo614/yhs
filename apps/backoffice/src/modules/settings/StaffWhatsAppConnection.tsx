@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Tag, Typography, message } from "antd";
+import { Alert, Button, Checkbox, Form, Input, Modal, Space, Tag, Typography, message } from "antd";
 import { connectStaffWhatsApp, disconnectStaffWhatsApp, getStaffWhatsAppConnection, humanizeApiError, resendStaffWhatsAppInvitation, type StaffWhatsAppConnectInput, type StaffWhatsAppConnection as Connection, type StaffWhatsAppLink } from "../../api";
 
 const labels: Record<Connection["state"], string> = {
@@ -24,9 +24,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
   currentStaff.current = staffUserId;
   const [form] = Form.useForm<StaffWhatsAppConnectInput>();
   const [modal, contextHolder] = Modal.useModal();
-  const invitationLanguages = connection?.invitationLanguages ?? (connection?.invitationAvailable ? ["ms", "en_US"] : []);
   const manualLink = !connection?.invitationAvailable && connection?.manualLinkAvailable === true;
-  const setupLanguages = manualLink ? ["ms", "en_US"] : invitationLanguages;
   const load = useCallback(async () => {
     const requestId = ++requestSequence.current;
     statusInFlight.current = requestId;
@@ -68,7 +66,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
       mutationInFlight.current = true;
       setBusy(true);
       try {
-        const result = await connectStaffWhatsApp({ ...values, staffUserId, ...(manualLink ? { manualLink: true } : {}) });
+        const result = await connectStaffWhatsApp({ ...values, language: "en_US", staffUserId, ...(manualLink ? { manualLink: true } : {}) });
         if (currentStaff.current === staffUserId) { setLoadedLink({ staffUserId, value: result }); mutationInFlight.current = false; await load(); }
       } catch (failure) { message.error(humanizeApiError(failure)); throw failure; }
       finally { mutationInFlight.current = false; setBusy(false); }
@@ -128,13 +126,8 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
         <Button onClick={resend} disabled={busy || !connection.invitationAvailable || !connection.invitationCreatedAt || Date.now() < (connection.invitationCreatedAt + 60) * 1000}>Resend invitation</Button>}
     </Space>} />}
     {hasBinding ? <Button danger disabled={busy} onClick={disconnect}>Disconnect WhatsApp</Button> : connection &&
-      <Form form={form} name={`staffWhatsApp-${staffUserId ?? "self"}`} layout="vertical" initialValues={{ language: setupLanguages[0], consentConfirmed: false }} disabled={!connection.enabled || (!connection.invitationAvailable && !manualLink) || setupLanguages.length === 0 || busy} onFinish={connect}>
+      <Form form={form} name={`staffWhatsApp-${staffUserId ?? "self"}`} layout="vertical" initialValues={{ consentConfirmed: false }} disabled={!connection.enabled || (!connection.invitationAvailable && !manualLink) || busy} onFinish={connect}>
         <Form.Item name="recipient" label="WhatsApp number (with country code)" rules={[{ required: true, pattern: /^\+?[1-9][0-9]{7,14}$/, message: "Enter the country code and digits, for example +60123456789." }]}><Input aria-label="WhatsApp number (with country code)" autoComplete="off" inputMode="tel" /></Form.Item>
-        <Form.Item name="language" label="Reply language"
-          rules={[{ required: true }, { validator: (_, value) => setupLanguages.includes(value) ? Promise.resolve() : Promise.reject(new Error("Choose an available setup language.")) }]}>
-          <Select options={[{ value: "ms", label: "Bahasa Malaysia" }, { value: "en_US", label: "English" }]
-            .filter(option => setupLanguages.some(language => language === option.value))} />
-        </Form.Item>
         <Form.Item name="consentConfirmed" valuePropName="checked" rules={[{ validator: (_, value) => value ? Promise.resolve() : Promise.reject(new Error("Confirm agreement before connecting.")) }]}>
           <Checkbox>{isSelf ? "I agree to use this number for staff WhatsApp queries." : "The selected employee agrees to use this number for staff WhatsApp queries."}</Checkbox>
         </Form.Item>

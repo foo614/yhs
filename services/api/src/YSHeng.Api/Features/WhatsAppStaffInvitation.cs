@@ -18,9 +18,9 @@ public static class WhatsAppStaffInvitation
         var item = new WhatsAppOutbox
         {
             IdempotencyKey = WhatsAppStaffBindings.Hash("invite:" + challenge.StaffUserId + ":" + challenge.CodeHash + ":" + now),
-            Recipient = challenge.Recipient, TemplateVersion = TemplateKey, TemplateReference = ReferenceFor(challenge.Language),
-            EventKind = EventKind, BusinessReference = challenge.CodeHash, Language = challenge.Language,
-            Body = ReferenceFor(challenge.Language), State = "Queued", CreatedAt = now, NextAttemptAt = now, ScheduledAt = now,
+            Recipient = challenge.Recipient, TemplateVersion = TemplateKey, TemplateReference = ReferenceFor("en_US"),
+            EventKind = EventKind, BusinessReference = challenge.CodeHash, Language = "en_US",
+            Body = ReferenceFor("en_US"), State = "Queued", CreatedAt = now, NextAttemptAt = now, ScheduledAt = now,
             ExpiresAt = challenge.ExpiresAt, Audience = "Enrollment", StaffUserId = challenge.StaffUserId,
             MessageKind = "StaffInvitation"
         };
@@ -38,7 +38,7 @@ public static class WhatsAppStaffInvitation
         var challenge = await db.WhatsAppStaffChallenges.AsNoTracking().SingleOrDefaultAsync(row => row.StaffUserId == userId, ct);
         if (challenge is null || challenge.ConsumedAt is not null || challenge.ExpiresAt <= now || challenge.FailedAttempts >= 5)
             throw new ArgumentException("The connection command has expired. Start a new setup.");
-        if (dispatch.TemplateFor(TemplateKey, challenge.Language) is null)
+        if (dispatch.TemplateFor(TemplateKey, "en_US") is null)
             throw new ArgumentException("An approved invitation template is unavailable for the selected language.");
         var previous = await db.WhatsAppOutbox.AsNoTracking().Where(row => row.Audience == "Enrollment" &&
             row.StaffUserId == userId && row.BusinessReference == challenge.CodeHash)
@@ -61,7 +61,7 @@ public static class WhatsAppStaffInvitation
     {
         if (!assistant.Ready || !dispatch.InvitationReady || item.Audience != "Enrollment" ||
             item.EventKind != EventKind || item.TemplateVersion != TemplateKey || item.StaffUserId is null ||
-            item.BusinessReference.Length != 64 || dispatch.TemplateFor(TemplateKey, item.Language) is null ||
+            item.BusinessReference.Length != 64 || dispatch.TemplateFor(TemplateKey, "en_US") is null ||
             dispatch.PhoneNumberId != assistant.PhoneNumberId ||
             dispatch.BusinessAccountId != assistant.BusinessAccountId || !assistant.Allows(item.Recipient) || item.ExpiresAt <= now)
             return false;
@@ -70,7 +70,7 @@ public static class WhatsAppStaffInvitation
             .ExecuteUpdateAsync(set => set.SetProperty(row => row.FailedAttempts, row => row.FailedAttempts), ct) == 0) return false;
         var challenge = await db.WhatsAppStaffChallenges.AsNoTracking().SingleOrDefaultAsync(row => row.StaffUserId == item.StaffUserId, ct);
         if (challenge is null || challenge.CodeHash != item.BusinessReference || challenge.Recipient != item.Recipient ||
-            challenge.PhoneNumberId != assistant.PhoneNumberId || challenge.Language != item.Language ||
+            challenge.PhoneNumberId != assistant.PhoneNumberId ||
             challenge.ConsumedAt is not null || challenge.ExpiresAt <= now || challenge.FailedAttempts >= 5) return false;
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(row => row.Id == item.StaffUserId, ct);
         return WhatsAppStaffBindings.Active(user, now) &&
