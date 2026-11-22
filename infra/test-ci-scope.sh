@@ -32,7 +32,7 @@ assert_scope "$both_web" apps/frontoffice/app/vehicles/MarketingDescription.tsx
 assert_scope "$all" .github/workflows/ci.yml
 assert_scope "$all" unknown/shared-config.json
 assert_scope "$deployment_only" docs/DEPLOYMENT_RUNBOOK.md
-assert_scope "$none" docs/API.md AGENTS.md
+assert_scope "$none" docs/API.md .github/pull_request_template.md AGENTS.md
 assert_scope "$none"
 
 apphost_scope=$'frontoffice=false\nbackoffice=false\napi=true\ndeployment=true'

@@ -68,13 +68,13 @@ Personal integrations such as external code search, web research, and hosted MCP
 - Reuse an existing subagent for related work. The main agent integrates its findings, resolves disagreements, verifies the result, and returns one combined response; do not repeat the same exploration or review without a reason.
 - Use the fixed project roles and reuse procedure in `docs/CODEX_LOOP_ENGINEERING.md`. Reuse an addressable agent for the same workstream before spawning another; create a fresh instance for unrelated scope or when the prior instance is unavailable. Profiles persist in the repository, while a new instance needs a concise current handoff and does not automatically inherit another instance's conversation.
 - For frontend work, UI/UX is a primary acceptance concern. Use the UI/UX reviewer for a bounded design or interaction assessment when needed, and verify affected phone, tablet, and desktop layouts with populated states. Do not launch every specialist for every task.
-- Subagents run in child agent threads. A separate thread does not isolate the filesystem: avoid overlapping edits, and tell workers to preserve others' changes. Independent feature work needs separate worktrees under the branching strategy.
+- Subagents run in child agent threads. A separate thread does not isolate the filesystem: avoid overlapping edits, and tell workers to preserve others' changes. Reuse an appropriate checkout for related or sequential work; create a separate worktree when concurrent edits, mixed ownership, or release isolation make sharing unsafe.
 - Create a standalone user-visible chat only when the user asks. Do not create one merely to delegate a subtask.
 
 Use `docs/CODEX_LOOP_ENGINEERING.md` for automation prompts and durable loop state.
 
 - Define the workflow in a project skill before scheduling it. Keep scheduled discovery read-only unless the user explicitly approves implementation.
-- Run independent implementation loops in isolated worktrees. Keep maker/checker roles separate for non-trivial changes using one appropriate reviewer or `/review`; add a specialist only for distinct unresolved risk.
+- Reuse an appropriate existing checkout for implementation loops when its branch, ownership, and working state fit the task. Isolate work when concurrent edits, mixed changes, or release risk require it. Keep maker/checker roles separate for non-trivial changes using one appropriate reviewer or `/review`; add a specialist only for distinct unresolved risk.
 - Record durable decisions in repo-local docs or issue/PR systems, not personal global configuration.
 - Loops retain every high-risk gate and the authorization requirements for staging, commits, pushes, pull requests, deployment, and destructive operations.
 

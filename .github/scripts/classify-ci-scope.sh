@@ -50,7 +50,7 @@ while IFS= read -r path || [[ -n "$path" ]]; do
       frontoffice=true
       backoffice=true
       ;;
-    docs/*|.codex/*|.agents/*|AGENTS.md|codex-agent.md|README.md|CONTRIBUTING.md|LICENSE)
+    docs/*|.codex/*|.agents/*|.github/pull_request_template.md|AGENTS.md|codex-agent.md|README.md|CONTRIBUTING.md|LICENSE)
       ;;
     *)
       frontoffice=true

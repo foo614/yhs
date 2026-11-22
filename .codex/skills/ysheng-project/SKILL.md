@@ -1,6 +1,6 @@
 ---
 name: ysheng-project
-description: Work in the YS Heng MVP monorepo. Use for repository orientation, local commands, repo layout, deployment shape, verification steps, Docker Compose, Linear ticket execution, and cross-app changes.
+description: Work in the YS Heng MVP monorepo. Use for repository orientation, local commands, repo layout, deployment shape, verification steps, Docker Compose, repository workflow, and cross-app changes.
 ---
 
 # YS Heng Project
@@ -37,26 +37,23 @@ npm run dev:frontoffice
 npm run dev:backoffice
 ```
 
-## Linear tickets
+## Task tracking
 
-When the user asks to get or implement a Linear ticket:
-
-- Read the issue details before editing and prefer `codex-ready` issues for implementation.
-- When creating or updating YS Heng Linear issues from Codex, set the assignee to `me` unless the user names a different owner.
-- For implementation tickets, define done as local code/docs updated, focused validation run or explicitly blocked, Linear result comment posted, and the Linear issue state updated.
-- Before the final response, use Linear issue update tooling to move completed work to `Done` or the team's completed equivalent, then re-read the issue and confirm the status is completed.
-- If label updates are supported, replace `codex-ready` with `codex-done`; do not create missing labels unless the user asks.
-- If the status update fails or a Linear permission prompt blocks it, report that blocker and the exact next action.
+- Linear is not an active YS Heng workflow tool. Do not create, reopen, assign, comment on, label, or status-update Linear issues.
+- Treat existing Linear keys and links as historical context. Preserve them in old plans, commits, branches, and review records unless the user asks for a migration.
+- Routine work does not need a tracker ticket. Use the user request, pull request, optional GitHub issue, or a small repository document as durable context when needed.
+- Use descriptive `codex/<purpose>` branches, commit messages that state the result, and pull requests that summarize scope and verification.
 
 ## Model and task routing
 
-- Keep one implementation task, Linear ticket, branch, and worktree aligned. Delegate subtasks through child agents; create a separate user-visible chat only when the user asks.
-- Run implementation tasks in parallel only when their ticket scopes and owned files do not overlap and neither depends on the other's result. Keep work serial when tasks touch the same files, share a contract change, or use the same merge and production deployment chain.
+- Keep each branch focused on one coherent change or release scope. Related sequential work intended for the same release may share a suitable checkout and branch when it will be reviewed and reverted together.
+- Inspect the working tree before switching branches. Reuse an appropriate existing checkout by default; create a separate worktree only when concurrent edits, mixed ownership, or release isolation make reuse unsafe. Do not duplicate dependency installations or build outputs without a task-specific reason.
+- Run implementation tasks in parallel only when their scopes and owned files do not overlap and neither depends on the other's result. Keep work serial when tasks touch the same files, share a contract change, or use the same merge and production deployment chain.
 - Follow the model, delegation, and verification policies in `codex-agent.md`. Keep model IDs and effort defaults in `.codex/config.toml` and `.codex/agents/*.toml` aligned with that single policy.
 - Before opening a pull request, normally run a read-only Codex CLI review against the local branch diff. Resolve every merge-blocking finding and rerun the relevant checks before creating the pull request. This local review must not require the Codex GitHub App or permission to comment, push, or merge. An explicit user instruction to pause model review temporarily overrides this step; required repository CI and CodeQL remain mandatory.
 - After the pull request opens, require its repository CI and CodeQL checks to pass before merging to `main`; a successful local review does not replace these protected checks.
 - After a production deployment and its smoke checks succeed, create and push a date-based Git tag on the exact deployed `main` commit. Use the tag as the durable release and rollback reference, and never tag a branch commit, an unverified deployment, or a different revision from the one production is running.
-- Merge and deploy each completed feature through the repository branching strategy. Parallel work does not authorize combining unrelated tickets in one branch or deploying from a feature branch.
+- Merge and deploy each completed feature through the repository branching strategy. Parallel work does not authorize combining unrelated changes in one branch or deploying from a feature branch.
 
 ## Docker verification
 
