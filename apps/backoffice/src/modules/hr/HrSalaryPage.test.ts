@@ -157,30 +157,46 @@ describe("HR record list helpers", () => {
 });
 
 describe("HR attendance dashboard", () => {
-  const zeroSummary = {
-    checkedInToday: null,
+  const populatedSummary = {
+    today: "2026-11-23",
+    checkedInToday: 1,
     checkedOutToday: 0,
-    openSessionsToday: null,
+    openSessionsToday: 1,
     officeQrSessionsToday: 0,
-    manualSessionsToday: null,
+    manualSessionsToday: 1,
     outstationSessionsToday: 0,
-    pendingBusinessTripRequests: null,
+    pendingBusinessTripRequests: 0,
     activeOutstationToday: 0,
-    upcomingApprovedTrips: null
-  } as unknown as HrAttendanceDashboardSummary;
+    upcomingApprovedTrips: 0,
+    fullDayLeaveToday: 1,
+    outstationToday: 1,
+    scheduledReviewToday: 1,
+    days: [{
+      date: "2026-11-23",
+      checkedIn: 1,
+      fullDayLeave: 1,
+      outstation: 1,
+      scheduledReview: 1,
+      people: [
+        { staffUserId: "staff-1", staffDisplayName: "Alicia Tan", checkedIn: true, checkedOut: false, fullDayLeave: false, outstation: false, needsCheckInReview: false, firstCheckInAt: "2026-11-23T01:00:00Z", verificationMethod: "Manual" },
+        { staffUserId: "staff-2", staffDisplayName: "Ben Lim", checkedIn: false, checkedOut: false, fullDayLeave: true, outstation: false, needsCheckInReview: false },
+        { staffUserId: "staff-3", staffDisplayName: "Chong Wei", checkedIn: false, checkedOut: false, fullDayLeave: false, outstation: true, needsCheckInReview: false },
+        { staffUserId: "staff-4", staffDisplayName: "Devi Rao", checkedIn: false, checkedOut: false, fullDayLeave: false, outstation: false, needsCheckInReview: true, scheduledStartAt: "2026-11-23T01:00:00Z", scheduledEndAt: "2026-11-23T09:00:00Z" }
+      ]
+    }]
+  } satisfies HrAttendanceDashboardSummary;
 
-  it("groups today's state, check-in methods, and outstation workflow without percentages", () => {
-    const markup = renderToStaticMarkup(createElement(HrAttendanceDashboard, { summary: zeroSummary }));
+  it("shows real people for today's four operational states and puts review before trend", () => {
+    const markup = renderToStaticMarkup(createElement(HrAttendanceDashboard, { summary: populatedSummary }));
 
-    expect(markup).toContain("Today attendance / 今日打卡");
-    expect(markup).toContain("Check-in method / 打卡方式");
-    expect(markup).toContain("Outstation workflow / 外勤流程");
-    expect(markup).toContain("Pending trip approvals / 待审批外勤");
-    expect(markup).toContain("Active outstation today / 今日进行中外勤");
-    expect(markup).toContain("Approved trips, next 7 days / 未来7天已批准");
-    expect(markup).toContain("None recorded today / 今天没有记录");
-    expect(markup).toContain("No requests waiting / 没有待审批申请");
-    expect(markup).not.toContain("%");
+    expect(markup).toContain("Today’s workforce / 今日员工状态");
+    expect(markup).toContain("Alicia Tan");
+    expect(markup).toContain("Ben Lim");
+    expect(markup).toContain("Chong Wei");
+    expect(markup).toContain("Devi Rao");
+    expect(markup).toContain("Missing or incomplete schedules are never marked absent automatically");
+    expect(markup.indexOf("Needs check-in review / 需要核对打卡")).toBeLessThan(markup.indexOf("Attendance trend / 出勤趋势"));
+    expect(markup).not.toContain("leave reason");
   });
 
   it("removes the attendance reminders card while retaining the page API compatibility props", () => {
@@ -189,7 +205,7 @@ describe("HR attendance dashboard", () => {
       currentUser: { isAuthenticated: true, id: "staff-1", name: "Alicia Tan", roles: ["HrSalary"] },
       staffUsers: [{ id: "staff-1", email: "alicia@example.com", displayName: "Alicia Tan", roles: ["HrSalary"], isActive: true }],
       attendance: [],
-      attendanceDashboard: zeroSummary,
+      attendanceDashboard: populatedSummary,
       availabilityCalendar: [],
       attendanceReminders: [],
       attendanceReminderPolicies: [],

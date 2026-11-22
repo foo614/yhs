@@ -2033,6 +2033,44 @@ public sealed class BusinessRulesTests
     }
 
     [Fact]
+    public void Hr_attendance_dashboard_counts_people_once_and_only_flags_due_schedules()
+    {
+        var today = new DateOnly(2026, 11, 23);
+        var now = new DateTime(2026, 11, 23, 3, 0, 0, DateTimeKind.Utc);
+        var attendance = new[]
+        {
+            new HrAttendanceRecord { StaffUserId = "checked-in", AttendanceDate = today, CheckInAt = now.AddHours(-2), CheckOutAt = now.AddHours(-1) },
+            new HrAttendanceRecord { StaffUserId = "checked-in", AttendanceDate = today, CheckInAt = now.AddMinutes(-30) }
+        };
+        var schedules = new[]
+        {
+            new HrWorkSchedule { StaffUserId = "review", AttendanceDate = today, StartAt = now.AddHours(-1), EndAt = now.AddHours(7) },
+            new HrWorkSchedule { StaffUserId = "not-due", AttendanceDate = today, StartAt = now.AddHours(1), EndAt = now.AddHours(9) },
+            new HrWorkSchedule { StaffUserId = "full-leave", AttendanceDate = today, StartAt = now.AddHours(-1), EndAt = now.AddHours(7) }
+        };
+        var leaves = new[]
+        {
+            new HrLeaveRequest { StaffUserId = "full-leave", Status = HrLeaveStatus.Approved, StartDate = today, EndDate = today, StartSession = "AM", EndSession = "PM" },
+            new HrLeaveRequest { StaffUserId = "half-leave", Status = HrLeaveStatus.Approved, StartDate = today, EndDate = today, StartSession = "PM", EndSession = "PM" }
+        };
+        var trips = new[]
+        {
+            new HrBusinessTrip { StaffUserId = "outstation", Status = HrBusinessTripStatus.Approved, StartDate = today, EndDate = today }
+        };
+
+        var result = HrAttendanceAnalytics.BuildDay(today, today, now, attendance, schedules, leaves, trips, new Dictionary<string, string>());
+
+        Assert.Equal(1, result.CheckedIn);
+        Assert.Equal(1, result.FullDayLeave);
+        Assert.Equal(1, result.Outstation);
+        Assert.Equal(1, result.ScheduledReview);
+        Assert.True(result.People.Single(person => person.StaffUserId == "review").NeedsCheckInReview);
+        Assert.False(result.People.Single(person => person.StaffUserId == "not-due").NeedsCheckInReview);
+        Assert.False(result.People.Single(person => person.StaffUserId == "full-leave").NeedsCheckInReview);
+        Assert.DoesNotContain(result.People, person => person.StaffUserId == "unscheduled");
+    }
+
+    [Fact]
     public void Hr_leave_approval_updates_al_and_mc_balances_only()
     {
         var balance = new HrLeaveBalance { StaffUserId = "staff-1", AnnualLeaveDays = 8m, MedicalLeaveDays = 14m };

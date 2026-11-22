@@ -4996,33 +4996,72 @@ hr.MapGet("/attendance", async (AppDbContext db, HttpContext context) =>
         .ToListAsync());
 });
 
-hr.MapGet("/dashboard", async (AppDbContext db, HttpContext context) =>
+hr.MapGet("/dashboard", async (DateOnly? from, DateOnly? to, AppDbContext db, HttpContext context, UserManager<AppUser> userManager) =>
 {
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = HrBusinessClock.Today();
+    var startDate = from ?? today.AddDays(-29);
+    var rangeEndDate = to ?? today;
+    if (rangeEndDate < startDate || rangeEndDate > today || rangeEndDate.DayNumber - startDate.DayNumber > 92)
+        return Results.BadRequest(new ApiError("Attendance dashboard range must end on or before today and cover no more than 93 days."));
+
     var endDate = today.AddDays(7);
-    var attendanceQuery = db.HrAttendanceRecords.AsNoTracking().Where(record => record.AttendanceDate == today);
+    var attendanceQuery = db.HrAttendanceRecords.AsNoTracking()
+        .Where(record => (record.AttendanceDate >= startDate && record.AttendanceDate <= rangeEndDate) || record.AttendanceDate == today);
+    var scheduleQuery = db.HrWorkSchedules.AsNoTracking()
+        .Where(schedule => (schedule.AttendanceDate >= startDate && schedule.AttendanceDate <= rangeEndDate) || schedule.AttendanceDate == today);
+    var leaveQuery = db.HrLeaveRequests.AsNoTracking()
+        .Where(leave => leave.Status == HrLeaveStatus.Approved
+            && ((leave.StartDate <= rangeEndDate && leave.EndDate >= startDate) || (leave.StartDate <= today && leave.EndDate >= today)));
     var tripQuery = db.HrBusinessTrips.AsNoTracking();
     if (!DepartmentAccess.IsHrManager(context.User))
     {
         var staffUserId = StaffIdentity.CurrentUserId(context);
         attendanceQuery = attendanceQuery.Where(record => record.StaffUserId == staffUserId);
+        scheduleQuery = scheduleQuery.Where(schedule => schedule.StaffUserId == staffUserId);
+        leaveQuery = leaveQuery.Where(leave => leave.StaffUserId == staffUserId);
         tripQuery = tripQuery.Where(trip => trip.StaffUserId == staffUserId);
     }
 
-    var todayAttendance = await attendanceQuery.ToListAsync();
+    var attendance = await attendanceQuery.ToListAsync();
+    var schedules = await scheduleQuery.ToListAsync();
+    var approvedLeaves = await leaveQuery.ToListAsync();
+    var approvedTrips = await tripQuery
+        .Where(trip => trip.Status == HrBusinessTripStatus.Approved
+            && ((trip.StartDate <= rangeEndDate && trip.EndDate >= startDate) || (trip.StartDate <= today && trip.EndDate >= today)))
+        .ToListAsync();
+    var staffIds = attendance.Select(item => item.StaffUserId)
+        .Concat(schedules.Select(item => item.StaffUserId))
+        .Concat(approvedLeaves.Select(item => item.StaffUserId))
+        .Concat(approvedTrips.Select(item => item.StaffUserId))
+        .Distinct()
+        .ToArray();
+    var staffNames = await userManager.Users.AsNoTracking()
+        .Where(user => staffIds.Contains(user.Id))
+        .ToDictionaryAsync(user => user.Id, user => user.DisplayName);
+    var now = DateTime.UtcNow;
+    var days = Enumerable.Range(0, rangeEndDate.DayNumber - startDate.DayNumber + 1)
+        .Select(offset => HrAttendanceAnalytics.BuildDay(startDate.AddDays(offset), today, now, attendance, schedules, approvedLeaves, approvedTrips, staffNames))
+        .ToArray();
+    var todayDay = days.FirstOrDefault(day => day.Date == today)
+        ?? HrAttendanceAnalytics.BuildDay(today, today, now, attendance, schedules, approvedLeaves, approvedTrips, staffNames);
+    var todayAttendance = attendance.Where(record => record.AttendanceDate == today).ToArray();
     var pendingTrips = await tripQuery.CountAsync(trip => trip.Status == HrBusinessTripStatus.Pending);
-    var activeOutstation = todayAttendance.Count(record => record.VerificationMethod == HrAttendanceVerificationMethod.Outstation && record.CheckInAt != null && record.CheckOutAt == null);
     var upcomingTrips = await tripQuery.CountAsync(trip => trip.Status == HrBusinessTripStatus.Approved && trip.StartDate <= endDate && trip.EndDate >= today);
     return Results.Ok(new HrAttendanceDashboardSummary(
-        todayAttendance.Count(record => record.CheckInAt != null),
-        todayAttendance.Count(record => record.CheckOutAt != null),
-        todayAttendance.Count(record => record.CheckInAt != null && record.CheckOutAt == null),
+        today,
+        todayDay.CheckedIn,
+        todayDay.People.Count(person => person.CheckedOut),
+        todayDay.People.Count(person => person.CheckedIn && !person.CheckedOut),
         todayAttendance.Count(record => record.VerificationMethod == HrAttendanceVerificationMethod.OfficeQr),
         todayAttendance.Count(record => record.VerificationMethod is HrAttendanceVerificationMethod.Manual or HrAttendanceVerificationMethod.ManualException),
         todayAttendance.Count(record => record.VerificationMethod == HrAttendanceVerificationMethod.Outstation),
         pendingTrips,
-        activeOutstation,
-        upcomingTrips));
+        todayDay.People.Count(person => person.Outstation && person.CheckedIn && !person.CheckedOut),
+        upcomingTrips,
+        todayDay.FullDayLeave,
+        todayDay.Outstation,
+        todayDay.ScheduledReview,
+        days));
 });
 
 hr.MapGet("/availability-calendar", async (DateOnly? from, DateOnly? to, AppDbContext db, UserManager<AppUser> userManager, HttpContext context) =>

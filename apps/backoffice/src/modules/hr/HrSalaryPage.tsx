@@ -1,6 +1,6 @@
 import { HrAttendanceWorkflow, malaysiaDate, malaysiaTime } from "./HrAttendanceWorkflow";
 import { HrPayrollReview, hasCompleteStatutory, payrollAmountLabel, statutoryFields } from "./HrPayrollReview";
-import { getHrCheckOutPreview, previewHrPayslips } from "../../api";
+import { getHrAttendanceDashboard, getHrCheckOutPreview, previewHrPayslips } from "../../api";
 import type { HrCheckOutInput } from "../../api";
 ﻿import { ClockCircleOutlined, UploadOutlined } from "@ant-design/icons";
 import { QrcodeOutlined, ReloadOutlined } from "@ant-design/icons";
@@ -24,6 +24,7 @@ import "./HrSalaryPage.css";
 import type {
   CurrentUser,
   HrAttendanceAction,
+  HrAttendanceDashboardPerson,
   HrAttendanceDashboardSummary,
   HrAttendanceReminderItem,
   HrAttendanceReminderPolicy,
@@ -204,70 +205,168 @@ export const leavePolicyTableConfig = {
   pagination: false
 } as const;
 
-type AttendanceDashboardMetricProps = {
-  label: string;
-  value: number | null | undefined;
-  detail: string;
-};
-
 export function attendanceDashboardMetricValue(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function AttendanceDashboardMetric({ label, value, detail }: AttendanceDashboardMetricProps) {
-  const normalizedValue = attendanceDashboardMetricValue(value);
+function personNames(people: HrAttendanceDashboardPerson[]) {
+  if (people.length === 0) return "No staff / 暂无员工";
+  return people.map(person => person.staffDisplayName).join(", ");
+}
 
+function AttendanceSummaryCard({ label, value, people, tone }: { label: string; value: number; people: HrAttendanceDashboardPerson[]; tone: string }) {
   return (
-    <div className="hrAttendanceMetric">
-      <div className="hrAttendanceMetricCopy">
+    <section className={`hrAttendanceSummaryCard ${tone}`}>
+      <div className="hrAttendanceSummaryCardHeading">
         <Typography.Text strong>{label}</Typography.Text>
-        <Typography.Text type="secondary">{detail}</Typography.Text>
+        <span className="hrAttendanceSummaryValue">{value}</span>
       </div>
-      <span className="hrAttendanceMetricValue" aria-label={`${label}: ${normalizedValue}`}>{normalizedValue}</span>
-    </div>
+      <Typography.Text type="secondary">{personNames(people)}</Typography.Text>
+    </section>
   );
 }
 
-export function HrAttendanceDashboard({ summary }: { summary: HrAttendanceDashboardSummary | null }) {
-  if (!summary) return null;
+function personStatusTags(person: HrAttendanceDashboardPerson) {
+  return <Space size={[4, 4]} wrap>
+    {person.checkedIn && <Tag color="green">Checked in / 已打卡</Tag>}
+    {person.fullDayLeave && <Tag color="gold">Full-day leave / 全天休假</Tag>}
+    {person.outstation && <Tag color="blue">Outstation / 外勤</Tag>}
+    {person.needsCheckInReview && <Tag color="red">Review check-in / 核对打卡</Tag>}
+    {!person.checkedIn && !person.fullDayLeave && !person.outstation && !person.needsCheckInReview && <Tag>Scheduled / 已排班</Tag>}
+  </Space>;
+}
 
-  const todayCountDetail = (value: number | null | undefined) => attendanceDashboardMetricValue(value) === 0
-    ? "None recorded today / 今天没有记录"
-    : "Sessions recorded today / 今天已记录";
+export function HrAttendanceDashboard({ summary, onReviewAttendance }: { summary: HrAttendanceDashboardSummary | null; onReviewAttendance?: () => void }) {
+  const [data, setData] = useState(summary);
+  const [range, setRange] = useState<"7" | "30" | "custom">("30");
+  const [selectedDate, setSelectedDate] = useState(summary?.today ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setData(summary);
+    if (summary?.today) setSelectedDate(summary.today);
+  }, [summary]);
+
+  if (!data) return null;
+
+  const days = data.days ?? [];
+  const todayDay = days.find(day => day.date === data.today);
+  const selectedDay = days.find(day => day.date === selectedDate) ?? todayDay ?? days.at(-1);
+  const todayPeople = todayDay?.people ?? [];
+  const checkedInPeople = todayPeople.filter(person => person.checkedIn);
+  const leavePeople = todayPeople.filter(person => person.fullDayLeave);
+  const outstationPeople = todayPeople.filter(person => person.outstation);
+  const reviewPeople = todayPeople.filter(person => person.needsCheckInReview);
+  const maxMetric = Math.max(1, ...days.flatMap(day => [day.checkedIn, day.fullDayLeave, day.outstation, day.scheduledReview]));
+
+  const loadRange = async (from: string, to: string) => {
+    setLoading(true);
+    setError("");
+    try {
+      const next = await getHrAttendanceDashboard(from, to);
+      setData(next);
+      setSelectedDate(next.today >= from && next.today <= to ? next.today : to);
+    } catch (cause) {
+      setError(humanizeApiError(cause, "Attendance analytics could not be loaded. Please retry."));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const choosePreset = (next: "7" | "30") => {
+    setRange(next);
+    const end = data.today;
+    void loadRange(dayjs(end).subtract(Number(next) - 1, "day").format("YYYY-MM-DD"), end);
+  };
+
+  const methodLabel = (person: HrAttendanceDashboardPerson) => person.verificationMethod
+    ? ({ OfficeQr: "Office QR", OfficeIp: "Office network", Outstation: "Outstation", ManualException: "Manual exception", Manual: "Manual" }[person.verificationMethod] ?? person.verificationMethod)
+    : "-";
 
   return (
-    <ProCard className="hrAttendanceDashboard" title="Attendance Dashboard / 打卡概览">
-      <Typography.Text type="secondary" className="hrAttendanceDashboardIntro">
-        Counts are grouped by today’s attendance state, check-in method, and outstation workflow. They are session counts, not percentages. / 数字按今日打卡状态、打卡方式和外勤流程分组，均为次数，不是百分比。
-      </Typography.Text>
-      <div className="hrAttendanceDashboardGroups">
-        <section className="hrAttendanceSummaryGroup" aria-labelledby="hr-attendance-today-heading">
-          <Typography.Title level={5} id="hr-attendance-today-heading">Today attendance / 今日打卡</Typography.Title>
-          <div className="hrAttendanceMetricList">
-            <AttendanceDashboardMetric label="Checked in / 已上班" value={summary.checkedInToday} detail={todayCountDetail(summary.checkedInToday)} />
-            <AttendanceDashboardMetric label="Checked out / 已放工" value={summary.checkedOutToday} detail={todayCountDetail(summary.checkedOutToday)} />
-            <AttendanceDashboardMetric label="Open sessions / 未放工" value={summary.openSessionsToday} detail={attendanceDashboardMetricValue(summary.openSessionsToday) === 0 ? "No open sessions / 没有未完成打卡" : "Still awaiting check-out / 等待放工打卡"} />
-          </div>
-        </section>
-
-        <section className="hrAttendanceSummaryGroup" aria-labelledby="hr-attendance-method-heading">
-          <Typography.Title level={5} id="hr-attendance-method-heading">Check-in method / 打卡方式</Typography.Title>
-          <div className="hrAttendanceMetricList">
-            <AttendanceDashboardMetric label="Office QR / 办公室二维码" value={summary.officeQrSessionsToday} detail={todayCountDetail(summary.officeQrSessionsToday)} />
-            <AttendanceDashboardMetric label="Manual / 手动" value={summary.manualSessionsToday} detail={todayCountDetail(summary.manualSessionsToday)} />
-            <AttendanceDashboardMetric label="Outstation / 外勤" value={summary.outstationSessionsToday} detail={todayCountDetail(summary.outstationSessionsToday)} />
-          </div>
-        </section>
-
-        <section className="hrAttendanceSummaryGroup" aria-labelledby="hr-attendance-outstation-heading">
-          <Typography.Title level={5} id="hr-attendance-outstation-heading">Outstation workflow / 外勤流程</Typography.Title>
-          <div className="hrAttendanceMetricList">
-            <AttendanceDashboardMetric label="Pending trip approvals / 待审批外勤" value={summary.pendingBusinessTripRequests} detail={attendanceDashboardMetricValue(summary.pendingBusinessTripRequests) === 0 ? "No requests waiting / 没有待审批申请" : "Requests waiting for HR/Admin / 等待 HR/Admin 审批"} />
-            <AttendanceDashboardMetric label="Active outstation today / 今日进行中外勤" value={summary.activeOutstationToday} detail={attendanceDashboardMetricValue(summary.activeOutstationToday) === 0 ? "No active duties / 当前没有外勤" : "Approved duties in progress / 已批准并进行中"} />
-            <AttendanceDashboardMetric label="Approved trips, next 7 days / 未来7天已批准" value={summary.upcomingApprovedTrips} detail={attendanceDashboardMetricValue(summary.upcomingApprovedTrips) === 0 ? "No upcoming trips / 未来没有外勤安排" : "Upcoming approved plans / 即将进行的已批准安排"} />
-          </div>
-        </section>
+    <ProCard className="hrAttendanceDashboard" title="Attendance analytics / 出勤分析">
+      <div className="hrAttendanceDashboardHeader">
+        <div>
+          <Typography.Title level={4}>Today’s workforce / 今日员工状态</Typography.Title>
+          <Typography.Text type="secondary">People are counted once in each relevant status. Missing or incomplete schedules are never marked absent automatically. / 每个相关状态按员工人数计算；排班缺失或不完整不会自动视为缺勤。</Typography.Text>
+        </div>
+        <Typography.Text type="secondary">Malaysia date / 马来西亚日期 · {dayjs(data.today).format("DD MMM YYYY")}</Typography.Text>
       </div>
+
+      {error && <Alert type="error" showIcon message={error} />}
+
+      <div className="hrAttendanceSummaryCards">
+        <AttendanceSummaryCard label="Checked in / 已打卡" value={data.checkedInToday} people={checkedInPeople} tone="isCheckedIn" />
+        <AttendanceSummaryCard label="Full-day leave / 全天休假" value={data.fullDayLeaveToday} people={leavePeople} tone="isLeave" />
+        <AttendanceSummaryCard label="Outstation / 外勤" value={data.outstationToday} people={outstationPeople} tone="isOutstation" />
+        <AttendanceSummaryCard label="Check-in review / 待核对打卡" value={data.scheduledReviewToday} people={reviewPeople} tone="isReview" />
+      </div>
+
+      <section className="hrAttendanceReviewPanel" aria-labelledby="hr-attendance-review-heading">
+        <div className="hrAttendanceSectionHeading">
+          <div>
+            <Typography.Title level={5} id="hr-attendance-review-heading">Needs check-in review / 需要核对打卡</Typography.Title>
+            <Typography.Text type="secondary">Only due schedules with no check-in, approved full-day leave, or approved outstation record appear here. / 仅显示已到上班时间但没有打卡、全天休假或已批准外勤记录的排班。</Typography.Text>
+          </div>
+          {reviewPeople.length > 0 && <Button type="primary" onClick={onReviewAttendance}>Review attendance / 核对打卡</Button>}
+        </div>
+        {reviewPeople.length === 0
+          ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scheduled check-ins need review / 暂无待核对排班" />
+          : <div className="hrAttendanceReviewList">{reviewPeople.map(person => <article key={person.staffUserId}>
+              <div><Typography.Text strong>{person.staffDisplayName}</Typography.Text><Typography.Text type="secondary">Scheduled / 排班 {malaysiaTime(person.scheduledStartAt)} – {malaysiaTime(person.scheduledEndAt)}</Typography.Text></div>
+              <Button type="link" onClick={onReviewAttendance}>Open workflow / 打开流程</Button>
+            </article>)}</div>}
+      </section>
+
+      <section className="hrAttendanceTrendPanel" aria-labelledby="hr-attendance-trend-heading" aria-busy={loading}>
+        <div className="hrAttendanceSectionHeading">
+          <div>
+            <Typography.Title level={5} id="hr-attendance-trend-heading">Attendance trend / 出勤趋势</Typography.Title>
+            <Typography.Text type="secondary">Select a day to inspect the recorded people and statuses. / 选择日期查看员工和记录状态。</Typography.Text>
+          </div>
+          <Space wrap className="hrAttendanceRangeControls">
+            <Button type={range === "7" ? "primary" : "default"} loading={loading && range === "7"} onClick={() => choosePreset("7")}>7 days / 7天</Button>
+            <Button type={range === "30" ? "primary" : "default"} loading={loading && range === "30"} onClick={() => choosePreset("30")}>30 days / 30天</Button>
+            <Button type={range === "custom" ? "primary" : "default"} onClick={() => setRange("custom")}>Custom / 自定义</Button>
+            {range === "custom" && <DatePicker.RangePicker
+              allowClear={false}
+              disabledDate={date => date.isAfter(dayjs(data.today), "day")}
+              onChange={values => {
+                if (!values?.[0] || !values[1]) return;
+                const from = values[0].format("YYYY-MM-DD");
+                const to = values[1].format("YYYY-MM-DD");
+                if (values[1].diff(values[0], "day") > 92) { setError("Choose 93 days or fewer. / 请选择不超过93天。"); return; }
+                void loadRange(from, to);
+              }}
+            />}
+          </Space>
+        </div>
+        <div className="hrAttendanceLegend" aria-label="Trend legend">
+          <span><i className="checkedIn" />Checked in / 已打卡</span><span><i className="leave" />Full-day leave / 全天休假</span><span><i className="outstation" />Outstation / 外勤</span><span><i className="review" />Review / 待核对</span>
+        </div>
+        <div className="hrAttendanceTrend" role="list" aria-label="Daily attendance trend">
+          {days.map(day => <button key={day.date} type="button" className={day.date === selectedDay?.date ? "isSelected" : ""} onClick={() => setSelectedDate(day.date)} aria-label={`${day.date}: ${day.checkedIn} checked in, ${day.fullDayLeave} leave, ${day.outstation} outstation, ${day.scheduledReview} review`}>
+            <span className="hrAttendanceBars" aria-hidden="true">
+              {(["checkedIn", "fullDayLeave", "outstation", "scheduledReview"] as const).map(metric => <i key={metric} className={metric} style={{ height: `${Math.max(day[metric] ? 8 : 0, day[metric] / maxMetric * 100)}%` }} />)}
+            </span>
+            <span>{dayjs(day.date).format(days.length > 31 ? "DD/MM" : "DD MMM")}</span>
+          </button>)}
+        </div>
+      </section>
+
+      <section className="hrAttendanceDayPanel" aria-labelledby="hr-attendance-day-heading">
+        <div className="hrAttendanceSectionHeading">
+          <div><Typography.Title level={5} id="hr-attendance-day-heading">Selected day / 所选日期</Typography.Title><Typography.Text type="secondary">{selectedDay ? dayjs(selectedDay.date).format("dddd, DD MMM YYYY") : "-"}</Typography.Text></div>
+          {selectedDay && <Space wrap><Tag color="green">{selectedDay.checkedIn} checked in</Tag><Tag color="gold">{selectedDay.fullDayLeave} leave</Tag><Tag color="blue">{selectedDay.outstation} outstation</Tag><Tag color="red">{selectedDay.scheduledReview} review</Tag></Space>}
+        </div>
+        {!selectedDay || selectedDay.people.length === 0
+          ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No attendance, leave, outstation, or schedule records / 没有打卡、休假、外勤或排班记录" />
+          : <div className="hrAttendanceRoster">{selectedDay.people.map(person => <article key={person.staffUserId}>
+              <div><Typography.Text strong>{person.staffDisplayName}</Typography.Text>{personStatusTags(person)}</div>
+              <dl><div><dt>Check-in / 上班</dt><dd>{malaysiaTime(person.firstCheckInAt)}</dd></div><div><dt>Check-out / 放工</dt><dd>{malaysiaTime(person.lastCheckOutAt)}</dd></div><div><dt>Method / 方式</dt><dd>{methodLabel(person)}</dd></div><div><dt>Schedule / 排班</dt><dd>{person.scheduledStartAt ? `${malaysiaTime(person.scheduledStartAt)} – ${malaysiaTime(person.scheduledEndAt)}` : "Not recorded / 未记录"}</dd></div></dl>
+            </article>)}</div>}
+      </section>
     </ProCard>
   );
 }
@@ -1409,7 +1508,7 @@ export function HrSalaryPage({
           {
             key: "overview",
             label: "Attendance Dashboard / 打卡概览",
-            children: <HrAttendanceDashboard summary={attendanceDashboard} />
+            children: <HrAttendanceDashboard summary={attendanceDashboard} onReviewAttendance={() => setActiveTab("attendance")} />
           }
   ];
 

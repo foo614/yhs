@@ -112,107 +112,291 @@
 
 .hrAttendanceDashboard .ant-pro-card-body {
   display: grid;
+  gap: 20px;
+}
+
+.hrAttendanceDashboardHeader,
+.hrAttendanceSectionHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16px;
 }
 
-.hrAttendanceDashboardIntro {
-  max-width: 78ch;
-  line-height: 1.55;
+.hrAttendanceDashboardHeader h4,
+.hrAttendanceSectionHeading h5 {
+  margin: 0 0 4px;
 }
 
-.hrAttendanceDashboardGroups {
+.hrAttendanceDashboardHeader > div:first-child,
+.hrAttendanceSectionHeading > div:first-child {
+  max-width: 74ch;
+}
+
+.hrAttendanceSummaryCards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.hrAttendanceSummaryGroup {
+.hrAttendanceSummaryCard {
   min-width: 0;
-  padding: 14px;
-  border: 1px solid rgba(20, 72, 61, .12);
-  border-radius: 8px;
+  min-height: 130px;
+  padding: 16px;
+  border: 1px solid #dce5e2;
+  border-top: 4px solid #0b705c;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.hrAttendanceSummaryCard.isLeave { border-top-color: #b7791f; }
+.hrAttendanceSummaryCard.isOutstation { border-top-color: #1677ff; }
+.hrAttendanceSummaryCard.isReview { border-top-color: #c53b38; }
+
+.hrAttendanceSummaryCardHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.hrAttendanceSummaryValue {
+  color: #153d33;
+  font-size: 32px;
+  font-weight: 760;
+  line-height: .9;
+}
+
+.hrAttendanceReviewPanel,
+.hrAttendanceTrendPanel,
+.hrAttendanceDayPanel {
+  min-width: 0;
+  max-width: 100%;
+  padding: 18px;
+  border: 1px solid #dce5e2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.hrAttendanceReviewPanel {
   background: #f8fbfa;
 }
 
-.hrAttendanceSummaryGroup .ant-typography h5,
-.hrAttendanceSummaryGroup h5.ant-typography {
-  margin: 0 0 12px;
-  color: #213d34;
-  font-size: 14px;
+.hrAttendanceReviewPanel .ant-empty,
+.hrAttendanceDayPanel .ant-empty {
+  margin-block: 16px 4px;
 }
 
-.hrAttendanceMetricList {
+.hrAttendanceReviewList {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hrAttendanceReviewList article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 10px;
+  border-top: 1px solid #e4ebe8;
+}
+
+.hrAttendanceReviewList article > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.hrAttendanceLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 18px 0 10px;
+  color: rgba(0, 0, 0, .65);
+  font-size: 12px;
+}
+
+.hrAttendanceLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hrAttendanceLegend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #0b705c;
+}
+
+.hrAttendanceLegend i.leave,
+.hrAttendanceBars i.fullDayLeave { background: #d69e2e; }
+.hrAttendanceLegend i.outstation,
+.hrAttendanceBars i.outstation { background: #1677ff; }
+.hrAttendanceLegend i.review,
+.hrAttendanceBars i.scheduledReview { background: #c53b38; }
+
+.hrAttendanceTrend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 4px;
+  min-height: 0;
+  padding: 14px 4px 4px;
+  border-top: 1px solid #edf1f0;
+}
+
+.hrAttendanceTrend button {
+  display: grid;
+  grid-template-rows: 62px auto;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(0, 0, 0, .65);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hrAttendanceTrend button:hover,
+.hrAttendanceTrend button:focus-visible,
+.hrAttendanceTrend button.isSelected {
+  border-color: #0b705c;
+  background: #f0f8f5;
+  outline: none;
+}
+
+.hrAttendanceBars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  min-height: 0;
+}
+
+.hrAttendanceBars i {
+  width: 6px;
+  min-height: 0;
+  border-radius: 3px 3px 0 0;
+  background: #0b705c;
+}
+
+.hrAttendanceRoster {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hrAttendanceRoster article {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #e4ebe8;
+  border-radius: 8px;
+}
+
+.hrAttendanceRoster article > div:first-child {
   display: grid;
   gap: 8px;
 }
 
-.hrAttendanceMetric {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  padding: 9px 0;
-  border-top: 1px solid rgba(20, 72, 61, .1);
-}
-
-.hrAttendanceMetric:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.hrAttendanceMetric:last-child {
-  padding-bottom: 0;
-}
-
-.hrAttendanceMetricCopy {
+.hrAttendanceRoster dl {
   display: grid;
-  gap: 2px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 14px 0 0;
+}
+
+.hrAttendanceRoster dl div {
   min-width: 0;
 }
 
-.hrAttendanceMetricCopy .ant-typography {
-  overflow-wrap: anywhere;
+.hrAttendanceRoster dt {
+  color: rgba(0, 0, 0, .55);
+  font-size: 12px;
 }
 
-.hrAttendanceMetricValue {
-  flex: 0 0 auto;
-  min-width: 2ch;
-  color: #0b705c;
-  font-size: 20px;
-  font-weight: 780;
-  line-height: 1;
-  text-align: right;
+.hrAttendanceRoster dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
 }
 
 @media (max-width: 1024px) {
-  .hrAttendanceDashboardGroups {
+  .hrAttendanceSummaryCards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hrAttendanceSummaryGroup:last-child {
-    grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 640px) {
-  .hrAttendanceDashboardGroups {
+  .hrAttendanceDashboardHeader,
+  .hrAttendanceSectionHeading {
+    display: grid;
+  }
+
+  .hrAttendanceSummaryCards,
+  .hrAttendanceRoster {
     grid-template-columns: 1fr;
   }
 
-  .hrAttendanceSummaryGroup:last-child {
-    grid-column: auto;
+  .hrAttendanceSummaryCard {
+    min-height: 0;
   }
 
-  .hrAttendanceSummaryGroup {
-    padding: 12px;
+  .hrAttendanceReviewPanel,
+  .hrAttendanceTrendPanel,
+  .hrAttendanceDayPanel {
+    padding: 14px;
   }
 
-  .hrAttendanceMetric {
-    align-items: flex-start;
+  .hrAttendanceReviewPanel .ant-btn,
+  .hrAttendanceSectionHeading > .ant-btn,
+  .hrAttendanceRangeControls,
+  .hrAttendanceRangeControls .ant-picker-range {
+    width: 100%;
   }
 
-  .hrAttendanceMetricValue {
-    font-size: 18px;
+  .hrAttendanceReviewList article {
+    display: grid;
+  }
+
+  .hrAttendanceReviewList article .ant-btn {
+    min-height: 44px;
+    padding-inline: 0;
+    text-align: left;
+  }
+
+  .hrAttendanceRangeControls .ant-space-item {
+    flex: 1 1 30%;
+    min-width: 0;
+  }
+
+  .hrAttendanceRangeControls .ant-space-item:last-child,
+  .hrAttendanceRangeControls .ant-picker-range,
+  .hrAttendanceRangeControls .ant-btn {
+    width: 100%;
+  }
+
+  .hrAttendanceRangeControls .ant-btn {
+    min-height: 44px;
+    padding-inline: 6px;
+  }
+
+  .hrAttendanceTrend {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    min-height: 0;
+  }
+
+  .hrAttendanceTrend button {
+    grid-template-rows: 48px auto;
+    padding-inline: 2px;
+    font-size: 10px;
+  }
+
+  .hrAttendanceRoster dl {
+    grid-template-columns: 1fr;
   }
 }
