@@ -120,7 +120,7 @@ public sealed class InspectionRulesTests
         {
             Id = Guid.Parse("00000000-0000-0000-0000-000000000201"), VehicleId = vehicle.Id, Company = InspectionCompany.YSHengAutomotive,
             Type = InspectionType.PertukaranHakMilik, AppointmentDate = new DateOnly(2026, 11, 14), BookingReference = "BOOK-101",
-            SourceReceiptNumber = "RECEIPT-SHARED", SupplierInvoiceReference = "INV-101 (2)", ReceiptTotal = 250m, AllocatedAmount = 125m
+            SourceReceiptNumber = "RECEIPT-SHARED", ReceiptDate = new DateOnly(2026, 11, 15), SupplierInvoiceReference = "INV-101 (2)", ReceiptTotal = 250m, AllocatedAmount = 125m
         };
 
         using var archive = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new(
@@ -257,7 +257,7 @@ public sealed class InspectionRulesTests
     {
         VehicleId = vehicle.Id, Company = company, Type = InspectionType.Awalan, AppointmentDate = new DateOnly(2026, 11, 14),
         BookingReference = $"BOOK-{vehicle.PlateNumber}", SourceReceiptNumber = "RECEIPT-SHARED", SupplierInvoiceReference = invoice,
-        ReceiptTotal = 120m, AllocatedAmount = amount
+        ReceiptDate = new DateOnly(2026, 11, 15), ReceiptTotal = 120m, AllocatedAmount = amount
     };
 
     private static List<Dictionary<string, string>> SheetRows(ZipArchive archive, string sheetName)
@@ -313,6 +313,40 @@ public sealed class InspectionRulesTests
     }
 
     [Fact]
+    public void Booking_before_paperwork_stays_separate_and_blocked_from_PI_until_numbers_and_amounts_are_present()
+    {
+        var vehicle = new Vehicle { PlateNumber = "DRAFT123" };
+        var request = new CreateInspectionRequest(vehicle.Id, InspectionType.PertukaranHakMilik,
+            InspectionCompany.YSHengAuto, false, new DateOnly(2026, 11, 23), null, "", "", 0m, 0m, null, "");
+        var pending = InspectionRules.PrepareCreate(request, "staff", "");
+        Assert.True(InspectionRules.Validate(request, [pending]).IsValid);
+        Assert.Empty(WhatsAppInspectionReminders.DueFor(pending, VehicleStatus.Available, new DateOnly(2026, 11, 22)));
+        using var blocked = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new([pending], [vehicle], pending.Company))), ZipArchiveMode.Read);
+        Assert.DoesNotContain(WorkbookSheetNames(blocked), name => name.StartsWith("PI_", StringComparison.Ordinal));
+        Assert.Equal("BlockedForPaste", Assert.Single(SheetRows(blocked, "PasteGuide"))["ReviewStatus"]);
+        var numbered = pending with { BookingReference = "BOOK-1", SourceReceiptNumber = "INV-1", SupplierInvoiceReference = "INV-1", ReceiptTotal = 100m, AllocatedAmount = 100m };
+        using var undated = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new([numbered], [vehicle], pending.Company))), ZipArchiveMode.Read);
+        Assert.DoesNotContain(WorkbookSheetNames(undated), name => name.StartsWith("PI_", StringComparison.Ordinal));
+        Assert.Contains("Missing actual receipt/service date", Assert.Single(SheetRows(undated, "PasteGuide"))["BeforePaste"]);
+        var completedPaperwork = numbered with { ReceiptDate = new DateOnly(2026, 11, 24) };
+        using var ready = new ZipArchive(new MemoryStream(AutoCountExcel.ExportInspection(new([completedPaperwork], [vehicle], pending.Company))), ZipArchiveMode.Read);
+        Assert.Contains("PI_0001", WorkbookSheetNames(ready));
+        Assert.Equal("ReviewRequired", Assert.Single(SheetRows(ready, "PasteGuide"))["ReviewStatus"]);
+        Assert.Equal("2026-11-24", Assert.Single(SheetRows(ready, "InspectionBookings"))["ReceiptDate"]);
+    }
+
+    [Fact]
+    public void Later_invoice_preserves_existing_original_receipt_and_detects_conflicting_groups()
+    {
+        var existing = new InspectionRecord { SupplierInvoiceReference = "INV-1", SourceReceiptNumber = "LEGACY-RECEIPT" };
+        Assert.Equal("", InspectionRules.ResolveReceiptNumber("", [existing]));
+        Assert.Equal("LEGACY-RECEIPT", InspectionRules.ResolveReceiptNumber(" inv-1 (1) ", [existing]));
+        Assert.Equal("INV-2", InspectionRules.ResolveReceiptNumber("INV-2 (1)", [existing]));
+        Assert.Equal("INV-1(1)", InspectionRules.ResolveReceiptNumber("INV-1(1)", [existing]));
+        Assert.Null(InspectionRules.ResolveReceiptNumber("INV-1 (2)", [existing, existing with { SourceReceiptNumber = "OTHER-RECEIPT" }]));
+    }
+
+    [Fact]
     public void Update_rejects_unknown_status_values()
     {
         var request = new UpdateInspectionRequest(
@@ -336,7 +370,7 @@ public sealed class InspectionRulesTests
         var bookedLorry = new InspectionRecord
         {
             VehicleId = Guid.NewGuid(), IsLorry = true, Status = InspectionStatus.Booked,
-            AppointmentDate = new DateOnly(2026, 1, 15)
+            AppointmentDate = new DateOnly(2026, 1, 15), BookingReference = "BOOK-1"
         };
 
         Assert.Empty(WhatsAppInspectionReminders.DueFor(bookedLorry, VehicleStatus.Available, new DateOnly(2026, 1, 8)));
@@ -381,6 +415,10 @@ public sealed class InspectionRulesTests
         db.Entry(inspection).CurrentValues.SetValues(inspection with { IsLorry = true });
         await db.SaveChangesAsync();
         Assert.Contains("INSPECT1 (Lorry)", Assert.IsType<string>(await WhatsAppInspectionReminders.RefreshAsync(db, row, now)));
+        db.Entry(inspection).CurrentValues.SetValues(inspection with { BookingReference = "" });
+        await db.SaveChangesAsync();
+        Assert.Null(await WhatsAppInspectionReminders.RefreshAsync(db, row, now));
+        db.Entry(inspection).CurrentValues.SetValues(inspection);
         db.Entry(vehicle).CurrentValues.SetValues(vehicle with { Status = VehicleStatus.Sold });
         await db.SaveChangesAsync();
         Assert.Null(await WhatsAppInspectionReminders.RefreshAsync(db, row, now));

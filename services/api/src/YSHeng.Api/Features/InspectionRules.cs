@@ -21,11 +21,19 @@ public sealed record CreateInspectionRequest(
     decimal ReceiptTotal,
     decimal AllocatedAmount,
     string? Notes,
-    string? SupplierInvoiceReference = null);
+    string? SupplierInvoiceReference = null,
+    DateOnly? ReceiptDate = null);
 
 public sealed record SupplierInvoiceReferenceAvailability(
     bool Available,
     string? SuggestedInvoiceNumber);
+
+public sealed record UpdateInspectionPaperworkRequest(
+    string BookingReference,
+    string SupplierInvoiceReference,
+    decimal ReceiptTotal,
+    decimal AllocatedAmount,
+    DateOnly? ReceiptDate = null);
 
 public sealed record UpdateInspectionRequest(
     InspectionType? Type,
@@ -67,12 +75,14 @@ public static class InspectionRules
             errors.Add(new("inspection_type_not_applicable", "Regular inspection bookings must not include a Special inspection type."));
         if (!Enum.IsDefined(request.Company)) errors.Add(new("inspection_company_invalid", "Select a supported inspection company."));
         if (request.AppointmentDate == default) errors.Add(new("inspection_appointment_required", "Appointment date is required."));
-        if (string.IsNullOrWhiteSpace(request.BookingReference)) errors.Add(new("inspection_booking_reference_required", "Appointment confirmation reference is required."));
-        if (string.IsNullOrWhiteSpace(request.SourceReceiptNumber)) errors.Add(new("inspection_receipt_number_required", "Receipt number is required."));
-        if (string.IsNullOrWhiteSpace(request.SupplierInvoiceReference)) errors.Add(new("inspection_supplier_invoice_reference_required", "Supplier invoice number is required."));
+        if (request.ReceiptDate == default(DateOnly)) errors.Add(new("inspection_receipt_date_invalid", "Enter the actual receipt date or leave it blank until available."));
+        if (!string.IsNullOrWhiteSpace(request.SupplierInvoiceReference) && string.IsNullOrWhiteSpace(request.SourceReceiptNumber))
+            errors.Add(new("inspection_receipt_number_required", "Receipt number is required when an invoice number is entered."));
+        if (string.IsNullOrWhiteSpace(request.SupplierInvoiceReference) && !string.IsNullOrWhiteSpace(request.SourceReceiptNumber))
+            errors.Add(new("inspection_supplier_invoice_reference_required", "Enter the supplier invoice number before linking a receipt."));
         if (request.ReceiptTotal < 0 || request.AllocatedAmount < 0) errors.Add(new("inspection_receipt_amount_invalid", "Receipt amounts cannot be negative."));
         if (request.AllocatedAmount > request.ReceiptTotal) errors.Add(new("inspection_receipt_amount_exceeds_total", "Allocated amount cannot exceed the receipt total."));
-        if (existing.Any(item => item.VehicleId == request.VehicleId && string.Equals(item.SourceReceiptNumber.Trim(), request.SourceReceiptNumber.Trim(), StringComparison.OrdinalIgnoreCase)))
+        if (!string.IsNullOrWhiteSpace(request.SourceReceiptNumber) && existing.Any(item => item.VehicleId == request.VehicleId && string.Equals(item.SourceReceiptNumber.Trim(), request.SourceReceiptNumber.Trim(), StringComparison.OrdinalIgnoreCase)))
             errors.Add(new("inspection_receipt_vehicle_duplicate", "This receipt is already linked to the selected vehicle."));
         return new ValidationResult(errors);
     }
@@ -124,6 +134,17 @@ public static class InspectionRules
         return value;
     }
 
+    public static string? ResolveReceiptNumber(string? invoiceNumber, IEnumerable<InspectionRecord> records)
+    {
+        if (string.IsNullOrWhiteSpace(invoiceNumber)) return "";
+        var root = SupplierInvoiceReferenceRoot(invoiceNumber.Trim());
+        var sources = records.Where(item =>
+                (!string.IsNullOrWhiteSpace(item.SupplierInvoiceReference) && string.Equals(SupplierInvoiceReferenceRoot(item.SupplierInvoiceReference.Trim()), root, StringComparison.OrdinalIgnoreCase)) ||
+                string.Equals(item.SourceReceiptNumber.Trim(), root, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.SourceReceiptNumber.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return sources.Count == 0 ? root : sources.Count == 1 && sources[0].Length > 0 ? sources[0] : null;
+    }
+
     public static ValidationResult Validate(UpdateInspectionRequest request, InspectionRecord? existing = null)
     {
         var errors = new List<ValidationError>();
@@ -137,7 +158,6 @@ public static class InspectionRules
         if (!Enum.IsDefined(request.Company)) errors.Add(new("inspection_company_invalid", "Select a supported inspection company."));
         if (!Enum.IsDefined(request.Status)) errors.Add(new("inspection_status_invalid", "Select a supported inspection status."));
         if (request.AppointmentDate == default) errors.Add(new("inspection_appointment_required", "Appointment date is required."));
-        if (string.IsNullOrWhiteSpace(request.BookingReference)) errors.Add(new("inspection_booking_reference_required", "Appointment confirmation reference is required."));
         if (request.ReceiptTotal < 0 || request.AllocatedAmount < 0) errors.Add(new("inspection_receipt_amount_invalid", "Receipt amounts cannot be negative."));
         if (request.AllocatedAmount > request.ReceiptTotal) errors.Add(new("inspection_receipt_amount_exceeds_total", "Allocated amount cannot exceed the receipt total."));
         return new ValidationResult(errors);
@@ -152,8 +172,9 @@ public static class InspectionRules
         AppointmentDate = request.AppointmentDate,
         AppointmentTime = request.AppointmentTime,
         ReportExpiryDate = ReportExpiryDate(request.AppointmentDate),
-        BookingReference = request.BookingReference.Trim(),
-        SourceReceiptNumber = request.SourceReceiptNumber.Trim(),
+        BookingReference = request.BookingReference?.Trim() ?? "",
+        SourceReceiptNumber = request.SourceReceiptNumber?.Trim() ?? "",
+        ReceiptDate = request.ReceiptDate,
         ReceiptTotal = request.ReceiptTotal,
         AllocatedAmount = request.AllocatedAmount,
         SupplierInvoiceReference = supplierInvoiceReference,
@@ -170,7 +191,7 @@ public static class InspectionRules
         AppointmentDate = request.AppointmentDate,
         AppointmentTime = request.AppointmentTime,
         ReportExpiryDate = ReportExpiryDate(request.AppointmentDate),
-        BookingReference = request.BookingReference.Trim(),
+        BookingReference = request.BookingReference?.Trim() ?? "",
         ReceiptTotal = request.ReceiptTotal,
         AllocatedAmount = request.AllocatedAmount,
         Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),

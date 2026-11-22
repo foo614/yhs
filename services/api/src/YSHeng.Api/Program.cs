@@ -2326,6 +2326,7 @@ backOffice.MapGet("/inspections", async (AppDbContext db) =>
         item.ReportExpiryDate,
         item.BookingReference,
         item.SourceReceiptNumber,
+        item.ReceiptDate,
         item.ReceiptTotal,
         item.AllocatedAmount,
         item.SupplierInvoiceReference,
@@ -2362,7 +2363,7 @@ backOffice.MapGet("/inspections/invoice-number-check", async (string? invoiceNum
     return Results.Ok(InspectionRules.CheckSupplierInvoiceReference(invoiceNumber, existing));
 }).RequireAuthorization("Deliveries");
 
-backOffice.MapGet("/inspections/export-autocount", async (string? company, AppDbContext db, HttpContext context) =>
+backOffice.MapGet("/inspections/export-autocount", async (string? company, DateOnly? from, DateOnly? to, AppDbContext db, HttpContext context) =>
 {
     if (!context.User.IsInRole("BossAdmin"))
     {
@@ -2374,8 +2375,14 @@ backOffice.MapGet("/inspections/export-autocount", async (string? company, AppDb
         return Results.BadRequest(new ApiError("Select a supported inspection company for export."));
     }
 
+    if (from.HasValue != to.HasValue || from == default(DateOnly) || to == default(DateOnly) || from > to)
+        return Results.BadRequest(new ApiError("Select both start and end receipt dates in chronological order."));
+    var receiptFrom = from.GetValueOrDefault(DateOnly.MinValue);
+    var receiptTo = to.GetValueOrDefault(DateOnly.MaxValue);
+
     var inspections = await db.InspectionRecords.AsNoTracking()
-        .Where(item => item.Company == selectedCompany && item.Status != InspectionStatus.Cancelled)
+        .Where(item => item.Company == selectedCompany && item.Status != InspectionStatus.Cancelled &&
+            (!item.ReceiptDate.HasValue || (item.ReceiptDate >= receiptFrom && item.ReceiptDate <= receiptTo)))
         .ToListAsync();
     if (inspections.Count == 0)
     {
@@ -2422,6 +2429,7 @@ backOffice.MapGet("/inspections/{id:guid}", async (Guid id, AppDbContext db) =>
         inspection.ReportExpiryDate,
         inspection.BookingReference,
         inspection.SourceReceiptNumber,
+        inspection.ReceiptDate,
         inspection.ReceiptTotal,
         inspection.AllocatedAmount,
         inspection.SupplierInvoiceReference,
@@ -2438,13 +2446,10 @@ backOffice.MapGet("/inspections/{id:guid}", async (Guid id, AppDbContext db) =>
 
 backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDbContext db, HttpContext context) =>
 {
-    if (string.IsNullOrWhiteSpace(request.SourceReceiptNumber))
-        return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_number_required", "Receipt number is required.")]));
-    if (string.IsNullOrWhiteSpace(request.SupplierInvoiceReference))
-        return Results.BadRequest(new ValidationResult([new ValidationError("inspection_supplier_invoice_reference_required", "Supplier invoice number is required.")]));
-
     await using var createTransaction = await db.Database.BeginTransactionAsync();
-    var normalizedReceipt = request.SourceReceiptNumber.Trim().ToUpperInvariant();
+    if (db.Database.IsNpgsql())
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtextextended('inspection-paperwork', 0))");
+    var normalizedReceipt = request.SourceReceiptNumber?.Trim().ToUpperInvariant() ?? "";
     var normalizedSupplierInvoiceReference = InspectionRules.NormalizeSupplierInvoiceReference(request.SupplierInvoiceReference);
     var supplierInvoiceLockKey = $"inspection-supplier-invoice:{normalizedSupplierInvoiceReference}";
     var sourceLockKey = $"inspection-receipt:{normalizedReceipt}";
@@ -2456,7 +2461,7 @@ backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDb
     var vehicle = await db.Vehicles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == request.VehicleId);
     if (vehicle is null) return Results.BadRequest(new ValidationResult([new ValidationError("vehicle_not_found", "Record must be linked to an existing car plate.")]));
     var allExisting = await db.InspectionRecords.AsNoTracking().ToListAsync();
-    if (allExisting.Any(item => string.Equals(
+    if (normalizedSupplierInvoiceReference.Length > 0 && allExisting.Any(item => string.Equals(
         InspectionRules.NormalizeSupplierInvoiceReference(item.SupplierInvoiceReference),
         normalizedSupplierInvoiceReference,
         StringComparison.OrdinalIgnoreCase)))
@@ -2467,7 +2472,7 @@ backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDb
     }
 
     var existing = allExisting
-        .Where(item => string.Equals(item.SourceReceiptNumber.Trim(), normalizedReceipt, StringComparison.OrdinalIgnoreCase))
+        .Where(item => normalizedReceipt.Length > 0 && string.Equals(item.SourceReceiptNumber.Trim(), normalizedReceipt, StringComparison.OrdinalIgnoreCase))
         .ToList();
     var validation = InspectionRules.Validate(request, existing);
     if (!validation.IsValid) return Results.BadRequest(validation);
@@ -2480,7 +2485,7 @@ backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDb
     var inspection = InspectionRules.PrepareCreate(
         request,
         AuditTrail.ActorFrom(context.User),
-        request.SupplierInvoiceReference.Trim());
+        request.SupplierInvoiceReference?.Trim() ?? "");
     db.InspectionRecords.Add(inspection);
     ApiAudit.Add(db, context.User, "inspection.created", nameof(InspectionRecord), inspection.Id);
     try
@@ -2497,9 +2502,11 @@ backOffice.MapPost("/inspections", async (CreateInspectionRequest request, AppDb
 
 backOffice.MapPut("/inspections/{id:guid}", async (Guid id, UpdateInspectionRequest request, AppDbContext db, HttpContext context) =>
 {
+    await using var updateTransaction = await db.Database.BeginTransactionAsync();
+    if (db.Database.IsNpgsql())
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtextextended('inspection-paperwork', 0))");
     var inspection = await db.InspectionRecords.FirstOrDefaultAsync(item => item.Id == id);
     if (inspection is null) return Results.NotFound();
-    await using var updateTransaction = await db.Database.BeginTransactionAsync();
     if (db.Database.IsNpgsql())
     {
         var sourceLockKey = $"inspection-receipt:{inspection.SourceReceiptNumber.Trim().ToUpperInvariant()}";
@@ -2511,7 +2518,7 @@ backOffice.MapPut("/inspections/{id:guid}", async (Guid id, UpdateInspectionRequ
         .Where(item => item.Id != id)
         .ToListAsync();
     var siblingForReceipt = siblingAllocations
-        .Where(item => string.Equals(item.SourceReceiptNumber.Trim(), inspection.SourceReceiptNumber.Trim(), StringComparison.OrdinalIgnoreCase))
+        .Where(item => !string.IsNullOrWhiteSpace(inspection.SourceReceiptNumber) && string.Equals(item.SourceReceiptNumber.Trim(), inspection.SourceReceiptNumber.Trim(), StringComparison.OrdinalIgnoreCase))
         .ToList();
     if (siblingForReceipt.Count > 0 && request.ReceiptTotal != siblingForReceipt[0].ReceiptTotal)
         return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_total_mismatch", "Use the same receipt total for every vehicle allocated from this receipt.")]));
@@ -2528,6 +2535,52 @@ backOffice.MapPut("/inspections/{id:guid}", async (Guid id, UpdateInspectionRequ
     ApiAudit.Add(db, context.User, "inspection.updated", nameof(InspectionRecord), inspection.Id);
     await db.SaveChangesAsync();
     await updateTransaction.CommitAsync();
+    return Results.Ok(updated);
+}).RequireAuthorization("Deliveries");
+
+backOffice.MapPut("/inspections/{id:guid}/paperwork", async (Guid id, UpdateInspectionPaperworkRequest request, AppDbContext db, HttpContext context) =>
+{
+    await using var transaction = await db.Database.BeginTransactionAsync();
+    if (db.Database.IsNpgsql())
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(hashtextextended('inspection-paperwork', 0))");
+    var inspection = await db.InspectionRecords.FirstOrDefaultAsync(item => item.Id == id);
+    if (inspection is null) return Results.NotFound();
+    if (inspection.Status == InspectionStatus.Cancelled)
+        return Results.BadRequest(new ApiError("Cancelled inspection paperwork cannot be edited."));
+    var others = await db.InspectionRecords.AsNoTracking().Where(item => item.Id != id).ToListAsync();
+    var invoice = request.SupplierInvoiceReference?.Trim() ?? "";
+    var normalizedInvoice = InspectionRules.NormalizeSupplierInvoiceReference(invoice);
+    if (normalizedInvoice.Length > 0 && others.Any(item => InspectionRules.NormalizeSupplierInvoiceReference(item.SupplierInvoiceReference) == normalizedInvoice))
+        return Results.Conflict(new ValidationResult([new ValidationError("inspection_supplier_invoice_reference_duplicate", "This supplier invoice number is already used. Use a different number.")]));
+    var source = normalizedInvoice.Length > 0 && normalizedInvoice == InspectionRules.NormalizeSupplierInvoiceReference(inspection.SupplierInvoiceReference)
+        ? inspection.SourceReceiptNumber
+        : InspectionRules.ResolveReceiptNumber(invoice, others.Append(inspection));
+    if (source is null)
+        return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_link_conflict", "This invoice matches conflicting original receipts. Ask Admin to confirm the receipt link.")]));
+    var validation = InspectionRules.Validate(new CreateInspectionRequest(
+        inspection.VehicleId, inspection.Type, inspection.Company, inspection.IsLorry, inspection.AppointmentDate,
+        inspection.AppointmentTime, request.BookingReference, source, request.ReceiptTotal, request.AllocatedAmount, inspection.Notes, invoice, request.ReceiptDate), others);
+    // Historical regular records may retain their original type while paperwork is completed.
+    var errors = validation.Errors.Where(error => error.Code != "inspection_type_not_applicable").ToList();
+    if (errors.Count > 0) return Results.BadRequest(new ValidationResult(errors));
+    var siblings = others.Where(item => source.Length > 0 && string.Equals(item.SourceReceiptNumber.Trim(), source, StringComparison.OrdinalIgnoreCase)).ToList();
+    if (siblings.Any(item => item.ReceiptTotal != request.ReceiptTotal))
+        return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_total_mismatch", "Use the same receipt total for every vehicle allocated from this receipt.")]));
+    if (siblings.Sum(item => item.AllocatedAmount) + request.AllocatedAmount > request.ReceiptTotal)
+        return Results.BadRequest(new ValidationResult([new ValidationError("inspection_receipt_allocation_exceeds_total", "This allocation would exceed the receipt total.")]));
+    var updated = inspection with
+    {
+        BookingReference = request.BookingReference?.Trim() ?? "",
+        SupplierInvoiceReference = invoice,
+        SourceReceiptNumber = source,
+        ReceiptDate = request.ReceiptDate,
+        ReceiptTotal = request.ReceiptTotal,
+        AllocatedAmount = request.AllocatedAmount
+    };
+    db.Entry(inspection).CurrentValues.SetValues(updated);
+    ApiAudit.Add(db, context.User, "inspection.paperworkUpdated", nameof(InspectionRecord), inspection.Id);
+    await db.SaveChangesAsync();
+    await transaction.CommitAsync();
     return Results.Ok(updated);
 }).RequireAuthorization("Deliveries");
 

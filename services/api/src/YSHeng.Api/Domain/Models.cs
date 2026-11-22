@@ -259,6 +259,7 @@ public sealed record InspectionRecord
     public DateOnly ReportExpiryDate { get; init; }
     public string BookingReference { get; init; } = "";
     public string SourceReceiptNumber { get; init; } = "";
+    public DateOnly? ReceiptDate { get; init; }
     public decimal ReceiptTotal { get; init; }
     public decimal AllocatedAmount { get; init; }
     public string SupplierInvoiceReference { get; init; } = "";
