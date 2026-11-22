@@ -179,6 +179,20 @@ export async function runResponsiveWidth({ page, context, width, output, visualE
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   });
   fixtures["/api/operations-calendar"] = fixtures["/api/operations-calendar"].map(event => ({ ...event, startDate: browserToday, endDate: browserToday }));
+  const attendancePeople = [
+    { staffUserId: "responsive-test", staffDisplayName: "Layout Test With A Longer Staff Name", checkedIn: true, checkedOut: false, fullDayLeave: false, outstation: false, needsCheckInReview: false, firstCheckInAt: `${browserToday}T01:03:00Z`, verificationMethod: "OfficeQr" },
+    { staffUserId: "responsive-leave", staffDisplayName: "Synthetic Staff On Full-Day Leave", checkedIn: false, checkedOut: false, fullDayLeave: true, outstation: false, needsCheckInReview: false },
+    { staffUserId: "responsive-trip", staffDisplayName: "Synthetic Outstation Staff", checkedIn: false, checkedOut: false, fullDayLeave: false, outstation: true, needsCheckInReview: false },
+    { staffUserId: "responsive-review", staffDisplayName: "Synthetic Scheduled Staff Needing Review", checkedIn: false, checkedOut: false, fullDayLeave: false, outstation: false, needsCheckInReview: true, scheduledStartAt: `${browserToday}T01:00:00Z`, scheduledEndAt: `${browserToday}T09:00:00Z` }
+  ];
+  const attendanceDays = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(`${browserToday}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - (29 - index));
+    const dateString = date.toISOString().slice(0, 10);
+    const isToday = dateString === browserToday;
+    return { date: dateString, checkedIn: isToday ? 1 : 3 + (index % 4), fullDayLeave: isToday ? 1 : index % 3, outstation: isToday ? 1 : index % 2, scheduledReview: isToday ? 1 : index % 4 === 0 ? 1 : 0, people: isToday ? attendancePeople : [] };
+  });
+  fixtures["/api/hr/dashboard"] = { today: browserToday, checkedInToday: 1, checkedOutToday: 0, openSessionsToday: 1, officeQrSessionsToday: 1, manualSessionsToday: 0, outstationSessionsToday: 0, pendingBusinessTripRequests: 1, activeOutstationToday: 0, upcomingApprovedTrips: 1, fullDayLeaveToday: 1, outstationToday: 1, scheduledReviewToday: 1, days: attendanceDays };
   const emptyCollectionState = new Set(emptyCollectionTemplate);
   const emptyCollections = emptyCollectionState;
   const unknownRequests = new Set();

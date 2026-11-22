@@ -1324,6 +1324,7 @@ export type HrBusinessTrip = {
 export type HrOutstationAttendanceRequest = { businessTripId: string };
 
 export type HrAttendanceDashboardSummary = {
+  today: string;
   checkedInToday: number;
   checkedOutToday: number;
   openSessionsToday: number;
@@ -1333,6 +1334,34 @@ export type HrAttendanceDashboardSummary = {
   pendingBusinessTripRequests: number;
   activeOutstationToday: number;
   upcomingApprovedTrips: number;
+  fullDayLeaveToday: number;
+  outstationToday: number;
+  scheduledReviewToday: number;
+  days: HrAttendanceDashboardDay[];
+};
+
+export type HrAttendanceDashboardPerson = {
+  staffUserId: string;
+  staffDisplayName: string;
+  checkedIn: boolean;
+  checkedOut: boolean;
+  fullDayLeave: boolean;
+  outstation: boolean;
+  needsCheckInReview: boolean;
+  firstCheckInAt?: string;
+  lastCheckOutAt?: string;
+  scheduledStartAt?: string;
+  scheduledEndAt?: string;
+  verificationMethod?: HrAttendanceVerificationMethod;
+};
+
+export type HrAttendanceDashboardDay = {
+  date: string;
+  checkedIn: number;
+  fullDayLeave: number;
+  outstation: number;
+  scheduledReview: number;
+  people: HrAttendanceDashboardPerson[];
 };
 
 export type HrAvailabilityCalendarItem = {
@@ -2318,18 +2347,9 @@ export async function checkOutHrAttendance(input: HrCheckOutInput = {}): Promise
   return request("/api/hr/attendance/check-out", { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function getHrAttendanceDashboard(): Promise<HrAttendanceDashboardSummary> {
-  return getWithNetworkFallback("/api/hr/dashboard", {
-    checkedInToday: 0,
-    checkedOutToday: 0,
-    openSessionsToday: 0,
-    officeQrSessionsToday: 0,
-    manualSessionsToday: 0,
-    outstationSessionsToday: 0,
-    pendingBusinessTripRequests: 0,
-    activeOutstationToday: 0,
-    upcomingApprovedTrips: 0
-  });
+export async function getHrAttendanceDashboard(from?: string, to?: string): Promise<HrAttendanceDashboardSummary> {
+  const query = from && to ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}` : "";
+  return request<HrAttendanceDashboardSummary>("/api/hr/dashboard" + query);
 }
 
 export async function getHrAvailabilityCalendar(): Promise<HrAvailabilityCalendarItem[]> {

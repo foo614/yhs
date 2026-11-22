@@ -30,7 +30,28 @@ public sealed record HrPayrollPreparationRequest(List<HrPayrollSelection>? Selec
 public sealed record HrPayrollCandidate(string StaffUserId, string StaffName, HrPayslip? ExistingPayslip, HrPayslip? Draft, string? Action, string? BlockingReason, string? PreviewToken);
 public sealed record HrBusinessTripDecisionRequest(HrBusinessTripStatus Status, string? DecisionNotes = null);
 public sealed record HrOutstationAttendanceRequest(Guid BusinessTripId);
+public sealed record HrAttendanceDashboardPerson(
+    string StaffUserId,
+    string StaffDisplayName,
+    bool CheckedIn,
+    bool CheckedOut,
+    bool FullDayLeave,
+    bool Outstation,
+    bool NeedsCheckInReview,
+    DateTime? FirstCheckInAt,
+    DateTime? LastCheckOutAt,
+    DateTime? ScheduledStartAt,
+    DateTime? ScheduledEndAt,
+    HrAttendanceVerificationMethod? VerificationMethod);
+public sealed record HrAttendanceDashboardDay(
+    DateOnly Date,
+    int CheckedIn,
+    int FullDayLeave,
+    int Outstation,
+    int ScheduledReview,
+    IReadOnlyList<HrAttendanceDashboardPerson> People);
 public sealed record HrAttendanceDashboardSummary(
+    DateOnly Today,
     int CheckedInToday,
     int CheckedOutToday,
     int OpenSessionsToday,
@@ -39,7 +60,11 @@ public sealed record HrAttendanceDashboardSummary(
     int OutstationSessionsToday,
     int PendingBusinessTripRequests,
     int ActiveOutstationToday,
-    int UpcomingApprovedTrips);
+    int UpcomingApprovedTrips,
+    int FullDayLeaveToday,
+    int OutstationToday,
+    int ScheduledReviewToday,
+    IReadOnlyList<HrAttendanceDashboardDay> Days);
 public sealed record HrAvailabilityCalendarItem(
     string StaffUserId,
     string StaffDisplayName,
@@ -4871,6 +4896,75 @@ public static class DashboardMetrics
     }
 
     private static int AgeInDays(Vehicle vehicle, DateOnly today) => Math.Max(0, today.DayNumber - vehicle.IntakeDate.DayNumber);
+}
+
+public static class HrAttendanceAnalytics
+{
+    public static HrAttendanceDashboardDay BuildDay(
+        DateOnly date,
+        DateOnly today,
+        DateTime nowUtc,
+        IReadOnlyList<HrAttendanceRecord> attendance,
+        IReadOnlyList<HrWorkSchedule> schedules,
+        IReadOnlyList<HrLeaveRequest> approvedLeaves,
+        IReadOnlyList<HrBusinessTrip> approvedTrips,
+        IReadOnlyDictionary<string, string> staffNames)
+    {
+        var staffIds = attendance.Where(item => item.AttendanceDate == date).Select(item => item.StaffUserId)
+            .Concat(schedules.Where(item => item.AttendanceDate == date).Select(item => item.StaffUserId))
+            .Concat(approvedLeaves.Where(item => Covers(item, date)).Select(item => item.StaffUserId))
+            .Concat(approvedTrips.Where(item => item.StartDate <= date && item.EndDate >= date).Select(item => item.StaffUserId))
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        var people = staffIds.Select(staffUserId =>
+        {
+            var sessions = attendance.Where(item => item.AttendanceDate == date && item.StaffUserId == staffUserId).ToArray();
+            var schedule = schedules.FirstOrDefault(item => item.AttendanceDate == date && item.StaffUserId == staffUserId);
+            var fullDayLeave = approvedLeaves.Any(item => item.StaffUserId == staffUserId && CoversFullDay(item, date));
+            var outstation = approvedTrips.Any(item => item.StaffUserId == staffUserId && item.StartDate <= date && item.EndDate >= date)
+                || sessions.Any(item => item.VerificationMethod == HrAttendanceVerificationMethod.Outstation);
+            var checkedIn = sessions.Any(item => item.CheckInAt.HasValue);
+            var checkedOut = sessions.Any(item => item.CheckOutAt.HasValue);
+            var needsReview = schedule is not null
+                && date <= today
+                && !checkedIn
+                && !fullDayLeave
+                && !outstation
+                && (date < today || schedule.StartAt <= nowUtc);
+
+            return new HrAttendanceDashboardPerson(
+                staffUserId,
+                staffNames.GetValueOrDefault(staffUserId, "Staff"),
+                checkedIn,
+                checkedOut,
+                fullDayLeave,
+                outstation,
+                needsReview,
+                sessions.Where(item => item.CheckInAt.HasValue).Min(item => item.CheckInAt),
+                sessions.Where(item => item.CheckOutAt.HasValue).Max(item => item.CheckOutAt),
+                schedule?.StartAt,
+                schedule?.EndAt,
+                sessions.OrderBy(item => item.CheckInAt).Select(item => (HrAttendanceVerificationMethod?)item.VerificationMethod).FirstOrDefault());
+        }).OrderBy(item => item.StaffDisplayName, StringComparer.OrdinalIgnoreCase).ToArray();
+
+        return new HrAttendanceDashboardDay(
+            date,
+            people.Count(item => item.CheckedIn),
+            people.Count(item => item.FullDayLeave),
+            people.Count(item => item.Outstation),
+            people.Count(item => item.NeedsCheckInReview),
+            people);
+    }
+
+    private static bool Covers(HrLeaveRequest leave, DateOnly date) =>
+        leave.Status == HrLeaveStatus.Approved && leave.StartDate <= date && leave.EndDate >= date;
+
+    private static bool CoversFullDay(HrLeaveRequest leave, DateOnly date) =>
+        Covers(leave, date)
+        && (date > leave.StartDate || leave.StartSession == "AM")
+        && (date < leave.EndDate || leave.EndSession == "PM");
 }
 
 public static class HrWorkflowRules

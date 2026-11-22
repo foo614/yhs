@@ -514,7 +514,7 @@ All HR endpoints require authenticated back-office access. Staff can access thei
 | `PUT` | `/api/hr/attendance-networks/{id}` | Boss/Admin only. Update or disable an office CIDR range. |
 | `POST` | `/api/hr/attendance/check-in` | Create or update today's check-in for the current staff user. |
 | `POST` | `/api/hr/attendance/check-out` | Create or update today's check-out for the current staff user. |
-| `GET` | `/api/hr/dashboard` | Role-scoped attendance counts for today's QR, manual, open-session, and outstation activity plus pending/upcoming trip counts. |
+| `GET` | `/api/hr/dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD` | Role-scoped Malaysia-day attendance analytics (maximum 93 days): unique checked-in people, approved full-day leave, approved outstation duty, due schedules needing check-in review, and privacy-safe person detail. Missing schedules are not treated as absence. |
 | `GET` | `/api/hr/availability-calendar` | Role-scoped approved leave and outstation availability; other staff details are reduced to busy status. |
 | `GET` | `/api/hr/reminder-policies` | Read attendance reminder switches and lead-hour settings. |
 | `PUT` | `/api/hr/reminder-policies/{type}` | HR/Admin update an attendance reminder policy. |
