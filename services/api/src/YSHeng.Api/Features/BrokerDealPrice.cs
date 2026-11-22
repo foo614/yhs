@@ -13,8 +13,8 @@ public static class BrokerDealPriceRules
             : "Actual deal price must be greater than RM0 and no more than RM10,000,000.";
 
     public static bool CanUpdate(Vehicle vehicle, ClaimsPrincipal principal, string actorUserId)
-        => principal.IsInRole("Sales") &&
-           !principal.IsInRole("BossAdmin") &&
-           !string.IsNullOrWhiteSpace(actorUserId) &&
-           string.Equals(vehicle.SalesAgentUserId, actorUserId, StringComparison.Ordinal);
+        => !string.IsNullOrWhiteSpace(actorUserId) &&
+           (principal.IsInRole("BossAdmin") ||
+            principal.IsInRole("Sales") &&
+            string.Equals(vehicle.SalesAgentUserId, actorUserId, StringComparison.Ordinal));
 }

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SalesWorkboard } from "../../api";
-import { filterSalesMyCars, SalesMyCarsPanel } from "./SalesMyCarsPanel";
+import { canEditActualSellingPrice, filterSalesMyCars, SalesMyCarsPanel } from "./SalesMyCarsPanel";
 
 const workboard: SalesWorkboard = {
   soldThisMonth: 3,
@@ -21,6 +21,19 @@ const workboard: SalesWorkboard = {
 };
 
 describe("Cars I’m Handling", () => {
+  it("allows Boss/Admin or the currently assigned Broker to edit actual deal price", () => {
+    const assigned = workboard.items[0];
+    const reassigned = { ...assigned, salesAgentUserId: "agent-2", salesAgentName: "Other Broker" };
+    const unassigned = { ...assigned, salesAgentUserId: "", salesAgentName: "Unassigned" };
+
+    expect(canEditActualSellingPrice({ isAuthenticated: true, id: "agent-1", name: "Jason Tan", roles: ["Sales"] }, assigned)).toBe(true);
+    expect(canEditActualSellingPrice({ isAuthenticated: true, id: "agent-1", name: "Jason Tan", roles: ["Sales"] }, reassigned)).toBe(false);
+    expect(canEditActualSellingPrice({ isAuthenticated: true, id: "agent-1", name: "Jason Tan", roles: ["Sales"] }, unassigned)).toBe(false);
+    expect(canEditActualSellingPrice({ isAuthenticated: true, id: "boss-1", name: "Boss", roles: ["BossAdmin"] }, reassigned)).toBe(true);
+    expect(canEditActualSellingPrice({ isAuthenticated: true, id: "boss-1", name: "Boss", roles: ["BossAdmin", "Sales"] }, unassigned)).toBe(true);
+    expect(canEditActualSellingPrice({ isAuthenticated: true, id: "finance-1", name: "Finance", roles: ["Finance"] }, assigned)).toBe(false);
+  });
+
   it("filters the loaded workboard by practical sales keywords", () => {
     const items = [
       workboard.items[0],
@@ -74,6 +87,8 @@ describe("Cars I’m Handling", () => {
 
     expect(bossMarkup).toContain("All agents");
     expect(bossMarkup).toContain("Broker / 经纪人");
+    expect(bossMarkup).toContain("Actual deal price for VPK 1234");
+    expect(bossMarkup).toContain("Save");
     const bossTableHead = bossMarkup.match(/<thead[\s\S]*?<\/thead>/)?.[0] ?? "";
     expect(bossTableHead.match(/<th(?:\s|>)/g) ?? []).toHaveLength(5);
     expect(bossTableHead).toContain("Current handoff / 当前跟进");
