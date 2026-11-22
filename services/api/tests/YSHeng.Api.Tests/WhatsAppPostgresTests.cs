@@ -8,6 +8,8 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.IO.Compression;
+using System.Xml.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -318,7 +320,10 @@ public sealed class WhatsAppPostgresTests
             };
             db.InspectionRecords.Add(historicalInspection);
             await db.SaveChangesAsync();
-            await db.Database.ExecuteSqlRawAsync("""ALTER TABLE "InspectionRecords" ALTER COLUMN "Type" SET NOT NULL""");
+            await db.Database.ExecuteSqlRawAsync("""
+                ALTER TABLE "InspectionRecords" ALTER COLUMN "Type" SET NOT NULL;
+                ALTER TABLE "InspectionRecords" DROP COLUMN "ReceiptDate";
+                """);
             await SeedData.EnsureWhatsAppSchemaAsync(db);
             await SeedData.EnsureWhatsAppSchemaAsync(db);
             Assert.Equal(retained.Id, (await db.WhatsAppConsents.AsNoTracking().SingleAsync()).Id);
@@ -394,6 +399,7 @@ public sealed class WhatsAppPostgresTests
             finally { finish.TrySetResult(); await first; }
             await VerifyApplicationAsync(config.ConnectionString);
             Assert.Equal(InspectionType.Awalan, (await db.InspectionRecords.AsNoTracking().SingleAsync(item => item.Id == historicalInspection.Id)).Type);
+            Assert.Null((await db.InspectionRecords.AsNoTracking().SingleAsync(item => item.Id == historicalInspection.Id)).ReceiptDate);
             await using (var schemaDb = new AppDbContext(options))
             {
                 await schemaDb.Database.ExecuteSqlRawAsync("""
@@ -891,7 +897,8 @@ public sealed class WhatsAppPostgresTests
             receiptTotal = 100m,
             allocatedAmount = 100m,
             notes = "Synthetic PostgreSQL invoice uniqueness check",
-            supplierInvoiceReference = supplierReference
+            supplierInvoiceReference = supplierReference,
+            receiptDate = new DateOnly(2026, 11, 10)
         };
 
         var firstResponseTask = admin.PostAsJsonAsync(
@@ -938,6 +945,7 @@ public sealed class WhatsAppPostgresTests
         Assert.Equal(JsonValueKind.Null, regularRead.RootElement.GetProperty("type").ValueKind);
         Assert.Equal("YSHengAutomotive", regularRead.RootElement.GetProperty("company").GetString());
         Assert.Equal("2027-04-10", regularRead.RootElement.GetProperty("reportExpiryDate").GetString());
+        Assert.Equal("2026-11-10", regularRead.RootElement.GetProperty("receiptDate").GetString());
         regularRequest["type"] = null;
         regularRequest["status"] = "Booked";
         using var regularUpdate = await admin.PutAsJsonAsync($"/api/inspections/{regularId}", regularRequest);
@@ -953,6 +961,97 @@ public sealed class WhatsAppPostgresTests
             Request(firstVehicleId, "STALE-" + invoiceNumber, "STALE-" + invoiceNumber, InspectionType.Khas, InspectionCompany.YSHengAutomotive));
         Assert.Equal(HttpStatusCode.BadRequest, staleRegularType.StatusCode);
         Assert.Contains("inspection_type_not_applicable", await staleRegularType.Content.ReadAsStringAsync());
+
+        var pendingRequest = JsonSerializer.SerializeToNode(Request(firstVehicleId, "", "", InspectionType.PertukaranHakMilik))!.AsObject();
+        pendingRequest["bookingReference"] = "";
+        pendingRequest["receiptTotal"] = 0;
+        pendingRequest["allocatedAmount"] = 0;
+        pendingRequest["receiptDate"] = null;
+        using var pendingResponse = await admin.PostAsJsonAsync("/api/inspections", pendingRequest);
+        Assert.Equal(HttpStatusCode.Created, pendingResponse.StatusCode);
+        using var pendingDocument = JsonDocument.Parse(await pendingResponse.Content.ReadAsStringAsync());
+        var pendingId = pendingDocument.RootElement.GetProperty("id").GetGuid();
+        Assert.Equal("PertukaranHakMilik", pendingDocument.RootElement.GetProperty("type").GetString());
+        using var anotherPending = await admin.PostAsJsonAsync("/api/inspections", pendingRequest);
+        Assert.Equal(HttpStatusCode.Created, anotherPending.StatusCode);
+        using var anotherPendingDocument = JsonDocument.Parse(await anotherPending.Content.ReadAsStringAsync());
+        var anotherPendingId = anotherPendingDocument.RootElement.GetProperty("id").GetGuid();
+        pendingRequest["vehicleId"] = secondVehicleId;
+        pendingRequest["appointmentDate"] = "2026-12-11";
+        using var siblingPending = await admin.PostAsJsonAsync("/api/inspections", pendingRequest);
+        Assert.Equal(HttpStatusCode.Created, siblingPending.StatusCode);
+        using var siblingDocument = JsonDocument.Parse(await siblingPending.Content.ReadAsStringAsync());
+        var siblingId = siblingDocument.RootElement.GetProperty("id").GetGuid();
+        using var pendingList = JsonDocument.Parse(await admin.GetStringAsync("/api/inspections"));
+        Assert.Equal("PertukaranHakMilik", pendingList.RootElement.EnumerateArray().Single(item => item.GetProperty("id").GetGuid() == pendingId).GetProperty("type").GetString());
+
+        static object Paperwork(string invoice, decimal allocated = 70m, decimal total = 120m, DateOnly? receiptDate = null) => new
+        {
+            bookingReference = "LATER-CONFIRMATION", supplierInvoiceReference = invoice, receiptTotal = total, allocatedAmount = allocated,
+            receiptDate = receiptDate ?? new DateOnly(2026, 11, 10)
+        };
+        var paperworkPath = $"/api/inspections/{pendingId}/paperwork";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PutAsJsonAsync(paperworkPath, Paperwork("LATER-INV"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await sales.PutAsJsonAsync(paperworkPath, Paperwork("LATER-INV"))).StatusCode);
+        using var paperworkResponse = await admin.PutAsJsonAsync(paperworkPath, Paperwork("LATER-INV"));
+        Assert.Equal(HttpStatusCode.OK, paperworkResponse.StatusCode);
+        using var paperworkDocument = JsonDocument.Parse(await paperworkResponse.Content.ReadAsStringAsync());
+        Assert.Equal("LATER-INV", paperworkDocument.RootElement.GetProperty("sourceReceiptNumber").GetString());
+        Assert.Equal("LATER-CONFIRMATION", paperworkDocument.RootElement.GetProperty("bookingReference").GetString());
+        Assert.Equal("2026-11-10", paperworkDocument.RootElement.GetProperty("receiptDate").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync(paperworkPath, Paperwork("LATER-INV"))).StatusCode);
+        using var duplicatePaperwork = await admin.PutAsJsonAsync($"/api/inspections/{anotherPendingId}/paperwork", Paperwork(" later-inv "));
+        Assert.Equal(HttpStatusCode.Conflict, duplicatePaperwork.StatusCode);
+        using var sameVehicleReceipt = await admin.PutAsJsonAsync($"/api/inspections/{anotherPendingId}/paperwork", Paperwork("LATER-INV (1)", 50m));
+        Assert.Equal(HttpStatusCode.BadRequest, sameVehicleReceipt.StatusCode);
+        Assert.Contains("inspection_receipt_vehicle_duplicate", await sameVehicleReceipt.Content.ReadAsStringAsync());
+        using var excessAllocation = await admin.PutAsJsonAsync($"/api/inspections/{siblingId}/paperwork", Paperwork("LATER-INV (1)", 60m));
+        Assert.Equal(HttpStatusCode.BadRequest, excessAllocation.StatusCode);
+        Assert.Contains("inspection_receipt_allocation_exceeds_total", await excessAllocation.Content.ReadAsStringAsync());
+        using var siblingPaperwork = await admin.PutAsJsonAsync($"/api/inspections/{siblingId}/paperwork", Paperwork("LATER-INV (1)", 50m, 120m, new DateOnly(2026, 11, 11)));
+        Assert.Equal(HttpStatusCode.OK, siblingPaperwork.StatusCode);
+        using var filledSibling = JsonDocument.Parse(await siblingPaperwork.Content.ReadAsStringAsync());
+        Assert.Equal("LATER-INV", filledSibling.RootElement.GetProperty("sourceReceiptNumber").GetString());
+
+        using var invalidRange = await admin.GetAsync("/api/inspections/export-autocount?company=YSHengAuto&from=2026-12-11&to=2026-12-10");
+        Assert.Equal(HttpStatusCode.BadRequest, invalidRange.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/api/inspections/export-autocount?company=YSHengAuto&from=2026-12-10")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/api/inspections/export-autocount?company=YSHengAuto&from=0001-01-01&to=2026-12-10")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/api/inspections/export-autocount?company=YSHengAuto&from=bad&to=2026-12-10")).StatusCode);
+        static async Task<List<string>> ExportCells(HttpClient client, string dates)
+        {
+            using var response = await client.GetAsync("/api/inspections/export-autocount?company=YSHengAuto&" + dates);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var archive = new ZipArchive(new MemoryStream(await response.Content.ReadAsByteArrayAsync()), ZipArchiveMode.Read);
+            using var sheet = archive.GetEntry("xl/worksheets/sheet1.xml")!.Open();
+            XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            return XDocument.Load(sheet).Descendants(ns + "row").Skip(1)
+                .Select(row => string.Concat(row.Elements(ns + "c").ElementAt(10).Descendants(ns + "t").Select(item => item.Value))).ToList();
+        }
+        var oneDay = await ExportCells(admin, "from=2026-11-10&to=2026-11-10");
+        Assert.Contains("LATER-INV", oneDay);
+        Assert.DoesNotContain("LATER-INV (1)", oneDay);
+        Assert.DoesNotContain("REGULAR-" + invoiceNumber, oneDay);
+        var bothDays = await ExportCells(admin, "from=2026-11-10&to=2026-11-11");
+        Assert.Contains("LATER-INV", bothDays);
+        Assert.Contains("LATER-INV (1)", bothDays);
+        var nextDay = await ExportCells(admin, "from=2026-11-11&to=2026-11-11");
+        Assert.DoesNotContain("LATER-INV", nextDay);
+        Assert.Contains("LATER-INV (1)", nextDay);
+        using var unfiltered = await admin.GetAsync("/api/inspections/export-autocount?company=YSHengAuto");
+        Assert.Equal(HttpStatusCode.OK, unfiltered.StatusCode);
+        var legacyId = savedInspection.GetProperty("id").GetGuid();
+        using var legacySuffix = await admin.PutAsJsonAsync($"/api/inspections/{legacyId}/paperwork", Paperwork(invoiceNumber + " (1)", 100m, 100m));
+        Assert.Equal(HttpStatusCode.OK, legacySuffix.StatusCode);
+        using var legacySuffixDocument = JsonDocument.Parse(await legacySuffix.Content.ReadAsStringAsync());
+        Assert.Equal(savedInspection.GetProperty("sourceReceiptNumber").GetString(), legacySuffixDocument.RootElement.GetProperty("sourceReceiptNumber").GetString());
+        pendingRequest["status"] = "Completed";
+        using var completionWithoutReport = await admin.PutAsJsonAsync($"/api/inspections/{anotherPendingId}", pendingRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, completionWithoutReport.StatusCode);
+        Assert.Contains("inspection_report_required", await completionWithoutReport.Content.ReadAsStringAsync());
+        pendingRequest["status"] = "Cancelled";
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/inspections/{anotherPendingId}", pendingRequest)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/api/inspections/{anotherPendingId}/paperwork", Paperwork("CANCELLED-INV"))).StatusCode);
     }
 
     private sealed class StaffApplicationFactory(ConcurrentQueue<string> submitted) : WebApplicationFactory<Program>

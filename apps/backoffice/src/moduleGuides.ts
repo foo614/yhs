@@ -601,8 +601,8 @@ const inspectionGuide: ModuleGuideDefinition = {
       kind: "section",
       audience: "Admin and Delivery",
       purpose: "Create one standalone inspection record with the exact plate, company, type, appointment, and receipt allocation.",
-      actions: ["Select the correct plate.", "Check Special inspection for YS Heng Auto and choose 9001, 9002, 9003, 9004, or 9011.", "Leave Special inspection unchecked for YS Heng Automotive Sdn Bhd; no type is needed.", "Enter appointment details, Supplier Invoice No, and allocated amount; use a manually confirmed bracket suffix for another vehicle on the same receipt."],
-      requiredItems: ["Vehicle", "Inspection type for Special inspection only", "Appointment date", "Booking reference", "Supplier Invoice No", "Receipt total and allocation"],
+      actions: ["Select the correct plate.", "Check Special inspection for YS Heng Auto and choose 9001, 9002, 9003, 9004, or 9011.", "Leave Special inspection unchecked for YS Heng Automotive Sdn Bhd; no type is needed.", "Enter the appointment date and save; reference numbers may be added later in View files.", "In View files, enter the paperwork references, actual receipt date and amounts, and upload the receipt and appointment confirmation separately.", "For AutoCount PI export, select the company and month or date range; the period uses the actual receipt date. Undated records appear only as blocked review rows."],
+      requiredItems: ["Vehicle", "Inspection type for Special inspection only", "Appointment date", "Paperwork references and valid amounts before PI paste"],
       completeWhen: "The booking is saved against the correct vehicle and its source receipt.",
       handoff: "Inspection documents / 验车文件.",
       warnings: ["Receipt references are retained per vehicle allocation and are not renumbered when rows are reordered."]

@@ -20,7 +20,8 @@ public static class WhatsAppInspectionReminders
         var candidates = new List<InspectionReminderCandidate>();
         if (inspection.Status == InspectionStatus.Booked)
         {
-            if (dates.AppointmentReminderDate == today) candidates.Add(new(AppointmentReminder, today));
+            if (dates.AppointmentReminderDate == today && !string.IsNullOrWhiteSpace(inspection.BookingReference))
+                candidates.Add(new(AppointmentReminder, today));
         }
         else if (inspection.Status == InspectionStatus.Completed)
         {

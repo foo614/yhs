@@ -10,6 +10,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Radio,
   Select,
   Space,
   Tag,
@@ -28,23 +29,35 @@ import {
   type InspectionCompany,
   type InspectionRecord,
   type InspectionStatus,
+  type UpdateInspectionPaperworkRequest,
   type VehicleLookup,
   uploadVehicleDocument,
-  updateInspection
+  updateInspection,
+  updateInspectionPaperwork
 } from "../../api";
 import { inspectionTypeLabel, inspectionTypeOptions } from "./inspectionTypes";
 import { inspectionReceiptNumber } from "./inspectionReceipt";
 import { OperationsProTable as Table } from "../shared/OperationsProTable";
 
-type InspectionFormValues = Omit<CreateInspectionRequest, "appointmentDate" | "appointmentTime" | "sourceReceiptNumber" | "company"> & {
+type InspectionFormValues = Omit<CreateInspectionRequest, "appointmentDate" | "appointmentTime" | "receiptDate" | "sourceReceiptNumber" | "company"> & {
   specialInspection: boolean;
   appointmentDate: Dayjs;
   appointmentTime?: Dayjs;
+  receiptDate?: Dayjs;
 };
+
+type PaperworkFormValues = Omit<UpdateInspectionPaperworkRequest, "receiptDate"> & { receiptDate?: Dayjs };
 
 type InspectionPageProps = {
   vehicles: VehicleLookup[];
   canExportAutoCount?: boolean;
+};
+
+type ExportFormValues = {
+  company: InspectionCompany;
+  period: "month" | "range";
+  month: Dayjs;
+  range?: [Dayjs, Dayjs];
 };
 
 const companyOptions: { value: InspectionCompany; label: string }[] = [
@@ -68,14 +81,17 @@ function refreshableError(error: unknown) {
 
 export function InspectionPage({ vehicles, canExportAutoCount = false }: InspectionPageProps) {
   const [form] = Form.useForm<InspectionFormValues>();
+  const [exportForm] = Form.useForm<ExportFormValues>();
   const specialInspection = Form.useWatch("specialInspection", form);
+  const exportPeriod = Form.useWatch("period", exportForm);
   const [records, setRecords] = useState<InspectionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selected, setSelected] = useState<InspectionRecord | null>(null);
-  const [exportCompany, setExportCompany] = useState<InspectionCompany>("YSHengAuto");
+  const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const exportInitialValues = useMemo<ExportFormValues>(() => ({ company: "YSHengAuto", period: "month", month: dayjs() }), []);
 
   const vehicleOptions = useMemo(() => vehicles.map(vehicle => ({
     value: vehicle.id,
@@ -99,9 +115,15 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
     setSaving(true);
     try {
       const { specialInspection, ...booking } = values;
-      const sourceReceiptNumber = inspectionReceiptNumber(values.supplierInvoiceReference, await getInspections());
+      const supplierInvoiceReference = values.supplierInvoiceReference?.trim() ?? "";
+      const sourceReceiptNumber = supplierInvoiceReference
+        ? inspectionReceiptNumber(supplierInvoiceReference, await getInspections())
+        : "";
       const created = await createInspection({
         ...booking,
+        bookingReference: values.bookingReference?.trim() ?? "",
+        supplierInvoiceReference,
+        receiptDate: values.receiptDate?.format("YYYY-MM-DD") ?? null,
         company: specialInspection ? "YSHengAuto" : "YSHengAutomotive",
         type: specialInspection ? values.type : null,
         sourceReceiptNumber,
@@ -147,6 +169,26 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
     }
   }
 
+  async function savePaperwork(values: PaperworkFormValues) {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const updated = await updateInspectionPaperwork(selected.id, {
+        ...values,
+        receiptDate: values.receiptDate?.format("YYYY-MM-DD") ?? null,
+        bookingReference: values.bookingReference?.trim() ?? "",
+        supplierInvoiceReference: values.supplierInvoiceReference?.trim() ?? ""
+      });
+      setSelected({ ...selected, ...updated });
+      await reload();
+      message.success("Inspection paperwork saved. / 验车资料已保存。");
+    } catch (error) {
+      message.error(refreshableError(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function uploadEvidence(record: InspectionRecord, category: typeof documentUploads[number]["category"], file: File) {
     try {
       await uploadVehicleDocument(record.vehicleId, file, category, { inspectionId: record.id, ownershipType: "Vehicle" });
@@ -160,19 +202,24 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
     }
   }
 
-  async function exportAutoCount() {
+  async function exportAutoCount(values: ExportFormValues) {
     setExporting(true);
     try {
-      const blob = await exportInspectionAutoCountWorkbook(exportCompany);
+      const from = values.period === "month" ? values.month.startOf("month") : values.range![0];
+      const to = values.period === "month" ? values.month.endOf("month") : values.range![1];
+      const blob = await exportInspectionAutoCountWorkbook(values.company, from.format("YYYY-MM-DD"), to.format("YYYY-MM-DD"));
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `inspection-autocount-${exportCompany}.xlsx`;
+      link.download = `inspection-autocount-${values.company}-${from.format("YYYY-MM-DD")}-${to.format("YYYY-MM-DD")}.xlsx`;
       link.click();
       URL.revokeObjectURL(url);
       message.success("Inspection AutoCount workbook downloaded. Review each PI sheet before saving.");
+      setExportOpen(false);
+      return true;
     } catch (error) {
       message.error(refreshableError(error));
+      return false;
     } finally {
       setExporting(false);
     }
@@ -200,13 +247,12 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
             <Form.Item name="specialInspection" valuePropName="checked" style={{ gridColumn: "1 / -1" }}><Checkbox onChange={() => form.setFieldValue("type", undefined)}>Special inspection</Checkbox></Form.Item>
             <Form.Item name="appointmentDate" label="Appointment date / 预约日期" rules={[{ required: true, message: "Select appointment date. / 请选择预约日期。" }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="appointmentTime" label="Appointment time / 预约时间"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
-            <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]} style={{ gridColumn: "1 / -1" }}><Input /></Form.Item>
+            <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" extra="Optional now; add it in View files when available. / 可稍后在查看文件中补填。" style={{ gridColumn: "1 / -1" }}><Input /></Form.Item>
             <Form.Item name="supplierInvoiceReference" label="Supplier Invoice No / 供应商发票编号" tooltip={{
               title: "Enter the original number or your confirmed bracket suffix, e.g. INV123 (1). Allocations share the original receipt; the suffix does not create a new receipt. / 填原编号或自行确认的括号编号，如 INV123 (1)。分配金额仍合计到原收据，括号编号不另开收据。",
               trigger: ["hover", "focus", "click"],
               icon: <Button type="text" size="small" aria-label="Supplier invoice number guidance" icon={<InfoCircleOutlined />} />
             }} validateTrigger="onBlur" rules={[
-              { required: true, whitespace: true, message: "Enter supplier invoice number. / 请填写供应商发票编号。" },
               { validator: async (_, value: string) => {
                 if (!value?.trim()) return;
                 const result = await checkInspectionInvoiceNumber(value.trim());
@@ -214,11 +260,34 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
                 if (!result.available) throw new Error(`Number already used. Suggested: ${result.suggestedInvoiceNumber}. Please edit and confirm. / 编号已使用，建议改为 ${result.suggestedInvoiceNumber}，请自行修改确认。`);
               } }
             ]}><Input /></Form.Item>
+            <Form.Item name="receiptDate" label="Receipt date / 收据日期" extra="Actual inspection date; leave blank until known. / 实际验车日期，未确定时可留空。"><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="isLorry" label="Vehicle type / 车辆类型"><Select options={[{ value: false, label: "Car / 轿车" }, { value: true, label: "Lorry / 罗里" }]} /></Form.Item>
             <Form.Item name="receiptTotal" label="Receipt total (RM) / 收据总额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="allocatedAmount" label="Allocated amount (RM) / 本车分配金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
             <Form.Item name="notes" label="Notes / 备注" style={{ gridColumn: "1 / -1" }}><Input.TextArea rows={1} /></Form.Item>
           </div>
+      </ModalForm>
+
+      <ModalForm<ExportFormValues>
+        form={exportForm}
+        title="Export AutoCount PI / 导出验车 PI"
+        width={520}
+        layout="vertical"
+        dateFormatter={false}
+        open={exportOpen}
+        onOpenChange={(open) => { if (!exporting) setExportOpen(open); }}
+        onFinish={exportAutoCount}
+        initialValues={exportInitialValues}
+        modalProps={{ forceRender: true, maskClosable: false, closable: !exporting, keyboard: !exporting }}
+        submitter={{ searchConfig: { submitText: "Confirm export / 确认导出", resetText: "Cancel / 取消" }, resetButtonProps: { disabled: exporting }, submitButtonProps: { loading: exporting } }}
+      >
+        <Form.Item name="company" label="Company / 公司" rules={[{ required: true }]}><Select options={companyOptions} /></Form.Item>
+        <Form.Item name="period" label="Period / 期间"><Radio.Group options={[{ value: "month", label: "Month / 月份" }, { value: "range", label: "Custom dates / 自选日期" }]} /></Form.Item>
+        <p>Receipt date / 收据日期：actual inspection date, including both start and end dates. / 按实际验车日期，包含起止日期。</p>
+        <p>Records without a receipt date appear in the review sheets only and cannot be pasted as a PI. / 未填收据日期的记录仅列于核对表，不生成可粘贴 PI。</p>
+        {exportPeriod !== "range"
+          ? <Form.Item name="month" label="Month and year / 月份及年份" rules={[{ required: true }]}><DatePicker picker="month" format="MMM YYYY" className="fullWidth" /></Form.Item>
+          : <Form.Item name="range" label="Date range / 日期范围" rules={[{ required: true }]}><DatePicker.RangePicker format="DD MMM YYYY" className="fullWidth" /></Form.Item>}
       </ModalForm>
 
       <Card title="Inspection records / 验车记录">
@@ -229,17 +298,13 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
           toolBarRender={() => [
             <Button key="create" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setBookingOpen(true); }}>Create booking / 新增预约</Button>,
             ...(canExportAutoCount ? [
-              <Space key="export" wrap>
-                <Select aria-label="Inspection AutoCount company" value={exportCompany} onChange={(value: InspectionCompany) => setExportCompany(value)} options={companyOptions} />
-                <Button onClick={() => void exportAutoCount()} loading={exporting}>Export AutoCount PI / 导出验车 PI</Button>
-              </Space>
+              <Button key="export" onClick={() => { exportForm.resetFields(); setExportOpen(true); }}>Export AutoCount PI / 导出验车 PI</Button>
             ] : [])
           ]}
           scroll={{ x: 980 }}
           columns={[
             { title: "Vehicle / 车辆", dataIndex: "vehicleLabel", render: (value: string, record) => value || record.plateNumber || record.vehicleId },
             { title: "Type / 类型", dataIndex: "type", render: (_, record) => inspectionTypeLabel(record.type) },
-            { title: "Company / 公司", dataIndex: "company" },
             { title: "Appointment / 预约日期", dataIndex: "appointmentDate", render: (value: string) => dateValue(value) },
             { title: "Report expiry / 报告到期日", dataIndex: "reportExpiryDate", render: (value: string) => dateValue(value) },
             { title: "Status / 状态", dataIndex: "status", render: (value: InspectionStatus) => <Tag color={value === "Completed" ? "green" : value === "Cancelled" ? "red" : "gold"}>{value === "Booked" ? "Booked / 已预约" : value === "Completed" ? "Completed / 已完成" : "Cancelled / 已取消"}</Tag> },
@@ -253,10 +318,23 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="Type / 类型">{inspectionTypeLabel(selected.type)}</Descriptions.Item>
             <Descriptions.Item label="Appointment / 预约日期">{dateValue(selected.appointmentDate)}{selected.appointmentTime ? ` · ${selected.appointmentTime}` : ""}</Descriptions.Item>
-            <Descriptions.Item label="Booking reference / 预约编号">{selected.bookingReference}</Descriptions.Item>
-            <Descriptions.Item label="Supplier invoice reference / 供应商发票编号">{selected.supplierInvoiceReference}</Descriptions.Item>
             <Descriptions.Item label="Report expiry / 报告到期日">{dateValue(selected.reportExpiryDate)}</Descriptions.Item>
           </Descriptions>
+          <Form<PaperworkFormValues> key={selected.id} layout="vertical" initialValues={{ ...selected, receiptDate: selected.receiptDate ? dayjs(selected.receiptDate) : undefined }} onFinish={savePaperwork} disabled={saving || selected.status === "Cancelled"}>
+            <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号"><Input /></Form.Item>
+            <Form.Item name="supplierInvoiceReference" label="Supplier Invoice No / 供应商发票编号" validateTrigger="onBlur" rules={[{
+              validator: async (_, value: string) => {
+                if (!value?.trim() || value.trim().toUpperCase() === selected.supplierInvoiceReference.trim().toUpperCase()) return;
+                const result = await checkInspectionInvoiceNumber(value.trim());
+                if (!result.available) throw new Error(`Number already used. Suggested: ${result.suggestedInvoiceNumber}. Please edit and confirm. / 编号已使用，建议改为 ${result.suggestedInvoiceNumber}，请自行修改确认。`);
+              }
+            }]}><Input /></Form.Item>
+            <Form.Item name="receiptDate" label="Receipt date / 收据日期" extra="Actual inspection date; required for dated PI export. / 实际验车日期，按日期导出 PI 前须补填。"><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
+            <Form.Item name="receiptTotal" label="Receipt total (RM) / 收据总额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+            <Form.Item name="allocatedAmount" label="Allocated amount (RM) / 本车分配金额" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
+            <p>Numbers can be added later. Complete the references and amounts before AutoCount PI export. / 编号可稍后补填，导出 PI 前请补齐编号和金额。</p>
+            <Button htmlType="submit" type="primary" loading={saving}>Save paperwork / 保存资料</Button>
+          </Form>
           {documentUploads.map(item => <div key={item.category}>
             <Space direction="vertical" size="small">
               <strong>{item.label}</strong>

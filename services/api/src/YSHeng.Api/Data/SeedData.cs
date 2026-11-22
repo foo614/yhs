@@ -370,6 +370,7 @@ public static class SeedData
                 CONSTRAINT "PK_InspectionRecords" PRIMARY KEY ("Id")
             );
             ALTER TABLE "InspectionRecords" ALTER COLUMN "Type" DROP NOT NULL;
+            ALTER TABLE "InspectionRecords" ADD COLUMN IF NOT EXISTS "ReceiptDate" date;
             CREATE INDEX IF NOT EXISTS "IX_InspectionRecords_VehicleId" ON "InspectionRecords" ("VehicleId");
             CREATE UNIQUE INDEX IF NOT EXISTS "UX_InspectionRecords_SourceReceipt_Vehicle"
                 ON "InspectionRecords" ("SourceReceiptNumber", "VehicleId")

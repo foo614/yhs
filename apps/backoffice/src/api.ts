@@ -136,12 +136,13 @@ export type DocumentUploadOwner = {
 };
 
 export type InspectionTypeCode = 9001 | 9002 | 9003 | 9004 | 9011;
+export type InspectionTypeName = "Awalan" | "Berkala" | "Khas" | "BerkalaSemula" | "PertukaranHakMilik";
 export type InspectionCompany = "YSHengAuto" | "YSHengAutomotive";
 export type InspectionStatus = "Booked" | "Completed" | "Cancelled";
 export type InspectionRecord = {
   id: string;
   vehicleId: string;
-  type: InspectionTypeCode | null;
+  type: InspectionTypeCode | InspectionTypeName | null;
   company: InspectionCompany;
   status: InspectionStatus;
   isLorry: boolean;
@@ -153,6 +154,7 @@ export type InspectionRecord = {
   receiptTotal: number;
   allocatedAmount: number;
   supplierInvoiceReference: string;
+  receiptDate?: string | null;
   notes?: string | null;
   createdAt: string;
   createdBy: string;
@@ -174,11 +176,15 @@ export type CreateInspectionRequest = {
   supplierInvoiceReference: string;
   receiptTotal: number;
   allocatedAmount: number;
+  receiptDate?: string | null;
   notes?: string | null;
 };
-export type UpdateInspectionRequest = Omit<CreateInspectionRequest, "vehicleId" | "sourceReceiptNumber" | "supplierInvoiceReference"> & {
+export type UpdateInspectionRequest = Omit<CreateInspectionRequest, "vehicleId" | "sourceReceiptNumber" | "supplierInvoiceReference" | "type"> & {
+  type: InspectionRecord["type"];
   status: InspectionStatus;
 };
+export type UpdateInspectionPaperworkRequest = Pick<CreateInspectionRequest,
+  "bookingReference" | "supplierInvoiceReference" | "receiptTotal" | "allocatedAmount" | "receiptDate">;
 
 export type Vehicle = {
   id: string;
@@ -2118,8 +2124,9 @@ export async function checkInspectionInvoiceNumber(invoiceNumber: string): Promi
   return request(`/api/inspections/invoice-number-check?invoiceNumber=${encodeURIComponent(invoiceNumber)}`);
 }
 
-export async function exportInspectionAutoCountWorkbook(company: InspectionCompany): Promise<Blob> {
-  const response = await fetch(`${apiBaseUrl}/api/inspections/export-autocount?company=${encodeURIComponent(company)}`, { credentials: "include" });
+export async function exportInspectionAutoCountWorkbook(company: InspectionCompany, from: string, to: string): Promise<Blob> {
+  const query = new URLSearchParams({ company, from, to });
+  const response = await fetch(`${apiBaseUrl}/api/inspections/export-autocount?${query}`, { credentials: "include" });
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, `Inspection AutoCount export failed with status ${response.status}`));
   }
@@ -2138,6 +2145,13 @@ export async function updateInspection(id: string, payload: UpdateInspectionRequ
     method: "PUT",
     body: JSON.stringify(payload)
   }, "Unable to update inspection booking");
+}
+
+export async function updateInspectionPaperwork(id: string, payload: UpdateInspectionPaperworkRequest): Promise<InspectionRecord> {
+  return request<InspectionRecord>(`/api/inspections/${id}/paperwork`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  }, "Unable to update inspection paperwork");
 }
 
 export async function getPayments(): Promise<PaymentRecord[]> {

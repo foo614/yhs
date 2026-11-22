@@ -55,11 +55,11 @@ public static partial class AutoCountExcel
 
         var bookings = new List<IReadOnlyList<string>>
         {
-            new[] { "SourceId", "Company", "VehicleId", "CarPlate", "InspectionTypeCode", "InspectionType", "Status", "AppointmentDate", "BookingReference", "SourceReceiptNumber", "SupplierInvoiceReference", "SupplierDONumber", "ReceiptTotal", "AllocatedAmount", "CreditorCode", "CreditorName", "ItemCode", "AccountCode", "UOM", "Description", "AutoCountInvoiceNumber", "ReviewStatus", "Remark" }
+            new[] { "SourceId", "Company", "VehicleId", "CarPlate", "InspectionTypeCode", "InspectionType", "Status", "AppointmentDate", "BookingReference", "SourceReceiptNumber", "SupplierInvoiceReference", "SupplierDONumber", "ReceiptTotal", "AllocatedAmount", "CreditorCode", "CreditorName", "ItemCode", "AccountCode", "UOM", "Description", "AutoCountInvoiceNumber", "ReviewStatus", "Remark", "ReceiptDate" }
         };
         var guide = new List<IReadOnlyList<string>>
         {
-            new[] { "Sheet", "DocumentType", "SupplierInvoiceNumber", "SupplierDONumber", "CarPlate", "Company", "InspectionTypeCode", "InspectionType", "Description", "SourceReceiptNumber", "Amount", "LineTotal", "Difference", "ReviewStatus", "CopyRange", "BeforePaste", "SourceId" }
+            new[] { "Sheet", "DocumentType", "SupplierInvoiceNumber", "SupplierDONumber", "CarPlate", "Company", "InspectionTypeCode", "InspectionType", "Description", "SourceReceiptNumber", "Amount", "LineTotal", "Difference", "ReviewStatus", "CopyRange", "BeforePaste", "SourceId", "ReceiptDate" }
         };
         var documents = new List<Sheet>();
         var sequence = 0;
@@ -81,7 +81,7 @@ public static partial class AutoCountExcel
                 mapping.ItemCode, mapping.AccountCode, mapping.Uom, description, "", reviewStatus,
                 problems.Count == 0
                     ? "Original receipt number is reused for this vehicle allocation. Supplier Invoice No is manual and preserved exactly; no automatic suffix or AutoCount invoice number is created. Review account, item, UOM and TaxCode before saving."
-                    : string.Join(" ", problems)
+                    : string.Join(" ", problems), inspection.ReceiptDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? ""
             });
 
             var invoiceNumber = inspection.SupplierInvoiceReference;
@@ -132,7 +132,7 @@ public static partial class AutoCountExcel
                 amount, amount, "0.00", reviewStatus, copyRange,
                 problems.Count == 0
                     ? "Open a new Purchase Invoice, paste this sheet once, choose No for Auto Price Rule, then copy Supplier Invoice No and Supplier D/O No separately from this guide. Confirm the original receipt reference and allocated amount before Save."
-                    : string.Join(" ", problems), inspection.Id.ToString()
+                    : string.Join(" ", problems), inspection.Id.ToString(), inspection.ReceiptDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? ""
             });
         }
 
@@ -154,6 +154,8 @@ public static partial class AutoCountExcel
         else if (inspection.Type is not null && !InspectionRules.SupportedTypes.Contains(inspection.Type.Value))
             problems.Add("Inspection type is not supported; do not paste.");
         if (inspection.AppointmentDate == default) problems.Add("Missing appointment date; do not paste.");
+        if (!inspection.ReceiptDate.HasValue || inspection.ReceiptDate.Value == default)
+            problems.Add("Missing actual receipt/service date; enter it before selecting an export period or pasting a PI. No appointment, invoice or upload date is substituted.");
         if (string.IsNullOrWhiteSpace(inspection.BookingReference)) problems.Add("Missing booking reference; review the original booking.");
         if (string.IsNullOrWhiteSpace(inspection.SourceReceiptNumber)) problems.Add("Missing original receipt number; do not paste.");
         if (string.IsNullOrWhiteSpace(inspection.SupplierInvoiceReference)) problems.Add("Missing manual Supplier Invoice No; do not paste.");
