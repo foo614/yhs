@@ -89,16 +89,19 @@ public sealed class BusinessRulesTests
         var mine = new Vehicle { PlateNumber = "OWN1", SalesAgentUserId = "broker-a", Status = VehicleStatus.Sold,
             CustomerId = Guid.NewGuid(), IntakeDate = today, PurchasePrice = 987654m, ModifiedPurchasePrice = 876543m };
         var other = mine with { Id = Guid.NewGuid(), PlateNumber = "OTHER2", SalesAgentUserId = "broker-b" };
-        var loan = new LoanApplication { VehicleId = mine.Id, Status = LoanStatus.Approved, LouApproved = true,
+        var approvedLoan = new LoanApplication { VehicleId = mine.Id, Status = LoanStatus.Approved, LouApproved = true,
             SubmittedAt = today.AddDays(-3), DecisionAt = today.ToDateTime(TimeOnly.MinValue) };
-        var otherLoan = loan with { Id = Guid.NewGuid(), VehicleId = other.Id };
-        var document = new DashboardLoanDocument(Guid.NewGuid(), loan.Id, mine.Id);
+        var pendingLoan = approvedLoan with { Id = Guid.NewGuid(), Status = LoanStatus.Pending, LouApproved = false,
+            SubmittedAt = today.AddDays(-2), DecisionAt = null };
+        var otherLoan = approvedLoan with { Id = Guid.NewGuid(), VehicleId = other.Id };
+        var document = new DashboardLoanDocument(Guid.NewGuid(), approvedLoan.Id, mine.Id);
         var tasks = new[] { new CalendarTask { AssignedToUserId = "broker-a", Title = "Mine" },
             new CalendarTask { AssignedToUserId = "broker-b", Title = "Private other task" } };
         var result = DashboardUpdates.Create("broker-a", "broker-a", ["Sales"], today,
-            [mine, other], [], [loan, otherLoan], [], [], [], tasks, [], [document]);
+            [mine, other], [], [approvedLoan, pendingLoan, otherLoan], [], [], [], tasks, [], [document]);
         Assert.Contains(result.Reminders, x => x.Kind == "MissingDealPrice" && x.VehicleId == mine.Id);
-        Assert.Contains(result.Reminders, x => x.Kind == "Loan" && x.VehicleId == mine.Id && x.DaysOpen == 3);
+        Assert.Contains(result.Reminders, x => x.Id == $"loan:{pendingLoan.Id}" && x.DaysOpen == 2);
+        Assert.DoesNotContain(result.Reminders, x => x.Id == $"loan:{approvedLoan.Id}");
         Assert.DoesNotContain(result.Reminders, x => x.VehicleId == other.Id || x.Title == "Private other task");
         Assert.All(result.News, x => Assert.Null(x.LouDocumentId));
         var json = JsonSerializer.Serialize(result);
@@ -106,8 +109,8 @@ public sealed class BusinessRulesTests
         Assert.DoesNotContain("876543", json);
         Assert.DoesNotContain(mine.CustomerId.Value.ToString(), json);
         var boss = DashboardUpdates.Create("boss", "boss", ["BossAdmin"], today,
-            [mine, other], [], [loan, otherLoan], [], [], [], tasks, [], [document]);
-        Assert.Contains(boss.News, x => x.LouDocumentId == document.Id);
+            [mine, other], [], [approvedLoan, pendingLoan, otherLoan], [], [], [], tasks, [], [document]);
+        Assert.Contains(boss.News, x => x.Id == $"approved:{approvedLoan.Id}" && x.LouDocumentId == document.Id);
     }
 
     [Fact]
