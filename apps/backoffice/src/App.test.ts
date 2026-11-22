@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, formatModuleDocumentTimestamp, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, postLoginRoute, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
+import { activeLoanForVehicle, browserRouteUrl, buildRefurbishmentTableRecords, consumeExpiredSessionNotice, createVehicleIntakeFromVehiclePage, createVehicleIntakeWithRefresh, customerIdFromRouteUrl, DashboardPage, deliveryIdFromRouteUrl, DeliveryPage, DocumentLoadFailureNotice, filterDeliveryAccountingCharges, filterSupplierMaster, formatModuleDocumentTimestamp, leadIdFromRouteUrl, LeadsPage, LoginHome, loanIdFromRouteUrl, LoanPage, markExpiredSession, ModuleDocumentList, paymentIdFromRouteUrl, postLoginRoute, receiptVehicleMatchFromOcr, repairReceiptDraftFromOcr, restoredSessionRoute, supplierMasterMatchFromOcr, vehicleIdentityFor, vehicleLoanCustomerId } from "./App";
 import type { Customer, DashboardSummary, DeliveryAccountingCharge, DeliverySchedule, Lead, LoanApplication, RepairJob, Supplier, SupplierInvoice, Vehicle, VehicleLookup } from "./api";
 import { newestRecordsFirst } from "./recordDates";
 
@@ -159,6 +159,11 @@ describe("browser route state", () => {
   it("keeps the exact delivery handoff target separate from vehicle-based dashboard focus", () => {
     expect(deliveryIdFromRouteUrl("/delivery?deliveryId=delivery-123&vehicleId=vehicle-old")).toBe("delivery-123");
     expect(deliveryIdFromRouteUrl("/delivery?vehicleId=vehicle-old")).toBeUndefined();
+  });
+
+  it("keeps exact finance and enquiry handoff targets in their routes", () => {
+    expect(paymentIdFromRouteUrl("/finance?tab=payments&paymentId=payment-123")).toBe("payment-123");
+    expect(leadIdFromRouteUrl("/leads?leadId=lead-123")).toBe("lead-123");
   });
 
   it("uses the existing loan buyer before requiring a vehicle-level buyer", () => {

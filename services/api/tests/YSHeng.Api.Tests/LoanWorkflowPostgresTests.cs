@@ -4,6 +4,7 @@ using Xunit;
 using YSHeng.Api;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
+using YSHeng.Api.Features;
 
 namespace YSHeng.Api.Tests;
 
@@ -97,6 +98,64 @@ public sealed class LoanWorkflowPostgresTests
             Assert.False(second.IsCompleted);
             release.SetResult();
             await Task.WhenAll(first, second);
+        }
+        finally
+        {
+            await using var drop = new NpgsqlCommand($"DROP DATABASE \"{database}\" WITH (FORCE)", admin);
+            await drop.ExecuteNonQueryAsync();
+        }
+    }
+
+    [LoanPostgresFact]
+    public async Task Customer_identity_lock_prevents_concurrent_duplicate_phone_or_ic_creation()
+    {
+        var config = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("WHATSAPP_TEST_POSTGRES"));
+        var database = "customer_identity_lock_" + Guid.NewGuid().ToString("N");
+        config.Pooling = false;
+        await using var admin = new NpgsqlConnection(config.ConnectionString);
+        await admin.OpenAsync();
+        await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", admin)) await create.ExecuteNonQueryAsync();
+        config.Database = database;
+        var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(config.ConnectionString).Options;
+        try
+        {
+            await using (var db = new AppDbContext(options)) await db.Database.EnsureCreatedAsync();
+            var firstCustomer = new Customer { Name = "First", Phone = "012-345 6789", IcNumber = "900101-01-1234" };
+            var duplicateCustomer = new Customer { Name = "Duplicate", Phone = "0123456789", IcNumber = "900101011234" };
+            var firstSaved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            var first = Task.Run(async () =>
+            {
+                await using var db = new AppDbContext(options);
+                await using var transaction = await CustomerIdentityConcurrencyLock.BeginAsync(db, firstCustomer);
+                db.Customers.Add(firstCustomer);
+                await db.SaveChangesAsync();
+                firstSaved.SetResult();
+                await releaseFirst.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await transaction.CommitAsync();
+            });
+            await firstSaved.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            var second = Task.Run(async () =>
+            {
+                await using var db = new AppDbContext(options);
+                await using var transaction = await CustomerIdentityConcurrencyLock.BeginAsync(db, duplicateCustomer);
+                var customers = await db.Customers.AsNoTracking().ToListAsync();
+                return (
+                    Phone: ContactRules.ValidateUniqueCustomerPhone(duplicateCustomer, customers),
+                    Ic: ContactRules.ValidateUniqueCustomerIcNumber(duplicateCustomer, customers));
+            });
+            await Task.Delay(150);
+            Assert.False(second.IsCompleted);
+            releaseFirst.SetResult();
+
+            var duplicateValidation = await second;
+            await first;
+            Assert.False(duplicateValidation.Phone.IsValid);
+            Assert.False(duplicateValidation.Ic.IsValid);
+            await using var verification = new AppDbContext(options);
+            Assert.Single(await verification.Customers.AsNoTracking().ToListAsync());
         }
         finally
         {

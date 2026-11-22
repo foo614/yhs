@@ -13,6 +13,11 @@ export function customerCreateBlockReason(customer: Customer, existing: Customer
     return "Customer phone already exists.";
   }
 
+  const normalizedIcNumber = normalizeIdentityCardNumber(customer.icNumber);
+  if (normalizedIcNumber && existing.some((item) => item.id !== customer.id && normalizeIdentityCardNumber(item.icNumber) === normalizedIcNumber)) {
+    return "A customer with this IC number already exists.";
+  }
+
   return undefined;
 }
 

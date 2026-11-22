@@ -148,8 +148,14 @@ public static class LoanBuyerIntake
         if (vehicle is null) return Invalid("vehicle_not_found", "The selected vehicle does not exist.");
         if (!isAdmin && (!user.IsInRole("Sales") || !string.Equals(vehicle.SalesAgentUserId, actorId, StringComparison.Ordinal))) return Forbidden();
 
-        // Serialize customer deduplication across different vehicles as well as retries.
-        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({"loan-buyer-intake-customers"}, 0))", cancellationToken);
+        if (input.CustomerId is null)
+        {
+            await CustomerIdentityConcurrencyLock.AcquireAsync(db, new Customer
+            {
+                IcNumber = input.IcNumber?.Trim(),
+                Phone = input.Phone?.Trim() ?? ""
+            }, cancellationToken);
+        }
 
         if (!input.CashBuyer && input.NewLoanId is { } retryId)
         {
@@ -160,7 +166,7 @@ public static class LoanBuyerIntake
                 var matchesCustomer = retryCustomer is not null && (input.CustomerId is { } selectedId
                     ? retry.CustomerId == selectedId
                     : ContactRules.NormalizeIcNumber(retryCustomer.IcNumber) == ContactRules.NormalizeIcNumber(input.IcNumber)
-                        && NormalizePhone(retryCustomer.Phone) == NormalizePhone(input.Phone)
+                        && ContactRules.NormalizePhone(retryCustomer.Phone) == ContactRules.NormalizePhone(input.Phone)
                         && retryCustomer.Name == input.Name!.Trim());
                 if (retry.VehicleId != vehicle.Id || !matchesCustomer || retry.FinalSellingPrice != input.FinalSellingPrice
                     || retry.TradeInPlateNumber != NormalizeOptional(input.TradeInPlateNumber))
@@ -182,10 +188,10 @@ public static class LoanBuyerIntake
         else
         {
             var normalizedIc = ContactRules.NormalizeIcNumber(input.IcNumber);
-            var normalizedPhone = NormalizePhone(input.Phone);
+            var normalizedPhone = ContactRules.NormalizePhone(input.Phone);
             if (customers.Any(item => normalizedIc.Length > 0 && string.Equals(ContactRules.NormalizeIcNumber(item.IcNumber), normalizedIc, StringComparison.Ordinal)))
                 return Invalid("duplicate_customer_ic", "A customer with this IC number already exists. Select that customer instead.", StatusCodes.Status409Conflict);
-            if (customers.Any(item => string.Equals(NormalizePhone(item.Phone), normalizedPhone, StringComparison.OrdinalIgnoreCase)))
+            if (customers.Any(item => string.Equals(ContactRules.NormalizePhone(item.Phone), normalizedPhone, StringComparison.Ordinal)))
                 return Invalid("duplicate_customer_phone", "A customer with this phone already exists. Select that customer instead.", StatusCodes.Status409Conflict);
 
             customer = new Customer
@@ -327,5 +333,4 @@ public static class LoanBuyerIntake
 
     private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static string NormalizePhone(string? value) => new((value ?? "").Where(char.IsLetterOrDigit).ToArray());
 }

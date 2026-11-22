@@ -54,15 +54,35 @@ export type Customer360SourceTarget = {
   label: string;
 };
 
-/** Returns only deep links supported by the existing module route contracts. */
 export function customer360SourceTarget(path: Customer360SourcePath, recordId?: string, fallbackLabel = "Open module"): Customer360SourceTarget {
+  if (path === "/vehicles" && recordId) {
+    return { path: `/vehicles?vehicleId=${encodeURIComponent(recordId)}`, label: "Open vehicle" };
+  }
   if (path === "/loans" && recordId) {
     return { path: `/loans?loanId=${encodeURIComponent(recordId)}`, label: "Open loan" };
   }
   if (path === "/delivery" && recordId) {
     return { path: `/delivery?deliveryId=${encodeURIComponent(recordId)}`, label: "Open delivery" };
   }
+  if (path === "/finance" && recordId) {
+    return { path: `/finance?tab=payments&paymentId=${encodeURIComponent(recordId)}`, label: "Open finance record" };
+  }
+  if (path === "/leads" && recordId) {
+    return { path: `/leads?leadId=${encodeURIComponent(recordId)}`, label: "Open enquiry" };
+  }
   return { path, label: `Open ${fallbackLabel}` };
+}
+
+export function customerRelationshipLabel(relationship: CustomerProfileVehicle["relationship"] | CustomerProfileDelivery["relationship"] | CustomerProfilePayment["relationship"]) {
+  return ({
+    CurrentBuyer: "Current buyer",
+    DeliveryHistory: "Historical delivery",
+    LegacyLoanInference: "Legacy loan link · inferred",
+    ConfirmedCustomer: "Confirmed customer",
+    LegacyVehicleInference: "Legacy vehicle link · inferred",
+    InvoiceOwner: "Invoice owner",
+    VehicleHistoryInference: "Vehicle history · inferred"
+  } as const)[relationship];
 }
 
 const documentLabels: Record<CustomerProfileDocument["category"], string> = {
@@ -574,7 +594,8 @@ export function Customer360Page({
   const vehicleColumns: ColumnsType<CustomerProfileVehicle> = [
     { title: "Vehicle / 车辆", render: (_, vehicle) => vehicleReference(vehicle.id, [vehicle]) },
     { title: "Status / 状态", dataIndex: "status", render: (status) => <Tag color={status === "Sold" ? "purple" : status === "Available" ? "green" : "blue"}>{status}</Tag> },
-    ...sourceColumn<CustomerProfileVehicle>("/vehicles", "Vehicles")
+    { title: "Relationship", dataIndex: "relationship", render: customerRelationshipLabel },
+    ...sourceColumn<CustomerProfileVehicle>("/vehicles", "Vehicles", (vehicle) => vehicle.id)
   ];
   const loanColumns: ColumnsType<CustomerProfileLoan> = [
     { title: "Vehicle", render: (_, loan) => vehicleReference(loan.vehicleId, profile?.vehicles ?? []) },
@@ -587,6 +608,7 @@ export function Customer360Page({
     { title: "Vehicle", render: (_, delivery) => vehicleReference(delivery.vehicleId, profile?.vehicles ?? []) },
     { title: "Schedule / 交车", dataIndex: "scheduledDate", render: (_, delivery) => `${formatCustomer360Date(delivery.scheduledDate)} · ${delivery.status}` },
     { title: "PIC", dataIndex: "pic", render: displayValue },
+    { title: "Relationship", dataIndex: "relationship", render: customerRelationshipLabel },
     { title: "Coverage", render: (_, delivery) => <Space direction="vertical" size={8}>
       <CoverageItem label="Insurance" handled={delivery.insuranceHandled} reference={delivery.insurancePolicyReference} expiry={delivery.insuranceExpiryDate} />
       <CoverageItem label="Road tax" handled={delivery.roadTaxHandled} reference={delivery.roadTaxReceiptReference} expiry={delivery.roadTaxExpiryDate} />
@@ -605,6 +627,7 @@ export function Customer360Page({
     </Space> },
     { title: "Receipt / Invoice", render: (_, payment) => `${displayValue(payment.receiptNumber)} / ${displayValue(payment.invoiceNumber)}` },
     { title: "Created", dataIndex: "createdAt", render: (_, payment) => formatCustomer360Date(payment.createdAt) },
+    { title: "Relationship", dataIndex: "relationship", render: customerRelationshipLabel },
     ...sourceColumn<CustomerProfilePayment>("/finance", "Finance", (payment) => payment.id)
   ];
   const invoiceColumns: ColumnsType<CustomerProfileInvoice> = [
@@ -658,7 +681,7 @@ export function Customer360Page({
     { title: "Message", dataIndex: "message", render: displayValue },
     { title: "Source", dataIndex: "sourcePage", render: displayValue },
     { title: "Received", dataIndex: "createdAt", render: (_, enquiry) => formatCustomer360Date(enquiry.createdAt) },
-    ...sourceColumn<CustomerProfileEnquiry>("/leads", "Leads")
+    ...sourceColumn<CustomerProfileEnquiry>("/leads", "Leads", (enquiry) => enquiry.id)
   ];
   const missingDocumentGroups = profile
     ? groupMissingDocuments(profile.missingDocuments.filter((item) => item.isActiveBlocker && matchesVehicle(item.vehicleId)))
