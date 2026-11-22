@@ -793,6 +793,8 @@ Write-Host "Customer and owner update OK"
 $workflowVehicleBody = @{
   id = $workflowVehicleId
   plateNumber = $workflowPlate
+  chassisNumber = "SMOKE-CHASSIS-$workflowSuffix"
+  engineNumber = "SMOKE-ENGINE-$workflowSuffix"
   make = "Perodua"
   model = "Workflow"
   year = 2026
@@ -1087,7 +1089,7 @@ catch {
     throw
   }
 }
-if ($invalidVehicleStatus -ne 400 -or $invalidVehicleContent -notmatch "plate_required" -or $invalidVehicleContent -notmatch "invalid_selling_price" -or $invalidVehicleContent -notmatch "invalid_contra_range_price") {
+if ($invalidVehicleStatus -ne 400 -or $invalidVehicleContent -notmatch "plate_required" -or $invalidVehicleContent -notmatch "chassis_number_required" -or $invalidVehicleContent -notmatch "engine_number_required" -or $invalidVehicleContent -notmatch "invalid_selling_price" -or $invalidVehicleContent -notmatch "invalid_contra_range_price") {
   throw "Invalid vehicle intake returned HTTP $invalidVehicleStatus instead of structured validation errors"
 }
 Write-Host "Vehicle intake validation OK"
@@ -1095,6 +1097,8 @@ Write-Host "Vehicle intake validation OK"
 $duplicateVehicleBody = @{
   id = [guid]::NewGuid().ToString()
   plateNumber = $workflowPlate.ToLowerInvariant()
+  chassisNumber = "SMOKE-DUP-CHASSIS-$workflowSuffix"
+  engineNumber = "SMOKE-DUP-ENGINE-$workflowSuffix"
   make = "Perodua"
   model = "Duplicate"
   year = 2026
@@ -2348,6 +2352,8 @@ $paymentValidationVehicleId = [guid]::NewGuid().ToString()
 $paymentValidationVehicleBody = @{
   id = $paymentValidationVehicleId
   plateNumber = "PVT$($workflowSuffix.ToString().Substring($workflowSuffix.ToString().Length - 6))"
+  chassisNumber = "SMOKE-PAY-CHASSIS-$workflowSuffix"
+  engineNumber = "SMOKE-PAY-ENGINE-$workflowSuffix"
   make = "Perodua"
   model = "Finance Validation"
   year = 2026

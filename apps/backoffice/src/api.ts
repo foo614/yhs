@@ -141,7 +141,7 @@ export type InspectionStatus = "Booked" | "Completed" | "Cancelled";
 export type InspectionRecord = {
   id: string;
   vehicleId: string;
-  type: InspectionTypeCode;
+  type: InspectionTypeCode | null;
   company: InspectionCompany;
   status: InspectionStatus;
   isLorry: boolean;
@@ -164,7 +164,7 @@ export type InspectionRecord = {
 };
 export type CreateInspectionRequest = {
   vehicleId: string;
-  type: InspectionTypeCode;
+  type: InspectionTypeCode | null;
   company: InspectionCompany;
   isLorry: boolean;
   appointmentDate: string;

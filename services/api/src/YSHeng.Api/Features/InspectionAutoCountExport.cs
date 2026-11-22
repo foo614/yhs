@@ -26,8 +26,9 @@ public static class InspectionAutoCountRules
         _ => throw new ArgumentOutOfRangeException(nameof(company), company, "Unsupported inspection company.")
     };
 
-    public static string TypeName(InspectionType type) => type switch
+    public static string TypeName(InspectionType? type) => type switch
     {
+        null => "",
         InspectionType.Awalan => "Awalan",
         InspectionType.Berkala => "Berkala",
         InspectionType.Khas => "Khas",
@@ -66,13 +67,14 @@ public static partial class AutoCountExcel
         foreach (var record in records)
         {
             var inspection = record.Inspection;
+            var typeCode = inspection.Type is { } type ? ((int)type).ToString(CultureInfo.InvariantCulture) : "";
             var plate = record.Vehicle?.PlateNumber ?? "";
             var description = $"INSPECTION FEE - {plate}";
             var problems = InspectionProblems(record, inspection);
             var reviewStatus = problems.Count == 0 ? "ReviewRequired" : "BlockedForPaste";
             bookings.Add(new[] {
                 inspection.Id.ToString(), mapping.Company.ToString(), inspection.VehicleId.ToString(), plate,
-                ((int)inspection.Type).ToString(CultureInfo.InvariantCulture), InspectionAutoCountRules.TypeName(inspection.Type), inspection.Status.ToString(),
+                typeCode, InspectionAutoCountRules.TypeName(inspection.Type), inspection.Status.ToString(),
                 inspection.AppointmentDate == default ? "" : inspection.AppointmentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 inspection.BookingReference, inspection.SourceReceiptNumber, inspection.SupplierInvoiceReference, inspection.SupplierInvoiceReference,
                 Money(inspection.ReceiptTotal), Money(inspection.AllocatedAmount), mapping.CreditorCode, mapping.CreditorName,
@@ -85,9 +87,9 @@ public static partial class AutoCountExcel
             var invoiceNumber = inspection.SupplierInvoiceReference;
             var amount = Money(inspection.AllocatedAmount);
             var typeName = InspectionAutoCountRules.TypeName(inspection.Type);
-            var typeDescription = inspection.Company == InspectionCompany.YSHengAuto
-                ? $"{(int)inspection.Type} - {(inspection.Type == InspectionType.PertukaranHakMilik ? "Pertukaran Hak" : typeName)}"
-                : $"{(int)inspection.Type} - {typeName.ToUpperInvariant()}";
+            var typeDescription = inspection.Company == InspectionCompany.YSHengAutomotive
+                ? ""
+                : inspection.Type is null ? "" : $"{typeCode} - {(inspection.Type == InspectionType.PertukaranHakMilik ? "Pertukaran Hak" : typeName)}";
             string sheetName = "";
             string copyRange = "";
             if (problems.Count == 0)
@@ -126,7 +128,7 @@ public static partial class AutoCountExcel
 
             guide.Add(new[] {
                 sheetName, "Purchase Invoice", invoiceNumber, invoiceNumber, plate, mapping.Company.ToString(),
-                ((int)inspection.Type).ToString(CultureInfo.InvariantCulture), InspectionAutoCountRules.TypeName(inspection.Type), typeDescription, inspection.SourceReceiptNumber,
+                typeCode, InspectionAutoCountRules.TypeName(inspection.Type), typeDescription, inspection.SourceReceiptNumber,
                 amount, amount, "0.00", reviewStatus, copyRange,
                 problems.Count == 0
                     ? "Open a new Purchase Invoice, paste this sheet once, choose No for Auto Price Rule, then copy Supplier Invoice No and Supplier D/O No separately from this guide. Confirm the original receipt reference and allocated amount before Save."
@@ -147,7 +149,10 @@ public static partial class AutoCountExcel
     {
         var problems = new List<string>();
         if (record.Vehicle is null || string.IsNullOrWhiteSpace(record.Vehicle.PlateNumber)) problems.Add("Vehicle plate is missing; do not paste.");
-        if (!InspectionRules.SupportedTypes.Contains(inspection.Type)) problems.Add("Inspection type is not supported; do not paste.");
+        if (inspection.Type is null && inspection.Company == InspectionCompany.YSHengAuto)
+            problems.Add("Missing Special inspection type; do not paste.");
+        else if (inspection.Type is not null && !InspectionRules.SupportedTypes.Contains(inspection.Type.Value))
+            problems.Add("Inspection type is not supported; do not paste.");
         if (inspection.AppointmentDate == default) problems.Add("Missing appointment date; do not paste.");
         if (string.IsNullOrWhiteSpace(inspection.BookingReference)) problems.Add("Missing booking reference; review the original booking.");
         if (string.IsNullOrWhiteSpace(inspection.SourceReceiptNumber)) problems.Add("Missing original receipt number; do not paste.");

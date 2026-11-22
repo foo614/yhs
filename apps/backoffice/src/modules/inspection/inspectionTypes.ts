@@ -9,5 +9,6 @@ export const inspectionTypeOptions = [
 export type InspectionTypeCode = (typeof inspectionTypeOptions)[number]["value"];
 
 export function inspectionTypeLabel(code: number | null | undefined) {
+  if (code == null) return "Not applicable / 不适用";
   return inspectionTypeOptions.find(option => option.value === code)?.label ?? "Unknown inspection type / 未知验车类型";
 }

@@ -1003,6 +1003,8 @@ try {
           if (label === "New Vehicle") {
             await page.getByRole("button", { name: "Next / 下一步", exact: true }).click();
             await page.locator(".ant-form-item-explain-error").first().waitFor();
+            await page.getByText("Enter the chassis number.", { exact: true }).waitFor();
+            await page.getByText("Enter the engine number.", { exact: true }).waitFor();
             await inspect(`${route}-validation`, width);
           }
           await closeOverlay();

@@ -68,6 +68,7 @@ function refreshableError(error: unknown) {
 
 export function InspectionPage({ vehicles, canExportAutoCount = false }: InspectionPageProps) {
   const [form] = Form.useForm<InspectionFormValues>();
+  const specialInspection = Form.useWatch("specialInspection", form);
   const [records, setRecords] = useState<InspectionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -102,6 +103,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
       const created = await createInspection({
         ...booking,
         company: specialInspection ? "YSHengAuto" : "YSHengAutomotive",
+        type: specialInspection ? values.type : null,
         sourceReceiptNumber,
         appointmentDate: values.appointmentDate.format("YYYY-MM-DD"),
         appointmentTime: values.appointmentTime?.format("HH:mm") ?? null
@@ -194,8 +196,8 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
           <Tag color="blue" style={{ marginBottom: 16 }}>Validity: 4 months / 有效期：4个月</Tag>
           <div className="formGrid formGrid--three">
             <Form.Item name="vehicleId" label="Vehicle / 车辆" rules={[{ required: true, message: "Select a vehicle. / 请选择车辆。" }]}><Select showSearch optionFilterProp="label" options={vehicleOptions} placeholder="Select plate / 选择车牌" /></Form.Item>
-            <Form.Item name="type" label="Inspection type / 验车类型" rules={[{ required: true, message: "Select inspection type. / 请选择验车类型。" }]}><Select options={inspectionTypeOptions.map(option => ({ value: option.value, label: option.label }))} /></Form.Item>
-            <Form.Item name="specialInspection" valuePropName="checked" style={{ gridColumn: "1 / -1" }}><Checkbox>Special inspection</Checkbox></Form.Item>
+            {specialInspection && <Form.Item name="type" label="Inspection type / 验车类型" preserve={false} rules={[{ required: true, message: "Select inspection type. / 请选择验车类型。" }]}><Select options={inspectionTypeOptions.map(option => ({ value: option.value, label: option.label }))} /></Form.Item>}
+            <Form.Item name="specialInspection" valuePropName="checked" style={{ gridColumn: "1 / -1" }}><Checkbox onChange={() => form.setFieldValue("type", undefined)}>Special inspection</Checkbox></Form.Item>
             <Form.Item name="appointmentDate" label="Appointment date / 预约日期" rules={[{ required: true, message: "Select appointment date. / 请选择预约日期。" }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="appointmentTime" label="Appointment time / 预约时间"><TimePicker className="fullWidth" format="HH:mm" /></Form.Item>
             <Form.Item name="bookingReference" label="Appointment confirmation reference / 预约确认编号" rules={[{ required: true }]} style={{ gridColumn: "1 / -1" }}><Input /></Form.Item>
@@ -236,7 +238,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
           scroll={{ x: 980 }}
           columns={[
             { title: "Vehicle / 车辆", dataIndex: "vehicleLabel", render: (value: string, record) => value || record.plateNumber || record.vehicleId },
-            { title: "Type / 类型", dataIndex: "type", render: (value: number) => inspectionTypeLabel(value) },
+            { title: "Type / 类型", dataIndex: "type", render: (_, record) => inspectionTypeLabel(record.type) },
             { title: "Company / 公司", dataIndex: "company" },
             { title: "Appointment / 预约日期", dataIndex: "appointmentDate", render: (value: string) => dateValue(value) },
             { title: "Report expiry / 报告到期日", dataIndex: "reportExpiryDate", render: (value: string) => dateValue(value) },

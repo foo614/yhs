@@ -78,7 +78,8 @@ test.describe("isolated real back-office pilot", () => {
       expect(ownerResponse.status(), await ownerResponse.text()).toBe(201);
       const owner = await ownerResponse.json();
       const response = await page.request.post(`${apiBaseURL}/api/vehicles`, {
-        data: { plateNumber: plate, make: "Toyota", model: "Vios", year: 2021,
+        data: { plateNumber: plate, chassisNumber: `${marker}-CHASSIS`, engineNumber: `${marker}-ENGINE`,
+          make: "Toyota", model: "Vios", year: 2021,
           stockOwner: "YSHeng", stockLocation: "E2E pilot", status: "Available",
           ownerId: owner.id, isPublic: false, bossConfirmed: false, purchasePrice: 42000, sellingPrice: 58000 }
       });

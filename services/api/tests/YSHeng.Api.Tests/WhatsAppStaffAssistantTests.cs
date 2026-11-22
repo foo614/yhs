@@ -17,6 +17,22 @@ namespace YSHeng.Api.Tests;
 
 public sealed class WhatsAppStaffAssistantTests
 {
+    [Fact]
+    public void WhatsApp_vehicle_intake_requires_chassis_and_engine_numbers()
+    {
+        var intake = WhatsAppVehicleIntake.Template
+            .Replace("Seller name", "Test Seller")
+            .Replace("Seller TIN", "IG123456789")
+            .Replace("Seller IC", "900101011234");
+        var argument = Assert.IsType<WhatsAppStaffIntent>(WhatsAppStaffQueries.Parse(intake)).Argument;
+
+        Assert.True(WhatsAppVehicleIntake.TryParse(argument, out var valid));
+        Assert.Equal("MMBXY12345678901", valid!.Vehicle.ChassisNumber);
+        Assert.Equal("4B11T123456", valid.Vehicle.EngineNumber);
+        Assert.False(WhatsAppVehicleIntake.TryParse(argument.Replace("chassis: MMBXY12345678901", "chassis: "), out _));
+        Assert.False(WhatsAppVehicleIntake.TryParse(argument.Replace("engine: 4B11T123456", "engine:   "), out _));
+    }
+
     // Optional external references must not turn a forwarded slip into settled
     // funds or let a mismatched legacy invoice trigger a private media download.
     [Theory]

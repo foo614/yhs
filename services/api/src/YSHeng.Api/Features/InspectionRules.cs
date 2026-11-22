@@ -11,7 +11,7 @@ public sealed record InspectionReceiptAllocation(Guid VehicleId, decimal Amount)
 
 public sealed record CreateInspectionRequest(
     Guid VehicleId,
-    InspectionType Type,
+    InspectionType? Type,
     InspectionCompany Company,
     bool IsLorry,
     DateOnly AppointmentDate,
@@ -28,7 +28,7 @@ public sealed record SupplierInvoiceReferenceAvailability(
     string? SuggestedInvoiceNumber);
 
 public sealed record UpdateInspectionRequest(
-    InspectionType Type,
+    InspectionType? Type,
     InspectionCompany Company,
     InspectionStatus Status,
     bool IsLorry,
@@ -59,7 +59,12 @@ public static class InspectionRules
     {
         var errors = new List<ValidationError>();
         if (request.VehicleId == Guid.Empty) errors.Add(new("inspection_vehicle_required", "Select a vehicle for the inspection."));
-        if (!SupportedTypes.Contains(request.Type)) errors.Add(new("inspection_type_invalid", "Select a supported inspection type."));
+        if (request.Company == InspectionCompany.YSHengAuto && request.Type is null)
+            errors.Add(new("inspection_type_required", "Select an inspection type for Special inspection."));
+        if (request.Type is { } type && !SupportedTypes.Contains(type))
+            errors.Add(new("inspection_type_invalid", "Select a supported inspection type."));
+        if (request.Company == InspectionCompany.YSHengAutomotive && request.Type is not null)
+            errors.Add(new("inspection_type_not_applicable", "Regular inspection bookings must not include a Special inspection type."));
         if (!Enum.IsDefined(request.Company)) errors.Add(new("inspection_company_invalid", "Select a supported inspection company."));
         if (request.AppointmentDate == default) errors.Add(new("inspection_appointment_required", "Appointment date is required."));
         if (string.IsNullOrWhiteSpace(request.BookingReference)) errors.Add(new("inspection_booking_reference_required", "Appointment confirmation reference is required."));
@@ -119,10 +124,16 @@ public static class InspectionRules
         return value;
     }
 
-    public static ValidationResult Validate(UpdateInspectionRequest request)
+    public static ValidationResult Validate(UpdateInspectionRequest request, InspectionRecord? existing = null)
     {
         var errors = new List<ValidationError>();
-        if (!SupportedTypes.Contains(request.Type)) errors.Add(new("inspection_type_invalid", "Select a supported inspection type."));
+        if (request.Company == InspectionCompany.YSHengAuto && request.Type is null)
+            errors.Add(new("inspection_type_required", "Select an inspection type for Special inspection."));
+        if (request.Type is { } type && !SupportedTypes.Contains(type))
+            errors.Add(new("inspection_type_invalid", "Select a supported inspection type."));
+        if (request.Company == InspectionCompany.YSHengAutomotive && request.Type is not null &&
+            (existing?.Company != request.Company || existing.Type != request.Type))
+            errors.Add(new("inspection_type_not_applicable", "Regular inspection bookings must not include a Special inspection type."));
         if (!Enum.IsDefined(request.Company)) errors.Add(new("inspection_company_invalid", "Select a supported inspection company."));
         if (!Enum.IsDefined(request.Status)) errors.Add(new("inspection_status_invalid", "Select a supported inspection status."));
         if (request.AppointmentDate == default) errors.Add(new("inspection_appointment_required", "Appointment date is required."));
