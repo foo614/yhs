@@ -37,18 +37,19 @@ public sealed class WhatsAppDispatchOptions
         Id(PhoneNumberId) && Id(BusinessAccountId) && Secret(AppSecret) && Secret(VerifyToken);
 
     // Preserve the customer rollout's all-template manifest requirement.
-    private WhatsAppApprovedTemplate[] LegacyTemplates => Templates.Where(template => !WhatsAppReminderV2.Known(template.Key)).ToArray();
+    private WhatsAppApprovedTemplate[] LegacyTemplates => Templates.Where(template => !WhatsAppReminderV2.Known(template.Key) &&
+        template.Key is not (WhatsAppInspectionAttachment.TemplateKey or WhatsAppLeaveSubmission.TemplateKey)).ToArray();
     private bool CustomerConfigured => CaptureEnabled && SendingEnabled && TransportConfigured && LegacyTemplates.Length > 0 &&
         LegacyTemplates.All(template => template.Valid) &&
         LegacyTemplates.Select(template => (template.Key, template.Language)).Distinct().Count() == LegacyTemplates.Length;
     public bool Ready => CustomerConfigured && TransportReady;
     public bool StaffSenderReady => StaffCaptureEnabled && StaffSendingEnabled && TransportReady;
-    public bool StaffReady => StaffSenderReady && (HasTemplate("staff_notice_v1") || HasTemplate(WhatsAppInspectionAttachment.TemplateKey));
+    public bool StaffReady => StaffSenderReady && StaffTemplateConfigured;
     public bool InvitationSenderReady => InvitationEnabled && TransportReady;
     public bool InvitationReady => InvitationSenderReady && HasTemplate(WhatsAppStaffInvitation.TemplateKey);
 
     internal bool DispatchConfigured => CustomerConfigured ||
-        (StaffCaptureEnabled && StaffSendingEnabled && TransportConfigured && (HasTemplate("staff_notice_v1") || HasTemplate(WhatsAppInspectionAttachment.TemplateKey))) ||
+        (StaffCaptureEnabled && StaffSendingEnabled && TransportConfigured && StaffTemplateConfigured) ||
         (InvitationEnabled && TransportConfigured && HasTemplate(WhatsAppStaffInvitation.TemplateKey));
 
     internal bool TransportConfigured => WebhookReady && SenderApproved && Evidence(SenderApprovalEvidence) &&
@@ -71,6 +72,9 @@ public sealed class WhatsAppDispatchOptions
         return matches.Length == 1 && matches[0].Valid ? matches[0] : null;
     }
 
+    private bool StaffTemplateConfigured => HasTemplate("staff_notice_v1") || HasTemplate(WhatsAppInspectionAttachment.TemplateKey) ||
+        TemplateFor(WhatsAppLeaveSubmission.TemplateKey, "en_US") is not null;
+
     private bool HasTemplate(string key) => TemplateFor(key, "ms") is not null || TemplateFor(key, "en_US") is not null;
 
     public WhatsAppTemplateReadiness TemplateReadiness(string key, string language)
@@ -90,7 +94,7 @@ public sealed class WhatsAppDispatchOptions
             if (WhatsAppReminderV2.Known(key) && !WhatsAppReminderV2.ValidManifest(matches[0]))
                 issues.Add("V2 template name, static body or Portal button approval does not match the contract.");
         }
-        return new(language, issues.Count == 0, issues);
+        return new(language, issues.Count == 0, issues, key);
     }
 
     public IReadOnlyList<string> StaffSenderIssues()
@@ -116,7 +120,7 @@ public sealed class WhatsAppDispatchOptions
     internal static bool Evidence(string value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 160 && !value.Any(char.IsControl);
 }
 
-public sealed record WhatsAppTemplateReadiness(string Language, bool Ready, IReadOnlyList<string> Issues);
+public sealed record WhatsAppTemplateReadiness(string Language, bool Ready, IReadOnlyList<string> Issues, string? TemplateKey = null);
 
 public sealed class WhatsAppApprovedTemplate
 {
@@ -126,7 +130,7 @@ public sealed class WhatsAppApprovedTemplate
     public string ProviderLanguage { get; init; } = "";
     public string EffectiveProviderLanguage => ProviderLanguage.Length == 0 ? Language : ProviderLanguage;
     public bool ValidProviderLanguage => EffectiveProviderLanguage == Language ||
-        ((Key == "staff_notice_v1" || WhatsAppReminderV2.Known(Key)) && Language == "en_US" && EffectiveProviderLanguage == "en");
+        ((Key is "staff_notice_v1" or WhatsAppInspectionAttachment.TemplateKey or WhatsAppLeaveSubmission.TemplateKey || WhatsAppReminderV2.Known(Key)) && Language == "en_US" && EffectiveProviderLanguage == "en");
     public bool Approved { get; init; }
     public string ApprovalEvidence { get; init; } = "";
     // V2 approval attests the exact static body and static Portal button destination.
@@ -136,6 +140,7 @@ public sealed class WhatsAppApprovedTemplate
     public bool ValidName => Regex.IsMatch(Name, @"\A[a-z][a-z0-9_]{0,79}\z");
     public bool Valid => Approved && (Key is "enquiry_ack_v1" or "business_update_v1" or "receipt_ready_v1" or "staff_notice_v1" or "staff_invite_v1" ||
         Key == WhatsAppInspectionAttachment.TemplateKey && HeaderFormat == "DOCUMENT" ||
+        Key == WhatsAppLeaveSubmission.TemplateKey && Name == WhatsAppLeaveSubmission.TemplateKey && Language == "en_US" && HeaderFormat.Length == 0 ||
         WhatsAppInsurance.ValidManifest(this) ||
         WhatsAppReminderV2.Known(Key) && WhatsAppReminderV2.ValidManifest(this)) &&
         Language is "ms" or "en_US" && ValidName && ValidProviderLanguage &&
@@ -197,7 +202,8 @@ public sealed class WhatsAppTemplateSender : IDisposable
         if (template is null || (item.TemplateVersion == WhatsAppInspectionAttachment.TemplateKey || WhatsAppInsurance.IsDocument(item)) != (mediaId is not null) || !WhatsAppNotificationDispatcher.Supported(item) ||
             (item.Audience == "Customer" && !Guid.TryParseExact(item.BusinessReference, "D", out _)) || string.IsNullOrWhiteSpace(item.TemplateReference) ||
             item.TemplateReference.Length > (item.Audience is "Staff" or "Enrollment" ? 1024 : 80) || item.TemplateReference.Any(char.IsControl)) return new("TemplateNotApproved");
-        var parameters = WhatsAppReminderV2.Known(item.TemplateVersion) ? WhatsAppReminderV2.Parameters(item) : [item.TemplateReference];
+        var parameters = WhatsAppReminderV2.Known(item.TemplateVersion) ? WhatsAppReminderV2.Parameters(item) :
+            WhatsAppLeaveSubmission.IsSubmission(item) ? WhatsAppLeaveSubmission.Parameters(item) : [item.TemplateReference];
         if (parameters is null) return new("TemplateNotApproved");
         string recipient;
         try { recipient = WhatsAppOutboxStore.NormalizeRecipient(item.Recipient); }

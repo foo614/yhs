@@ -34,6 +34,8 @@ function Assert-Equal {
 }
 
 $testEnvironment = [ordered]@{
+  WHATSAPP_INSPECTION_EN_TEMPLATE_APPROVED = $null
+  WHATSAPP_LEAVE_SUBMISSION_EN_TEMPLATE_APPROVED = $null
   POSTGRES_USER = "ysheng"
   POSTGRES_PASSWORD = "test-postgres-password"
   SEED_DATA_ENABLED = "false"
@@ -231,6 +233,17 @@ try {
     Assert-Equal -Name "$prefix pack URL" -Actual $button.url -Expected $approvedButton.url
     Assert-Equal -Name "$prefix button label" -Actual $button.text -Expected $approvedButton.text
   }
+  Assert-Equal -Name "Inspection key" -Actual $whatsApp.WhatsApp__Templates__12__Key -Expected "inspection_appointment_document_v1"
+  Assert-Equal -Name "Inspection template name" -Actual $whatsApp.WhatsApp__Templates__12__Name -Expected "ysheng_inspection_appointment_v1"
+  Assert-Equal -Name "Inspection logical language" -Actual $whatsApp.WhatsApp__Templates__12__Language -Expected "en_US"
+  Assert-Equal -Name "Inspection provider language" -Actual $whatsApp.WhatsApp__Templates__12__ProviderLanguage -Expected "en"
+  Assert-Equal -Name "Inspection header" -Actual $whatsApp.WhatsApp__Templates__12__HeaderFormat -Expected "DOCUMENT"
+  Assert-Equal -Name "Inspection approval" -Actual $whatsApp.WhatsApp__Templates__12__Approved -Expected "true"
+  Assert-Equal -Name "Leave submission key" -Actual $whatsApp.WhatsApp__Templates__13__Key -Expected "ysheng_leave_approval_v1"
+  Assert-Equal -Name "Leave submission template name" -Actual $whatsApp.WhatsApp__Templates__13__Name -Expected "ysheng_leave_approval_v1"
+  Assert-Equal -Name "Leave submission logical language" -Actual $whatsApp.WhatsApp__Templates__13__Language -Expected "en_US"
+  Assert-Equal -Name "Leave submission provider language" -Actual $whatsApp.WhatsApp__Templates__13__ProviderLanguage -Expected "en"
+  Assert-Equal -Name "Leave submission approval" -Actual $whatsApp.WhatsApp__Templates__13__Approved -Expected "true"
   if ($compose.services.worker.environment.PSObject.Properties.Name -match "^WhatsApp(Assistant)?__") {
     throw "Only the API may receive WhatsApp configuration; the general worker must not send duplicate staff replies or alerts."
   }
@@ -285,16 +298,19 @@ try {
     $setting = "WHATSAPP_V2_" + ($template.name -replace '^ysheng_', '' -replace '_summary_v2', '').ToUpperInvariant() + "_APPROVED"
     [Environment]::SetEnvironmentVariable($setting, "false", "Process")
   }
+  foreach ($setting in @("WHATSAPP_INSPECTION_EN_TEMPLATE_APPROVED", "WHATSAPP_LEAVE_SUBMISSION_EN_TEMPLATE_APPROVED")) {
+    [Environment]::SetEnvironmentVariable($setting, "false", "Process")
+  }
   $rollbackOutput = & docker compose --project-directory $projectDirectory -f $composePath -f $overridePath config --format json 2>&1
   if ($LASTEXITCODE -ne 0) { throw "Could not render v2 rollback configuration." }
   $rollback = ($rollbackOutput | ConvertFrom-Json).services.api.environment
-  foreach ($index in 4..11) {
-    Assert-Equal -Name "V2 rollback slot $index" -Actual $rollback."WhatsApp__Templates__${index}__Approved" -Expected "false"
+  foreach ($index in 4..13) {
+    Assert-Equal -Name "WhatsApp rollback slot $index" -Actual $rollback."WhatsApp__Templates__${index}__Approved" -Expected "false"
   }
   foreach ($property in $whatsApp.PSObject.Properties | Where-Object Name -match '^WhatsApp__Templates__[0-3]__') {
     Assert-Equal -Name "V1 retained during rollback: $($property.Name)" -Actual $rollback.($property.Name) -Expected $property.Value
   }
-  Write-Host "Merged Aspire production Compose and WhatsApp v2 activation/rollback contracts passed."
+  Write-Host "Merged Aspire production Compose and WhatsApp template activation/rollback contracts passed."
 }
 finally {
   foreach ($entry in $originalEnvironment.GetEnumerator()) {

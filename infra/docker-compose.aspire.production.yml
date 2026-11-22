@@ -145,6 +145,19 @@ services:
       WhatsApp__Templates__11__ApprovalEvidence: "${WHATSAPP_V2_ATTENDANCE_MS_APPROVAL_EVIDENCE:-Meta 956300520471460 APPROVED UTILITY 2026-10-26; FOO-236}"
       WhatsApp__Templates__11__BodyText: "Kehadiran YS Heng | {{1}}\nJadual diketahui: {{2}}\nDaftar masuk (berjadual): {{3}}\nCuti penuh: {{4}}\nLuar kawasan: {{5}}\nCuti separa/tidak jelas: {{6}}\nBerjadual belum daftar masuk: {{7}}\nDaftar masuk tanpa jadual: {{8}}\nLiputan jadual tidak disahkan. Belum daftar masuk bukan keputusan ponteng. Semak di Portal."
       WhatsApp__Templates__11__PortalUrl: "https://yshenghub.com.my/hr-salary"
+      WhatsApp__Templates__12__Key: inspection_appointment_document_v1
+      WhatsApp__Templates__12__Name: ysheng_inspection_appointment_v1
+      WhatsApp__Templates__12__Language: en_US
+      WhatsApp__Templates__12__ProviderLanguage: en
+      WhatsApp__Templates__12__HeaderFormat: DOCUMENT
+      WhatsApp__Templates__12__Approved: "${WHATSAPP_INSPECTION_EN_TEMPLATE_APPROVED:-true}"
+      WhatsApp__Templates__12__ApprovalEvidence: "Meta English inspection DOCUMENT header and body confirmed in the template editor"
+      WhatsApp__Templates__13__Key: ysheng_leave_approval_v1
+      WhatsApp__Templates__13__Name: ysheng_leave_approval_v1
+      WhatsApp__Templates__13__Language: en_US
+      WhatsApp__Templates__13__ProviderLanguage: en
+      WhatsApp__Templates__13__Approved: "${WHATSAPP_LEAVE_SUBMISSION_EN_TEMPLATE_APPROVED:-true}"
+      WhatsApp__Templates__13__ApprovalEvidence: "Meta English leave approval text header and five body parameters confirmed in the template editor"
       WhatsAppAssistant__PerStaffDailyLimit: ${WHATSAPP_ASSISTANT_PER_STAFF_DAILY_LIMIT:-100}
       WhatsAppAssistant__WorkspaceDailyLimit: ${WHATSAPP_ASSISTANT_WORKSPACE_DAILY_LIMIT:-1000}
     volumes:
