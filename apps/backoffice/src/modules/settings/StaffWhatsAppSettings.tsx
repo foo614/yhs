@@ -6,6 +6,7 @@ import { getStaffWhatsAppDiagnostics, getStaffWhatsAppHistory, getStaffWhatsAppP
   type StaffUser, type StaffWhatsAppHistoryFilters, type StaffWhatsAppHistoryItem, type StaffWhatsAppHistoryPage,
   type StaffWhatsAppPolicy, type StaffWhatsAppPolicyCategory, type StaffWhatsAppPolicyInput } from "../../api";
 import { OperationsProTable } from "../shared/OperationsProTable";
+import { StockListingSettings } from "./StockListingSettings";
 import { StaffWhatsAppLimitSettings } from "./StaffWhatsAppLimitSettings";
 
 const descriptions: Record<StaffWhatsAppPolicyCategory, { title: string; detail: string }> = {
@@ -173,9 +174,11 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
       { key: "history", label: "Message history" },
       { key: "policies", label: "Reminder settings" },
-      { key: "limits", label: "Sending limits" }
+      { key: "limits", label: "Sending limits" },
+      { key: "stock-listing", label: "Stock Listing" }
     ]} />
 
+    {activeTab === "stock-listing" && <StockListingSettings />}
     {activeTab === "limits" && <StaffWhatsAppLimitSettings />}
 
     {activeTab === "policies" && <section aria-label="Message categories" className="staffWhatsAppPolicySection">

@@ -322,6 +322,22 @@ backOffice.MapGet("/whatsapp/staff/diagnostics", async (AppDbContext db, HttpCon
     return Results.Ok(await WhatsAppStaffNotifications.DiagnosticsAsync(db, whatsappAssistant,
         DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
 }).RequireAuthorization("BossAdmin");
+backOffice.MapGet("/whatsapp/staff/stock-listing", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    return Results.Ok(await WhatsAppStockListingPreferencesStore.ReadAsync(db, whatsappAssistant,
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct));
+}).RequireAuthorization("BossAdmin");
+backOffice.MapPut("/whatsapp/staff/stock-listing", async (WhatsAppStockListingPreferencesInput request,
+    AppDbContext db, HttpContext context, CancellationToken ct) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    var saved = await WhatsAppStockListingPreferencesStore.UpdateAsync(db, whatsappAssistant, request,
+        AuditTrail.ActorFrom(context.User), DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ct);
+    return saved is null
+        ? Results.BadRequest(new ApiError("Choose a valid weekday, Malaysia time and verified stock-export recipients."))
+        : Results.Ok(saved);
+}).RequireAuthorization("BossAdmin");
 backOffice.MapGet("/whatsapp/staff/limits", async (AppDbContext db, HttpContext context, CancellationToken ct) =>
 {
     context.Response.Headers.CacheControl = "no-store";

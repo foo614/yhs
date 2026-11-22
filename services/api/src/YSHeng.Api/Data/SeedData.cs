@@ -292,6 +292,9 @@ public static class SeedData
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "FailedAt" bigint NULL;
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "SuppressedAt" bigint NULL;
             ALTER TABLE "WhatsAppOutbox" ADD COLUMN IF NOT EXISTS "FailureReason" text NULL;
+            CREATE TABLE IF NOT EXISTS "WhatsAppStockListingPreferences" (
+                "Id" uuid PRIMARY KEY, "Weekday" integer NOT NULL, "LocalMinuteOfDay" integer NOT NULL,
+                "RecipientUserIdsJson" text NOT NULL);
             CREATE TABLE IF NOT EXISTS "WhatsAppStaffNotificationPolicies" (
                 "Category" text PRIMARY KEY, "Enabled" boolean NOT NULL DEFAULT false,
                 "LocalMinuteOfDay" integer NOT NULL DEFAULT 0, "LeadDays" integer NOT NULL DEFAULT 0,

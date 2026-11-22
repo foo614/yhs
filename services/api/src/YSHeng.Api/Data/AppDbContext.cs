@@ -65,6 +65,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : Ident
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<WhatsAppConsent> WhatsAppConsents => Set<WhatsAppConsent>();
     public DbSet<WhatsAppOutbox> WhatsAppOutbox => Set<WhatsAppOutbox>();
+    public DbSet<WhatsAppStockListingPreferences> WhatsAppStockListingPreferences => Set<WhatsAppStockListingPreferences>();
     public DbSet<WhatsAppStaffNotificationPolicy> WhatsAppStaffNotificationPolicies => Set<WhatsAppStaffNotificationPolicy>();
     public DbSet<WhatsAppWorkflowEvent> WhatsAppWorkflowEvents => Set<WhatsAppWorkflowEvent>();
     public DbSet<WhatsAppDispatchUsage> WhatsAppDispatchUsage => Set<WhatsAppDispatchUsage>();

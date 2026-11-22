@@ -1225,6 +1225,14 @@ public sealed record WhatsAppOutbox
     public string? FailureReason { get; init; }
 }
 
+public sealed record WhatsAppStockListingPreferences
+{
+    public Guid Id { get; init; }
+    public int Weekday { get; init; } = (int)DayOfWeek.Friday;
+    public int LocalMinuteOfDay { get; init; } = 9 * 60;
+    public string RecipientUserIdsJson { get; init; } = "[]";
+}
+
 public sealed record WhatsAppStaffNotificationPolicy
 {
     public string Category { get; init; } = "";
