@@ -4167,29 +4167,29 @@ function RepairPage({
               <Typography.Text strong>Car & supplier / 车辆与供应商</Typography.Text>
               <Typography.Text type="secondary">
                 {repairCreateMode === "receipt"
-                  ? "Choose the car first. We will match an active supplier after you review the receipt."
-                  : "Choose the car and supplier for this repair."}
+                  ? "Choose the car first. We will match an active supplier after you review the receipt. / 请先选择车辆。审核收据后，系统会匹配启用中的供应商。"
+                  : "Choose the car and supplier for this repair. / 请选择此整备记录的车辆和供应商。"}
               </Typography.Text>
             </div>
             <div className="repairCreateContextFields">
-              <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select className="repairVehicleSelect" showSearch optionFilterProp="label" options={repairVehicleOptions} optionRender={(option) => <div className="repairVehicleOption"><strong>{option.data.plateNumber}</strong><span>{option.data.vehicleDescription}</span></div>} labelRender={(selected) => {
+              <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select className="repairVehicleSelect" showSearch optionFilterProp="label" options={repairVehicleOptions} optionRender={(option) => <div className="repairVehicleOption"><strong>{option.data.plateNumber}</strong><span>{option.data.vehicleDescription}</span></div>} labelRender={(selected) => {
                 const vehicle = vehicles.find((item) => item.id === selected.value);
                 return vehicle ? <div className="repairVehicleOption"><strong>{vehicle.plateNumber}</strong><span>{repairVehicleDescription(vehicle)}</span></div> : selected.label;
               }} /></Form.Item>
               <Form.Item
                 name="supplierId"
-                label="Supplier"
+                label="Supplier / 供应商"
                 rules={[{ required: true }]}
                 extra={repairCreateMode === "receipt"
                   ? receiptDraft
-                    ? repairCreateSupplierId ? "Matched or selected after receipt review." : "Choose an active supplier to continue."
-                    : "This will be matched after the receipt review."
+                    ? repairCreateSupplierId ? "Matched or selected after receipt review. / 已在收据审核后匹配或选择。" : "Choose an active supplier to continue. / 请选择启用中的供应商以继续。"
+                    : "This will be matched after the receipt review. / 审核收据后将进行匹配。"
                   : undefined}
               >
                 <Select
                   showSearch
                   optionFilterProp="label"
-                  placeholder={repairCreateMode === "receipt" && !receiptDraft ? "Waiting for receipt match" : "Select a supplier"}
+                  placeholder={repairCreateMode === "receipt" && !receiptDraft ? "Waiting for receipt match / 等待收据匹配" : "Select a supplier / 选择供应商"}
                   disabled={repairCreateMode === "receipt" && !receiptDraft}
                   options={supplierMaster.filter(isSupplierUsable).map((supplier) => ({ value: supplier.id, label: `${supplier.companyName} · ${supplier.phone}` }))}
                   onChange={() => { setReceiptSupplierResolution(null); setUnmatchedReceiptSupplier(null); }}
@@ -4220,7 +4220,7 @@ function RepairPage({
                 <div className="repairReceiptStartHeading">
                   <span className="ocrStepLabel">Step 1 of 3 / 步骤一</span>
                   <Typography.Text strong>Upload a repair receipt / 上传整备收据</Typography.Text>
-                  <Typography.Text type="secondary">Receipt scanning fills supplier and amount details only. Enter the repair instructions below.</Typography.Text>
+                  <Typography.Text type="secondary">Receipt scanning fills supplier and amount details only. Enter the repair instructions below. / 扫描收据只会填写供应商和金额资料。请在下方填写整备说明。</Typography.Text>
                 </div>
               </div>
               <div className="repairReceiptUploadAction">
@@ -4228,19 +4228,19 @@ function RepairPage({
                   vehicleId={repairCreateVehicleId}
                   category="RepairInvoice"
                   buttonLabel="Upload receipt / 上传收据"
-                  applyLabel="Use receipt details"
+                  applyLabel="Use receipt details / 使用收据资料"
                   reviewPresentation="inline"
                   compact
                   disabled={!repairCreateVehicleId}
                   fields={[
-                    { name: "supplierName", label: "Supplier", section: repairReceiptOcrSections.supplier, fullWidth: true },
-                    { name: "supplierAddress", label: "Supplier address", section: repairReceiptOcrSections.supplier, fullWidth: true },
-                    { name: "supplierPhone", label: "Supplier phone", section: repairReceiptOcrSections.supplier },
-                    { name: "supplierRegistrationNumber", label: "Supplier registration number", section: repairReceiptOcrSections.supplier },
-                    { name: "supplierTinNumber", label: "Supplier TIN", section: repairReceiptOcrSections.supplier, fullWidth: true },
-                    { name: "invoiceNumber", label: "Receipt / Invoice reference", section: repairReceiptOcrSections.receipt },
-                    { name: "plateNumberOnInvoice", label: "Plate on receipt / invoice / 发票车牌", section: repairReceiptOcrSections.receipt },
-                    { name: "amount", label: "Receipt total / 收据总额 (RM)", type: "number", section: repairReceiptOcrSections.amountAndItems, fullWidth: true },
+                    { name: "supplierName", label: "Supplier / 供应商", section: repairReceiptOcrSections.supplier, fullWidth: true },
+                    { name: "supplierAddress", label: "Supplier address / 供应商地址", section: repairReceiptOcrSections.supplier, fullWidth: true },
+                    { name: "supplierPhone", label: "Supplier phone / 供应商电话", section: repairReceiptOcrSections.supplier },
+                    { name: "supplierRegistrationNumber", label: "Supplier registration number / 供应商注册号", section: repairReceiptOcrSections.supplier },
+                    { name: "supplierTinNumber", label: "Supplier TIN / 供应商税务识别号", section: repairReceiptOcrSections.supplier, fullWidth: true },
+                    { name: "invoiceNumber", label: "Receipt / Invoice reference / 收据或发票编号", section: repairReceiptOcrSections.receipt },
+                    { name: "plateNumberOnInvoice", label: "Plate on receipt / invoice / 收据或发票车牌", section: repairReceiptOcrSections.receipt },
+                    { name: "amount", label: "Receipt / Invoice total / 收据或发票总额 (RM)", type: "number", section: repairReceiptOcrSections.amountAndItems, fullWidth: true },
                   ]}
                   onApply={async (values, job) => {
                     const draft = repairReceiptDraftFromOcr(values, job);
@@ -4309,9 +4309,9 @@ function RepairPage({
                   <div className="repairReceiptFinalStepHeading">
                     <span className="ocrStepLabel">Step 3 of 3 / 步骤三</span>
                     <Typography.Text strong>Finish this repair / 完成整备记录</Typography.Text>
-                    <Typography.Text type="secondary">Receipt details and items have been reviewed. Add one short title for this repair work.</Typography.Text>
+                    <Typography.Text type="secondary">Receipt details and items have been reviewed. Add one short title for this repair work. / 收据资料和项目已经审核。请为此整备工作填写简短标题。</Typography.Text>
                   </div>
-                  <Form.Item name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement" /></Form.Item>
+                  <Form.Item name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement / 例如：更换挡风玻璃" /></Form.Item>
                   <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!repairCreateSupplierId}>Create repair / 建立整备</Button></Form.Item>
                 </section>
               ) : null}
@@ -4322,19 +4322,26 @@ function RepairPage({
               <div className="repairManualIntro">
                 <span className="repairManualEyebrow">Manual entry / 手动建立</span>
                 <Typography.Text strong>Add the supplier invoice / 填写供应商发票</Typography.Text>
-                <Typography.Text type="secondary">The selected supplier will be used for this repair. Enter the printed invoice details and a short repair title.</Typography.Text>
+                <Typography.Text type="secondary">The selected supplier will be used for this repair. Enter the printed invoice details and a short repair title. / 此整备记录将使用已选择的供应商。请填写发票上的资料和简短整备标题。</Typography.Text>
               </div>
               <div className="repairManualFields">
-                <Form.Item name="invoiceNumber" label="Receipt / Invoice reference" rules={[{ required: true }]}><Input /></Form.Item>
-                <Form.Item name="amount" label="Receipt total / 收据总额 (RM)" rules={supplierInvoiceAmountRules}><ReceiptTotalInput /></Form.Item>
+                <Form.Item name="invoiceNumber" label="Receipt / Invoice reference / 收据或发票编号" rules={[{ required: true }]}><Input /></Form.Item>
+                <Form.Item name="amount" label="Receipt / Invoice total / 收据或发票总额 (RM)" rules={supplierInvoiceAmountRules}><ReceiptTotalInput /></Form.Item>
                 <Form.Item name="invoiceDate" label="Invoice date / 发票日期" getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
                 <Form.Item name="dueDate" label="Payment due date / 付款到期日" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("dueDate")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
-                <Form.Item name="paidAt" label="Paid date / 付款日期" dependencies={["invoiceDate"]} rules={[supplierInvoiceDateRule("paidAt")]} getValueProps={supplierInvoiceDatePickerProps} getValueFromEvent={supplierInvoiceDateFromPicker}><DatePicker disabled className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
-                <Form.Item className="repairManualFieldFullWidth" name="plateNumberOnInvoice" label="Plate on receipt / invoice / 发票车牌"><Input placeholder="Plate number printed on the receipt or invoice" /></Form.Item>
-                <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement" /></Form.Item>
+                <Form.Item
+                  name="paidAt"
+                  label={<span>Paid date / 付款日期{" "}<Tooltip title="After approval and receipt linkage, Boss/Admin selects Record payment in the Repair list to enter the actual payment date. / 批准并关联收据后，由老板或管理员在整备列表选择“记录付款”，再填写实际付款日期。" trigger={["hover", "focus", "click"]}><QuestionCircleOutlined role="button" tabIndex={0} aria-label="Paid date help / 付款日期说明" onClick={(event) => event.preventDefault()} /></Tooltip></span>}
+                  dependencies={["invoiceDate"]}
+                  rules={[supplierInvoiceDateRule("paidAt")]}
+                  getValueProps={supplierInvoiceDatePickerProps}
+                  getValueFromEvent={supplierInvoiceDateFromPicker}
+                ><DatePicker disabled className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
+                <Form.Item className="repairManualFieldFullWidth" name="plateNumberOnInvoice" label="Plate on receipt / invoice / 收据或发票车牌"><Input placeholder="Plate number printed on the receipt or invoice / 收据或发票上印有的车牌" /></Form.Item>
+                <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement / 例如：更换挡风玻璃" /></Form.Item>
               </div>
               <div className="repairManualApprovalNote">
-                <Typography.Text type="secondary">A Admin records approval separately after checking the repair work and cost.</Typography.Text>
+                <Typography.Text type="secondary">An Admin records approval separately after checking the repair work and cost. / 管理员检查整备工作和费用后，另行记录批准。</Typography.Text>
               </div>
               <Form.Item className="formActions repairManualSubmit"><Button type="primary" htmlType="submit">Save repair / 保存整备</Button></Form.Item>
             </section>
