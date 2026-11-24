@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
@@ -230,7 +231,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
       <ModalForm<InspectionFormValues>
         form={form}
         title="Create inspection booking / 新增验车预约"
-        width={760}
+        width={dialogWidths.formWide}
         layout="vertical"
         dateFormatter={false}
         open={bookingOpen}
@@ -271,7 +272,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
       <ModalForm<ExportFormValues>
         form={exportForm}
         title="Export AutoCount PI / 导出验车 PI"
-        width={520}
+        width={dialogWidths.form}
         layout="vertical"
         dateFormatter={false}
         open={exportOpen}
@@ -313,7 +314,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
         />
       </Card>
 
-      <BusinessDialog title={selected ? `Inspection / 验车 · ${selected.plateNumber ?? selected.vehicleId}` : "Inspection / 验车"} open={selected !== null} onClose={() => setSelected(null)} width={560}>
+      <BusinessDialog title={selected ? `Inspection / 验车 · ${selected.plateNumber ?? selected.vehicleId}` : "Inspection / 验车"} open={selected !== null} onClose={() => setSelected(null)} width={dialogWidths.formWide}>
         {selected && <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="Type / 类型">{inspectionTypeLabel(selected.type)}</Descriptions.Item>

@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, DatePicker, Form, Input, Modal, Select, Space, Tag, Typography } from "antd";
 import dayjs from "dayjs";
@@ -56,7 +57,7 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
       </Form>}
       <Space direction="vertical" className="fullWidth">{schedules.length === 0 && <Typography.Text type="secondary">No schedules configured / 尚未设置时间表</Typography.Text>}{schedules.map(item => <div key={item.id}><strong>{name(item.staffUserId)}</strong> · {malaysiaTime(item.startAt)} → {malaysiaTime(item.endAt)} {isHr && new Date(item.startAt) > new Date() && <Button size="small" onClick={() => scheduleForm.setFieldsValue({ staffUserId: item.staffUserId, startAt: malaysiaInput(item.startAt), endAt: malaysiaInput(item.endAt) })}>Edit / 编辑</Button>}</div>)}</Space>
     </Card>
-    <Modal centered mask={{ closable: false }} title="Request attendance correction / 申请打卡更正" zIndex={2100} open={editing} confirmLoading={busy} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Submit for HR approval / 提交审批">
+    <Modal width={dialogWidths.form} centered mask={{ closable: false }} title="Request attendance correction / 申请打卡更正" zIndex={2100} open={editing} confirmLoading={busy} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Submit for HR approval / 提交审批">
       {error && <Alert type="error" message={error} />}
       <Form form={form} layout="vertical" onFinish={values => void run(async () => {
         await createHrAttendanceCorrection({ staffUserId: values.staffUserId, attendanceRecordId: values.attendanceRecordId || undefined, attendanceDate: values.checkInAt.format("YYYY-MM-DD"), checkInAt: malaysiaUtc(values.checkInAt), checkOutAt: malaysiaUtc(values.checkOutAt), reason: values.reason }); setEditing(false);
@@ -69,7 +70,7 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
         <Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item>
       </Form>
     </Modal>
-    <Modal centered mask={{ closable: false }} title={decision?.approve ? "Approve corrected times? / 批准更正时间？" : "Reject correction / 拒绝更正"} zIndex={2100} open={Boolean(decision)} confirmLoading={busy} onCancel={() => setDecision(undefined)} onOk={() => decisionForm.submit()}>
+    <Modal width={dialogWidths.form} centered mask={{ closable: false }} title={decision?.approve ? "Approve corrected times? / 批准更正时间？" : "Reject correction / 拒绝更正"} zIndex={2100} open={Boolean(decision)} confirmLoading={busy} onCancel={() => setDecision(undefined)} onOk={() => decisionForm.submit()}>
       {error && <Alert type="error" message={error} />}
       <Typography.Paragraph>{decision && `${malaysiaTime(decision.item.checkInAt)} → ${malaysiaTime(decision.item.checkOutAt)}`}</Typography.Paragraph>
       <Form form={decisionForm} onFinish={values => { if (decision) void run(async () => { await decideHrAttendanceCorrection(decision.item.id, decision.approve, values.notes); setDecision(undefined); }); }}><Form.Item name="notes" label="Review note / 审批说明" rules={[{ required: decision?.approve === false, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>

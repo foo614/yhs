@@ -1,3 +1,4 @@
+import { dialogWidths } from "./dialogSizing";
 import { BusinessDialog } from "./BusinessDialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
@@ -125,7 +126,7 @@ function OcrReviewShell({
   }
 
   return (
-    <BusinessDialog mask={{ closable: false }} title={title} width={560} open={open} onClose={onClose} className="recordEditDrawer ocrReviewDrawer" footer={actions}>
+    <BusinessDialog mask={{ closable: false }} title={title} width={dialogWidths.formWide} open={open} onClose={onClose} className="recordEditDrawer ocrReviewDrawer" footer={actions}>
       {children}
     </BusinessDialog>
   );

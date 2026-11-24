@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Card, Form, Modal, Select, Space, TimePicker, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
@@ -35,7 +36,7 @@ export function StockListingSettings() {
   }, [display]);
 
   function confirmSave(values: StockListingForm) {
-    modal.confirm({
+    modal.confirm({ centered: true, width: dialogWidths.compact,
       title: "Save weekly Stock Listing preferences?",
       content: "The weekday, Malaysia time and recipients will be saved. Delivery is blocked while the template cannot attach Excel.",
       okText: "Save preferences",

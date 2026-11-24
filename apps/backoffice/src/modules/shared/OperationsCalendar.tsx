@@ -1,3 +1,4 @@
+import { dialogWidths } from "./dialogSizing";
 import { BusinessDialog } from "./BusinessDialog";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Calendar, DatePicker, Empty, Form, Grid, Input, List, Modal, Select, Skeleton, Space, Spin, Tag, TimePicker, Typography } from "antd";
@@ -194,7 +195,7 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
         </section>
       </div>
     </Spin>
-    <BusinessDialog
+    <BusinessDialog width={dialogWidths.form}
       title={date.format("ddd, D MMM YYYY")}
       placement="bottom"
       height="72vh"
@@ -208,7 +209,7 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
         : loading ? <Skeleton active paragraph={{ rows: 2 }} /> : <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
     </BusinessDialog>
     </ProCard>
-    <Modal centered mask={{ closable: false }} title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
+    <Modal width={dialogWidths.form} centered mask={{ closable: false }} title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
       {taskSaveError && <Alert type="error" showIcon message="Task could not be saved" description={taskSaveError} />}
       <Form form={taskForm} layout="vertical">
         <Form.Item name="title" label="Task / 任务" rules={[{ required: true, message: "Enter a task title." }]}><Input maxLength={160} showCount /></Form.Item>

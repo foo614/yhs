@@ -1,3 +1,4 @@
+import { dialogWidths } from "./dialogSizing";
 import { BusinessDialog } from "./BusinessDialog";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -43,7 +44,7 @@ export function DocumentPreviewDrawer({
   return (
     <BusinessDialog
       title={title}
-      width={720}
+      width={dialogWidths.document}
       open={open}
       onClose={onClose}
       footer={footer}

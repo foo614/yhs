@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { formatScheduledDateTime } from "../../dateDisplay";
 import { insuranceCompanies } from "../../insuranceCompanies";
@@ -468,7 +469,7 @@ export function DeliveryWorkboardPage({
   };
 
   const confirmRelease = (item: DeliveryWorkboardItem) => {
-    Modal.confirm({
+    Modal.confirm({ centered: true, width: dialogWidths.compact,
       title: "Confirm vehicle release?",
       content: `${item.plateNumber} will be marked as handed over. This delivery becomes read-only after release.`,
       okText: "Confirm release",
@@ -845,7 +846,7 @@ export function DeliveryWorkboardPage({
 
       <BusinessDialog mask={{ closable: false }}
         rootClassName="deliveryWorkboardDrawer"
-        width={760}
+        width={dialogWidths.formWide}
         open={Boolean(selected)}
         onClose={() => setSelectedId(undefined)}
         title={selected ? `${selected.plateNumber} · ${stageMeta[selected.stage].label}` : "Delivery"}
@@ -869,7 +870,7 @@ export function DeliveryWorkboardPage({
         />}
       </BusinessDialog>
 
-      <Modal centered mask={{ closable: false }}
+      <Modal width={dialogWidths.form} centered mask={{ closable: false }}
         open={Boolean(secondaryAction)}
         title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request Sales Invoice Update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
         okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send to Finance" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
@@ -918,7 +919,7 @@ function CreateDeliveryModal({
   onCreate: (values: CreateDeliveryValues) => Promise<void>;
 }) {
   return (
-    <Modal centered mask={{ closable: false }}
+    <Modal width={dialogWidths.form} centered mask={{ closable: false }}
       open={open}
       title="New delivery / 新交车"
       okText="Schedule delivery"

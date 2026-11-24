@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useEffect, useState } from "react";
 import { Alert, Button, DatePicker, Input, Modal, Pagination, Select, Space, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
@@ -35,7 +36,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
   const total = filtered.reduce((sum, row) => sum + Math.round(row.amount * 100), 0) / 100;
   const totalSummary = () => <Typography.Text strong>Total amount / 总金额：{loading ? "Loading… / 读取中…" : error ? "Unavailable / 暂不可用" : money(total)}</Typography.Text>;
   const changed = () => { setReload(value => value + 1); onChanged(); };
-  const confirm = (row: RepairReviewRow, reject: boolean) => Modal.confirm({
+  const confirm = (row: RepairReviewRow, reject: boolean) => Modal.confirm({ centered: true, width: dialogWidths.compact,
     title: reject ? "Reject receipt / 拒绝单据" : "Approve receipt / 批准单据",
     content: `${row.plateNumber} · ${row.invoiceNumber ?? "—"} · ${money(row.amount)}`,
     onOk: async () => { if (!row.repairId) return; if (reject) await rejectRepair(row.repairId); else await onApprove(row.repairId); changed(); }
@@ -75,7 +76,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
       { title: "Action / 操作", fixed: "right", render: (_, row) => actions(row) }
     ]} />
     {filtered.length === 0 && <div className="desktopDataTable repairReviewEmptyFooter">{totalSummary()}</div>}
-    <Modal centered mask={{ closable: false }} title="Record completed payment / 记录已付款" open={Boolean(payment)} onCancel={() => setPayment(null)} confirmLoading={saving} onOk={async () => {
+    <Modal width={dialogWidths.form} centered mask={{ closable: false }} title="Record completed payment / 记录已付款" open={Boolean(payment)} onCancel={() => setPayment(null)} confirmLoading={saving} onOk={async () => {
       if (!payment || !paidAt) return;
       setSaving(true);
       try { await recordRepairPayment(payment.id, paidAt.format("YYYY-MM-DD"), payment.amount); setPayment(null); changed(); }

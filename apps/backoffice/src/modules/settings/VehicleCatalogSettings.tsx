@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Tag, Typography, message } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
@@ -173,7 +174,7 @@ export function VehicleCatalogSettings() {
         form={catalogForm}
         name="vehicleCatalog"
         title={catalogEditingId ? "Edit make & model / 编辑品牌车型" : "New make & model / 新增品牌车型"}
-        width={520}
+        width={dialogWidths.form}
         layout="vertical"
         loading={catalogSaving}
         open={catalogFormOpen}

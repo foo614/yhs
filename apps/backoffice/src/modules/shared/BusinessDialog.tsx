@@ -1,13 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Modal, type DrawerProps } from "antd";
+import { Modal, type DrawerProps, type ModalProps } from "antd";
+import { dialogWidths } from "./dialogSizing";
 
 type BusinessDialogProps = Pick<DrawerProps,
   "title" | "open" | "onClose" | "children" | "footer" | "extra" | "className" | "rootClassName" |
-  "width" | "height" | "placement" | "closable" | "keyboard" | "destroyOnClose" | "maskClosable" | "mask"
->;
+  "height" | "placement" | "closable" | "keyboard" | "destroyOnClose" | "maskClosable" | "mask"
+> & { width?: ModalProps["width"] };
 
 export function BusinessDialog({
-  title, open, onClose, children, footer, extra, className, rootClassName, width = 720,
+  title, open, onClose, children, footer, extra, className, rootClassName, width = dialogWidths.form,
   height, closable, keyboard, destroyOnClose
 }: BusinessDialogProps) {
   // Keep closed children updating after their first opening so conditional
@@ -33,7 +34,7 @@ export function BusinessDialog({
     title={heading}
     open={open}
     onCancel={onClose}
-    width={width === "100%" ? 860 : width}
+    width={width}
     className={["businessDialog", className].filter(Boolean).join(" ")}
     rootClassName={rootClassName}
     footer={footer ?? null}
