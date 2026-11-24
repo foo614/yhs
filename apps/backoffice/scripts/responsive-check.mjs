@@ -1215,9 +1215,9 @@ try {
           await page.getByRole("dialog").filter({ visible: true }).getByRole("button", { name: "Review and save", exact: true }).waitFor();
           await inspect("whatsapp-policy-editor", width);
           await closeOverlay();
-          const sendingLimitsTab = page.getByRole("tab", { name: "Sending limits", exact: true });
+          const sendingLimitsTab = page.getByRole("tab", { name: /Sending limits$/ });
           await sendingLimitsTab.focus();
-          await sendingLimitsTab.press("Enter");
+          await page.keyboard.press("Enter");
           await expect(sendingLimitsTab).toHaveAttribute("aria-selected", "true");
           await page.getByRole("spinbutton", { name: /Daily provider attempts/ }).waitFor();
           await inspect("whatsapp-limits", width);
