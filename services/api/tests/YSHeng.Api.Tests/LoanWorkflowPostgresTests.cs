@@ -33,7 +33,7 @@ public sealed class LoanWorkflowPostgresTests
                 await db.Database.EnsureCreatedAsync();
                 db.AddRange(vehicle, customer, loan);
                 await db.SaveChangesAsync();
-                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"LoanApplications\" DROP COLUMN IF EXISTS \"LastUpdatedAt\"; ALTER TABLE \"LoanApplications\" DROP COLUMN IF EXISTS \"BankSubmittedAt\";");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE \"LoanApplications\" DROP COLUMN IF EXISTS \"LastUpdatedAt\"; ALTER TABLE \"LoanApplications\" DROP COLUMN IF EXISTS \"BankSubmittedAt\"; ALTER TABLE \"LoanApplications\" DROP COLUMN IF EXISTS \"FinalLouDocumentId\";");
             }
 
             await using (var upgraded = new AppDbContext(options))
@@ -45,6 +45,7 @@ public sealed class LoanWorkflowPostgresTests
                 Assert.Equal(loan.SubmittedAt, preserved.SubmittedAt);
                 Assert.Null(preserved.LastUpdatedAt);
                 Assert.Null(preserved.BankSubmittedAt);
+                Assert.Null(preserved.FinalLouDocumentId);
                 Assert.Equal(2, await upgraded.Database.SqlQueryRaw<int>("""
                     SELECT COUNT(*)::integer AS "Value"
                     FROM information_schema.columns

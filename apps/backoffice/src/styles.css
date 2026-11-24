@@ -10,6 +10,33 @@ body {
   color: #182521;
 }
 
+.loanBankComparison { display: grid; gap: 16px; }
+.loanBankComparisonToolbar { display: flex; flex-wrap: wrap; gap: 12px; }
+.loanBankComparisonHead { display: none; }
+.loanBankComparisonRow { border: 1px solid #dce5e1; border-radius: 8px; padding: 16px; min-width: 0; }
+.loanBankComparisonSummary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.loanBankComparisonSummary > div { display: grid; align-content: start; gap: 4px; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.loanBankComparisonSummary > div:first-child { grid-column: 1 / -1; }
+.loanBankComparisonSummary .ant-tag { justify-self: start; align-self: start; }
+.loanBankFieldLabel { color: #61736b; font-size: 12px; }
+.loanBankRowActions { margin-block: 16px 8px; max-width: 100%; }
+.loanBankFileList { display: grid; gap: 12px; }
+.loanBankFile { border-top: 1px solid #e8eeeb; padding-top: 12px; display: grid; gap: 12px; min-width: 0; }
+.loanBankFileInfo { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.loanBankComparison .ant-btn { max-width: 100%; height: auto; min-height: 44px; white-space: normal; }
+.loanBankComparison .ant-space-item { min-width: 0; max-width: 100%; }
+@media (min-width: 768px) {
+  .loanBankComparisonHead, .loanBankComparisonSummary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.1fr) minmax(0, 1.5fr) minmax(0, .8fr) minmax(0, 1.2fr); gap: 12px; }
+  .loanBankComparisonHead { padding-inline: 16px; color: #61736b; font-size: 12px; }
+  .loanBankComparisonSummary > div:first-child { grid-column: auto; }
+  .loanBankFieldLabel { display: none; }
+  .loanBankComparison .ant-btn { min-height: 32px; }
+}
+@media (min-width: 1200px) {
+  .loanBankFile { grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr); align-items: center; }
+  .loanBankFile > .ant-space { justify-content: flex-end; }
+}
+
 .menuButton {
   border: 0;
   background: transparent;

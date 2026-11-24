@@ -459,6 +459,7 @@ public sealed record LoanApplication
     public LoanStatus Status { get; init; } = LoanStatus.Draft;
     public bool LouApproved { get; init; }
     public bool LouDone { get; init; }
+    public Guid? FinalLouDocumentId { get; init; }
     public DateOnly? SubmittedAt { get; init; }
     public DateTime? LastUpdatedAt { get; init; }
     public DateTime? BankSubmittedAt { get; init; }
@@ -510,6 +511,20 @@ public sealed record LoanBankOption
 }
 
 public sealed record LoanDecisionRequest(LoanStatus Status, string? RejectionReason);
+public sealed record LoanBankLouDocument
+{
+    public Guid DocumentId { get; init; }
+    public Guid BankOptionId { get; init; }
+    public DateTime? ReviewedAt { get; init; }
+    public string? ReviewedBy { get; init; }
+    public string? BankName { get; init; }
+    public decimal? LoanAmount { get; init; }
+    public decimal? InterestRate { get; init; }
+    public int? TenureMonths { get; init; }
+    public string? Terms { get; init; }
+    public bool IsLegacy { get; init; }
+}
+
 public sealed record LoanBankResultRequest(LoanBankOptionStatus Status, string? RejectionReason);
 
 public sealed record DeliverySchedule
