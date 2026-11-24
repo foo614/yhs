@@ -29,7 +29,7 @@ export function DocumentPreviewDrawer({
   onClose
 }: {
   open: boolean;
-  title: string;
+  title: ReactNode;
   source?: DocumentPreviewSource;
   loading?: boolean;
   error?: string;

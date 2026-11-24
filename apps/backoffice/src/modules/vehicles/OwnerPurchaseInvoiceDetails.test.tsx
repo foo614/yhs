@@ -92,7 +92,6 @@ describe("OwnerPurchaseInvoiceDetails", () => {
 
     const markup = renderToStaticMarkup(createElement(OwnerPurchaseInvoiceDetails, { invoice, allowCorrections: false }));
 
-    expect(markup).toContain("Formal owner-acquisition invoice");
     expect(markup).toContain("Issued official version");
     expect(markup).toContain("Pending Finance review");
     expect(markup).toContain("purchaseInvoiceStatusTag");

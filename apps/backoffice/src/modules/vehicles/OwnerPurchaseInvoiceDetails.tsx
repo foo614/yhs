@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "../shared/FieldHelp";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import { ProCard } from "@ant-design/pro-components";
@@ -278,11 +279,11 @@ export function OwnerPurchaseInvoiceDetails({
 
   return (
     <Space direction="vertical" size={16} className="fullWidth purchaseInvoiceRevisionPanel">
-      <Alert type="info" showIcon message={allowCorrections ? "Previous-owner purchase invoice / 原车主收车发票" : "Formal owner-acquisition invoice"} description={allowCorrections ? "Review the invoice details below. Editing this invoice does not change the previous Owner master record." : "This number is already issued. Finance review and exact-version history remain read-only here."} />
+
       <ProCard size="small" className="purchaseInvoiceDetailCard">
         <div className="purchaseInvoiceDetailHeader">
           <Typography.Text strong className="purchaseInvoiceDetailTitle">
-            {allowCorrections ? "Purchase invoice / 收车发票" : `Current version / 当前版本 · V${currentRevision.revisionNumber}`}
+            {allowCorrections ? "Purchase invoice / 收车发票" : `Current version / 当前版本 · V${currentRevision.revisionNumber}`}<FieldHelp label="Purchase invoice scope guidance">{allowCorrections ? "Previous-owner purchase invoice / 原车主收车发票" : "Formal owner-acquisition invoice"}<br />{allowCorrections ? "Review the invoice details below. Editing this invoice does not change the previous Owner master record." : "This number is already issued. Finance review and exact-version history remain read-only here."}</FieldHelp>
           </Typography.Text>
           <Space className="purchaseInvoiceDetailActions" size={8} wrap={false}>
             <DocumentPreviewButton
@@ -301,7 +302,7 @@ export function OwnerPurchaseInvoiceDetails({
 
       {allowCorrections && editing && (
         <ProCard size="small" title="Edit purchase invoice / 编辑收车发票" className="purchaseInvoiceCorrectionCard">
-          <Alert type="warning" showIcon message="A reason for the change is required" description="Seller details below belong to this invoice only. They do not edit the previous Owner record." />
+          <Alert type="warning" showIcon message="A reason for the change is required" />
           <Form
             key={`${invoice.id}-${currentRevision.revisionNumber}`}
             name={`ownerPurchaseInvoiceRevision-${invoice.id}`}
@@ -348,7 +349,7 @@ export function OwnerPurchaseInvoiceDetails({
               }
             }}
           >
-            <Form.Item name="reason" label="Reason for change" rules={[{ required: true, whitespace: true, message: "Explain why this purchase invoice needs to change." }]}><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
+            <Form.Item name="reason" label="Reason for change" tooltip={fieldTooltip("Seller details below belong to this invoice only. They do not edit the previous Owner record.", "Purchase invoice correction guidance")} rules={[{ required: true, whitespace: true, message: "Explain why this purchase invoice needs to change." }]}><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
             <div className="purchaseInvoiceRevisionFormGrid">
               <Form.Item name="invoiceDate" label="Invoice date" rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
               <Form.Item name="purchaseDate" label="Purchase date" rules={[{ required: true, message: "Purchase date is required for every official version." }]}><DatePicker className="fullWidth" /></Form.Item>

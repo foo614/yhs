@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "../shared/FieldHelp";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { dialogWidths } from "../shared/dialogSizing";
 import { BankSettlementPanel } from "./BankSettlementPanel";
@@ -1802,7 +1803,7 @@ export function FinancePage({
         destroyOnClose
       >
         <Space direction="vertical" size={12} className="fullWidth">
-          <Typography.Text>Confirm only after the requested invoice correction is complete. Delivery will then be able to continue its release checks.</Typography.Text>
+          <Typography.Paragraph>Confirm only after the requested invoice correction is complete. Delivery will then be able to continue its release checks.</Typography.Paragraph>
           {invoiceRequestResolveError && <Alert
             type="error"
             showIcon
@@ -1945,7 +1946,7 @@ export function FinancePage({
       </ProCard>}
       <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
-        title="Prepare sales invoice / 准备销售发票"
+        title={<>Prepare sales invoice / 准备销售发票<FieldHelp label="Sales invoice guidance">{"Check the buyer and amounts below. YS Heng generates the sales invoice only after all required approvals; AutoCount only receives the reviewed Excel export."}</FieldHelp></>}
         width={dialogWidths.formWide}
         open={prepareInvoiceOpen}
         onCancel={() => {
@@ -1960,7 +1961,7 @@ export function FinancePage({
         className="recordCreateModal financeCreateModal financeV2Modal"
       >
         <Form id="financePrepareInvoice" name="financePrepareInvoice" form={prepareInvoiceForm} layout="vertical" className="modalForm" onFinish={prepareFinanceSale} onValuesChange={() => { if (invoiceSubmitError) setInvoiceSubmitError(undefined); }}>
-          <Alert type="info" showIcon message="Check the buyer and amounts below. YS Heng generates the sales invoice only after all required approvals; AutoCount only receives the reviewed Excel export." />
+
           {invoiceSubmitError && <Alert type="error" showIcon message="Sale not prepared" description={invoiceSubmitError} />}
           <Form.Item name="vehicleId" label="Vehicle & Buyer / 车辆与买家" rules={[{ required: true, message: "Select a vehicle." }]}>
             <Select showSearch optionFilterProp="label" onChange={updateInvoiceVehicleDefaults} options={eligibleInvoiceVehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model} · ${customerLabel(customers, vehicle.customerId)}` }))} />
@@ -1974,12 +1975,12 @@ export function FinancePage({
               name="salesPrice"
               label="Approved selling price / 已批准售价"
               rules={[{ required: true, message: "Selling price is required." }]}
-              extra="Authoritative Vehicle record price. Finance cannot edit this amount."
+              tooltip={fieldTooltip("Authoritative Vehicle record price. Finance cannot edit this amount.", "Approved selling price / 已批准售价 guidance")}
             >
               <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" />
             </Form.Item>
             <Form.Item name="interestAdditionalCharges" label="Additional charges / 附加费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]} extra="Any amount above RM 0 requires a reason and separate Admin approval."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="ncdAmount" label={shortformLabel("NCD deduction / NCD 扣减", "No claim discount")} rules={[{ required: true }]} tooltip={fieldTooltip("Any amount above RM 0 requires a reason and separate Admin approval.", "NCD deduction / NCD 扣减 guidance")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="windscreenCharges" label="Windscreen charges / 挡风玻璃费用" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </div>
           <ProCard size="small" title="Paid on behalf of customer / 代客户支付" variant="outlined">
@@ -2057,13 +2058,12 @@ export function FinancePage({
             <FinanceV2BalanceSummary payment={selectedCollectionPayment} vehicles={vehicles} customers={customers} />
             <Form id="financeCollection" name="financeCollection" form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
               <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}><InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-              <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
+              <Form.Item name="method" label="Payment method / 收款方式" tooltip={fieldTooltip(<>{"For physical cash, use Cash Custody"}<br />{"Cash Custody records the actual partial amount, physical handover, independent checker, and official receipt."}</>, "Cash collection guidance")} rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
               {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}><Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} /></Form.Item>}
               <Form.Item name="receivedDate" label="Received date / 收款日期" rules={[{ required: true, message: "Choose the received date." }]}><DatePicker className="fullWidth" /></Form.Item>
               <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
               <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
-              <Alert type="info" showIcon message="For physical cash, use Cash Custody" description="Cash Custody records the actual partial amount, physical handover, independent checker, and official receipt." action={<Button size="small" onClick={() => { setCollectionPaymentId(undefined); changeFinanceTab("cash-custody", undefined, selectedCollectionPayment.id); }}>Open Cash Custody</Button>} />
-
+              <Button size="small" onClick={() => { setCollectionPaymentId(undefined); changeFinanceTab("cash-custody", undefined, selectedCollectionPayment.id); }}>Open Cash Custody</Button>
             </Form>
           </div>
           {collectionHistory(selectedCollectionPayment)}
@@ -2102,7 +2102,7 @@ export function FinancePage({
       </Modal>
       <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
-        title="New Bank Collection / 新增收款"
+        title={<>{<>New Bank Collection / 新增收款<FieldHelp label="Legacy collection guidance">{"New sales belong in Prepare sales invoice"}<br />{"This legacy collection path accepts only a Admin-approved vehicle price. The amount is loaded from the Vehicle record and cannot be reduced here."}</FieldHelp></>}<FieldHelp label="Collection workflow guidance">{"Collection starts as Pending. Export the spreadsheet and submit it manually to AutoCount; use row actions for disbursement, management review, checklist, and reconciliation."}</FieldHelp></>}
         width={dialogWidths.formWide}
         open={financeCreateOpen === "payment"}
         onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
@@ -2141,7 +2141,7 @@ export function FinancePage({
           }
           void runLegacyMutation("payments", "collection-create", () => onCreate(payment), () => setFinanceCreateOpen(null));
         }} initialValues={{ vehicleId: approvedBuyerVehicles[0]?.id, nettPrice: approvedBuyerVehicles[0]?.sellingPrice }}>
-          <Alert type="info" showIcon message="New sales belong in Prepare sales invoice" description="This legacy collection path accepts only a Admin-approved vehicle price. The amount is loaded from the Vehicle record and cannot be reduced here." />
+
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}>
             <Select
               showSearch
@@ -2155,7 +2155,7 @@ export function FinancePage({
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><DatePicker className="fullWidth" /></Form.Item>
           <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
           <Form.Item name="invoiceNumber" label="Sales Invoice No. / 销售发票号"><Input placeholder="INV-1001" /></Form.Item>
-          <Alert type="info" showIcon message="Collection starts as Pending. Export the spreadsheet and submit it manually to AutoCount; use row actions for disbursement, management review, checklist, and reconciliation." />
+
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={legacySaving}>Create Collection</Button></Form.Item>
         </Form>
       </Modal>
@@ -2204,7 +2204,7 @@ export function FinancePage({
       </ProCard>}
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financePaymentEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPayment || Boolean(paymentLoadError || paymentRefreshing)}>Update Payment</Button></div>}
-        title="Payment Details / 收款详情"
+        title={<>Payment Details / 收款详情<FieldHelp label="Recorded payment guidance">{"Recorded sale amounts are read-only"}<br />{"Workflow and document references may be corrected here. The approved selling price and stored invoice terms cannot be rewritten."}</FieldHelp></>}
         width={dialogWidths.form}
         open={financeEditorOpen === "payment"}
         onClose={() => {
@@ -2232,7 +2232,7 @@ export function FinancePage({
         >
           <Form.Item name="id" label="Selected Payment"><Select showSearch optionFilterProp="label" options={payments.filter(payment => !isFinanceV2(payment)).map((payment) => ({ value: payment.id, label: `${plateFor(vehicles, payment.vehicleId)} / ${payment.receiptNumber || "No customer receipt"} / ${payment.status}` }))} onChange={selectPayment} /></Form.Item>
           <Form.Item name="vehicleId" label="Car Plate" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" disabled options={vehicles.filter((vehicle) => vehicle.customerId || vehicle.id === selectedEditPayment?.vehicleId).map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
-          <Alert type="info" showIcon message="Recorded sale amounts are read-only" description="Workflow and document references may be corrected here. The approved selling price and stored invoice terms cannot be rewritten." />
+
           <Form.Item name="nettPrice" label="Nett Price"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} readOnly addonAfter="Locked" /></Form.Item>
           <Form.Item name="status" label="Status"><Select options={["Pending", "Approved", "Disbursed", "Reconciled"].map((value) => ({ value }))} /></Form.Item>
           <Form.Item name="receiptNumber" label="Customer Receipt No. / 客户收据号"><Input placeholder="RCPT-1001" /></Form.Item>
@@ -2326,7 +2326,7 @@ export function FinancePage({
           }} initialValues={{ vehicleId: vehicles[0]?.id, isPaid: false, cp58Required: false, cp58Prepared: false }}>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
-            <Form.Item name="dueDate" label="Due Date / 到期日" extra="Optional. Unpaid commissions need a date for reminders; existing records are not assigned a guessed deadline." getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD") ?? null}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
+            <Form.Item name="dueDate" label="Due Date / 到期日" tooltip={fieldTooltip("Optional. Unpaid commissions need a date for reminders; existing records are not assigned a guessed deadline.", "Due Date / 到期日 guidance")} getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD") ?? null}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
             <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
@@ -2374,7 +2374,7 @@ export function FinancePage({
             <Form.Item name="id" label="Selected Broker Commission"><Select options={brokerCommissions.map((commission) => ({ value: commission.id, label: `${plateFor(vehicles, commission.vehicleId)} / ${commission.brokerName} / ${formatMoney(commission.amount)}` }))} onChange={selectBrokerCommission} /></Form.Item>
             <Form.Item name="vehicleId" label="Car Plate / 车牌" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: vehicle.plateNumber }))} /></Form.Item>
             <Form.Item name="brokerName" label="Broker / 经纪人" rules={[{ required: true }]}><Input placeholder="Broker name" /></Form.Item>
-            <Form.Item name="dueDate" label="Due Date / 到期日" extra="Optional. Unpaid commissions need a date for reminders; clearing the date stops deadline reminders." getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD") ?? null}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
+            <Form.Item name="dueDate" label="Due Date / 到期日" tooltip={fieldTooltip("Optional. Unpaid commissions need a date for reminders; clearing the date stops deadline reminders.", "Due Date / 到期日 guidance")} getValueProps={(value?: string) => ({ value: value ? dayjs(value) : null })} normalize={(value: Dayjs | null) => value?.format("YYYY-MM-DD") ?? null}><DatePicker className="fullWidth" format="DD MMM YYYY" /></Form.Item>
             <Form.Item name="amount" label="Commission / 佣金" rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Unpaid" }, { value: true, label: "Paid" }]} /></Form.Item>
             <Form.Item name="cp58Required" label={shortformLabel("CP58 Required", "Malaysian commission tax form required")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
@@ -2499,8 +2499,8 @@ export function FinancePage({
 
           </Form>
       </BusinessDialog>
-      {financeTab === "vouchers" && <ProCard title="Purchase invoice accounting review / 收车发票审核">
-        <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm the displayed official version, invoice date and classified fee lines before AutoCount export." description="Owner-acquisition corrections reset Finance confirmation. An issued official invoice and a pending Finance review are different states." />
+      {financeTab === "vouchers" && <ProCard title={<>Purchase invoice accounting review / 收车发票审核<FieldHelp label="Purchase invoice accounting guidance">{"Confirm the displayed official version, invoice date and classified fee lines before AutoCount export."}<br />{"Owner-acquisition corrections reset Finance confirmation. An issued official invoice and a pending Finance review are different states."}</FieldHelp></>}>
+
         <Space direction="vertical" size={12} className="fullWidth">
           <FinanceListNotice label="Purchase invoices" {...purchaseInvoiceLoad} onRetry={reloadPurchaseInvoices} />
           {purchaseInvoiceFilters}
@@ -2550,8 +2550,8 @@ export function FinancePage({
           />
         </Space>
       </ProCard>}
-      {financeTab === "vouchers" && <ProCard title="Delivery accounting review / 出车会计审核">
-        <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm delivery-entered insurance and road-tax drafts before they are eligible for AutoCount review." />
+      {financeTab === "vouchers" && <ProCard title={<>Delivery accounting review / 出车会计审核<FieldHelp label="Delivery accounting guidance">{"Confirm delivery-entered insurance and road-tax drafts before they are eligible for AutoCount review."}</FieldHelp></>}>
+
         <FinanceListNotice label="Delivery accounting" {...deliveryAccountingLoad} onRetry={reloadDeliveryAccountingCharges} />
         <OperationsProTable<DeliveryAccountingCharge>
           rowKey="id"
@@ -2648,7 +2648,7 @@ export function FinancePage({
             <Form.Item name="paymentMethod" label="Payment method" rules={[{ required: true }]}><Select options={["BankTransfer", "Cheque", "Cash", "Other"].map((value) => ({ value }))} /></Form.Item>
             <Form.Item name="sourceAccountCode" label="Bank / cash source account" rules={[{ required: true }]}><Input placeholder="AutoCount bank or cash account" /></Form.Item>
             <Form.Item noStyle shouldUpdate={(previous, current) => previous.paymentMethod !== current.paymentMethod}>{({ getFieldValue }) => getFieldValue("paymentMethod") === "Cheque" ? <Form.Item name="chequeNumber" label="Cheque number" rules={[{ required: true }]}><Input /></Form.Item> : <Form.Item name="paymentReference" label="Transfer / payment reference"><Input /></Form.Item>}</Form.Item>
-            <Form.Item name="accountingAccountCode" label="Accounting account" rules={[{ required: true }]} extra="Loan application fee follows the approved mapping 8000-L002."><Input /></Form.Item>
+            <Form.Item name="accountingAccountCode" label="Accounting account" rules={[{ required: true }]} tooltip={fieldTooltip("Loan application fee follows the approved mapping 8000-L002.", "Accounting account guidance")}><Input /></Form.Item>
             <Form.Item name="bankChargeAmount" label="Bank charge"><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
             <Form.Item noStyle shouldUpdate={(previous, current) => previous.bankChargeAmount !== current.bankChargeAmount}>{({ getFieldValue }) => Number(getFieldValue("bankChargeAmount") ?? 0) > 0 ? <Form.Item name="bankChargeAccountCode" label="Bank charge account" rules={[{ required: true }]}><Input /></Form.Item> : null}</Form.Item>
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>

@@ -1,3 +1,4 @@
+import { fieldTooltip } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Card, Form, Modal, Select, Space, TimePicker, message } from "antd";
@@ -77,7 +78,7 @@ export function StockListingSettings() {
           <TimePicker format="HH:mm" allowClear={false} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="recipientUserIds" label="Recipients"
-          extra="Eligible recipients are Boss/Admin staff with an active My WhatsApp connection.">
+          tooltip={fieldTooltip("Eligible recipients are Boss/Admin staff with an active My WhatsApp connection.", "Recipients guidance")}>
           <Select mode="multiple" optionFilterProp="label" allowClear
             options={settings.eligibleRecipients.map(person => ({ value: person.userId, label: person.displayName || person.userId }))} />
         </Form.Item>

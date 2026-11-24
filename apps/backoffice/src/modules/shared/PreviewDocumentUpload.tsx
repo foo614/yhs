@@ -1,3 +1,4 @@
+import { FieldHelp } from "./FieldHelp";
 import { useEffect, useState } from "react";
 import { UploadOutlined } from "@ant-design/icons";
 import { Button, Progress, Space, Typography, Upload } from "antd";
@@ -76,14 +77,14 @@ export function PreviewDocumentUpload({
       </Upload>
       <DocumentPreviewDrawer
         open={open}
-        title={`Review ${documentLabel} / 检查文件`}
+        title={<>{`Review ${documentLabel} / 检查文件`}<FieldHelp label="Document upload guidance">Confirm the document and category before uploading. Maximum 10 MB.</FieldHelp></>}
         source={source}
         error={error}
         onClose={close}
         footer={(
           <div className="documentPreviewFooter">
             <div>
-              <Typography.Text type="secondary">Confirm the document and category before uploading. Maximum 10 MB.</Typography.Text>
+
               {uploading && <Progress percent={progress} size="small" status="active" />}
             </div>
             <Space wrap>

@@ -1,3 +1,4 @@
+import { FieldHelp } from "./FieldHelp";
 import type { ReactNode } from "react";
 import { Space, Tag, Typography } from "antd";
 
@@ -30,8 +31,8 @@ export function DocumentUploadChecklist({
     <div className="documentUploadChecklistPanel">
       <div className="documentUploadChecklistHeader">
         <div>
-          <Typography.Text strong>{title}</Typography.Text>
-          <Typography.Text type="secondary">{description}</Typography.Text>
+          <Typography.Text strong>{title}<FieldHelp label={`${title} guidance`}>{description}</FieldHelp></Typography.Text>
+
         </div>
         <Tag color={progress.completed === progress.total ? "green" : "orange"}>{progress.completed} of {progress.total} received</Tag>
       </div>

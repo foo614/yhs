@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Empty, Form, Input, InputNumber, Modal, Popconfirm, Space, Tag, Typography } from "antd";
@@ -173,10 +174,10 @@ export function LoanBankComparison({ loan, banks, loading, loadError, canProcess
         {termsFields()}<Button type="primary" htmlType="submit" disabled={!writable} loading={busy}>Save application / 保存申请</Button>
       </Form>
     </Modal>
-    <Modal width={dialogWidths.formWide} centered title="Review LOU file / 复核 LOU 文件" open={Boolean(review)} onCancel={() => { if (!busy) setReview(undefined); }} footer={null} destroyOnHidden mask={{ closable: false }}>
+    <Modal width={dialogWidths.formWide} centered title={<>Review LOU file / 复核 LOU 文件<FieldHelp label="LOU file guidance">Read the original and confirm the terms for this specific file. / 请核对原文件，再确认此文件的条款。</FieldHelp></>} open={Boolean(review)} onCancel={() => { if (!busy) setReview(undefined); }} footer={null} destroyOnHidden mask={{ closable: false }}>
       {review && <Space direction="vertical" className="fullWidth">
         <Typography.Text strong>{review.bank.bankName} · {review.file.fileName}</Typography.Text>{documentLink(review.file)}
-        <Typography.Paragraph>Read the original and confirm the terms for this specific file. / 请核对原文件，再确认此文件的条款。</Typography.Paragraph>
+
         {!review.file.reviewedAt && <Alert type="info" title="This file has no recorded terms. Enter them from the original file. / 此文件尚无条款记录，请按原文件填写。" />}
         {error && <Alert type="error" title={error} />}
         <Form form={fileForm} layout="vertical" onFinish={terms => run(() => reviewLoanBankLouFile(loan.id, review.bank.id, review.file.documentId, terms), () => setReview(undefined))}>

@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { useEffect, useState } from "react";
 import { Alert, Button, Card, DatePicker, Form, Input, Modal, Select, Space, Tag, Typography } from "antd";
@@ -31,8 +32,8 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
   const run = async (action: () => Promise<unknown>) => { setBusy(true); setError(""); try { await action(); await reload(); await onChanged?.(); } catch (e) { setError(humanizeApiError(e)); } finally { setBusy(false); } };
   return <Space direction="vertical" className="fullWidth hrAttendanceWorkflow" size={16}>
     {error && <Alert type="error" showIcon message={error} />}
-    <Card className="hrCorrectionCard" title="Attendance corrections / 打卡更正" extra={<Button onClick={() => { form.resetFields(); form.setFieldsValue({ staffUserId: currentUser?.id }); setEditing(true); }}>Request correction / 申请更正</Button>}>
-      <Typography.Paragraph>Forgot to clock out? Enter the actual times and a reason. HR must approve before hours change. All times are Malaysia time.</Typography.Paragraph>
+    <Card className="hrCorrectionCard" title={<>Attendance corrections / 打卡更正<FieldHelp label="Attendance correction guidance">Forgot to clock out? Enter the actual times and a reason. HR must approve before hours change. All times are Malaysia time.</FieldHelp></>} extra={<Button onClick={() => { form.resetFields(); form.setFieldsValue({ staffUserId: currentUser?.id }); setEditing(true); }}>Request correction / 申请更正</Button>}>
+
       <Space direction="vertical" className="fullWidth">
         {corrections.length === 0 && <Typography.Text type="secondary">No correction requests / 暂无更正申请</Typography.Text>}
         {corrections.map(item => <Card key={item.id} size="small">
@@ -47,8 +48,8 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
         </Card>)}
       </Space>
     </Card>
-    <Card title="Work schedule / 工作时间表">
-      <Typography.Paragraph>HR sets each shift before it starts. An early check-out asks for confirmation and a reason; no automatic salary penalty is applied.</Typography.Paragraph>
+    <Card title={<>Work schedule / 工作时间表<FieldHelp label="Shift schedule guidance">HR sets each shift before it starts. An early check-out asks for confirmation and a reason; no automatic salary penalty is applied.</FieldHelp></>}>
+
       {isHr && <Form form={scheduleForm} layout="vertical" className="formGrid" onFinish={values => void run(async () => { await saveHrWorkSchedule({ staffUserId: values.staffUserId, attendanceDate: values.startAt.format("YYYY-MM-DD"), startAt: malaysiaUtc(values.startAt), endAt: malaysiaUtc(values.endAt) }); scheduleForm.resetFields(); })}>
         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={staffOptions} /></Form.Item>
         <Form.Item name="startAt" label="Shift starts (Malaysia) / 上班时间" rules={[{ required: true }]}><DatePicker showTime format="DD/MM/YYYY HH:mm" className="fullWidth" /></Form.Item>
@@ -64,8 +65,8 @@ export function HrAttendanceWorkflow({ currentUser, staff, attendance, onChanged
       })}>
         <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select disabled={!isHr} options={staffOptions} onChange={() => form.resetFields(["attendanceRecordId", "checkInAt", "checkOutAt"])} /></Form.Item>
         <Form.Item name="attendanceRecordId" label="Existing session (leave empty for a missing session) / 原打卡"><Select allowClear showSearch optionFilterProp="label" options={attendance.filter(item => item.staffUserId === selectedStaff).map(item => ({ value: item.id, label: `${item.attendanceDate} · ${malaysiaTime(item.checkInAt)}` }))} onChange={id => { const item = attendance.find(record => record.id === id); form.setFieldsValue({ checkInAt: malaysiaInput(item?.checkInAt), checkOutAt: malaysiaInput(item?.checkOutAt) }); }} /></Form.Item>
-        {selectedRecord && <Typography.Paragraph type="secondary">Keep the original check-in date. Enter the actual missing or corrected times.</Typography.Paragraph>}
-        <Form.Item name="checkInAt" label="Actual check-in (Malaysia) / 实际上班" rules={[{ required: true }]}><DatePicker showTime format="DD/MM/YYYY HH:mm" className="fullWidth" /></Form.Item>
+
+        <Form.Item name="checkInAt" label="Actual check-in (Malaysia) / 实际上班" tooltip={fieldTooltip(<>Keep the original check-in date. Enter the actual missing or corrected times.</>, "Correction date guidance")} rules={[{ required: true }]}><DatePicker showTime format="DD/MM/YYYY HH:mm" className="fullWidth" /></Form.Item>
         <Form.Item name="checkOutAt" label="Actual check-out (Malaysia) / 实际放工" rules={[{ required: true }]}><DatePicker showTime format="DD/MM/YYYY HH:mm" className="fullWidth" /></Form.Item>
         <Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item>
       </Form>

@@ -19,7 +19,7 @@ describe("back-office information banner UI contract", () => {
     expect(app).not.toContain("Receipt OCR stays separate from the repair instructions.");
   });
 
-  it("uses compact routine banners and separated section introductions", () => {
+  it("uses compact routine banners for visible feedback", () => {
     const compactBannerFiles = [
       "App.tsx",
       "modules/customers/Customer360Page.tsx",
@@ -30,8 +30,5 @@ describe("back-office information banner UI contract", () => {
       expect(source(path), `${path} must use the compact routine-info treatment`).toContain("operationalInfoAlert");
     }
 
-    for (const path of ["App.tsx", "modules/finance/FinancePage.tsx", "modules/vehicles/VehiclePage.tsx"]) {
-      expect(source(path), `${path} must separate section introductions from following content`).toContain("sectionIntroAlert");
-    }
   });
 });

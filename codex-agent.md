@@ -148,6 +148,7 @@ Uploads:
 - Backend: use `ysheng-api` for endpoint wiring, persistence, business invariants, and verification. Keep contracts aligned across TypeScript and C#; apply the critical-coverage rule when considering new xUnit cases.
 - Back office: use `ysheng-backoffice` for API usage and Ant Design component choices. Always design mobile first, then adapt for useful tablet and desktop views. Preserve information, permitted actions, and validation across sizes; verify UX, spacing, and populated states.
 - Keep the back office Ant Design-first. Introduce shadcn/ui only when the user explicitly requests a design-system migration. Check the installed Ant Design version before using documentation examples.
+- Put explanatory field and form guidance in label- or title-adjacent tooltips using the shared `FieldHelp` / `fieldTooltip` pattern. Support hover, keyboard focus, and mobile tap; preserve bilingual text. Do not add always-visible field hints, `Form.Item.extra` instructions, or static instructional banners. Keep validation errors, actual record or workflow status, required action feedback, and confirmation consequences visible.
 - Front office: use `ysheng-frontoffice` for Next.js App Router, public API routes, photos, and lead capture. Prioritize clear vehicle details, price, and practical sales copy while preserving public/private data boundaries.
 
 ## Infrastructure and deployment rules
