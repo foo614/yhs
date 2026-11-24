@@ -6500,23 +6500,48 @@ button .navActionBadge .navActionBadgeUrgent {
   padding-bottom: 0;
 }
 
-.businessDialog .ant-modal-container {
+.ant-modal:not(.ant-modal-confirm) .ant-modal-container {
   display: flex;
   flex-direction: column;
   max-height: calc(100dvh - 48px);
   overflow: hidden;
 }
 
-.businessDialog .ant-modal-body {
+.ant-modal:not(.ant-modal-confirm) .ant-modal-body {
   min-height: 0;
-  padding: 0;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-.businessDialog .ant-modal-header,
-.businessDialog .ant-modal-footer {
+.businessDialog .ant-modal-body {
+  padding: 0;
+}
+
+.ant-modal:not(.ant-modal-confirm) .ant-modal-header,
+.ant-modal:not(.ant-modal-confirm) .ant-modal-footer {
   flex-shrink: 0;
+}
+
+.ant-modal-confirm-body-wrapper {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 96px);
+}
+
+.ant-modal-confirm-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.ant-modal-confirm-btns {
+  flex-shrink: 0;
+}
+
+.ant-modal .ant-typography p,
+.ant-modal p.ant-typography,
+.ant-modal div.ant-typography,
+.ant-modal .ant-alert-description {
+  max-width: 75ch;
 }
 
 .businessDialog .ant-modal-header {
@@ -6548,8 +6573,11 @@ button .navActionBadge .navActionBadgeUrgent {
     margin: 8px auto;
   }
 
-  .businessDialog .ant-modal-container {
+  .ant-modal:not(.ant-modal-confirm) .ant-modal-container {
     max-height: calc(100dvh - 16px);
+  }
+
+  .businessDialog .ant-modal-container {
     padding: 16px;
   }
 
@@ -7748,6 +7776,52 @@ button .navActionBadge .navActionBadgeUrgent {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.financeCollectionLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.financeCollectionEntry,
+.financeCollectionLayout > .financeCollectionHistory {
+  min-width: 0;
+}
+
+.financeCollectionEntry {
+  width: 100%;
+  max-width: 720px;
+}
+
+.financeCollectionEntry > .financeV2BalanceSummary {
+  margin-bottom: 16px;
+}
+
+@media (min-width: 1024px) {
+  .financeCollectionLayout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .9fr);
+  }
+
+  .financeCollectionLayout > .financeCollectionHistory {
+    max-height: min(64dvh, 720px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    border-inline-start: 1px solid #e3ebe7;
+    padding-inline-start: 24px;
+  }
+
+  .financeV2Drawer:not(.financeCollectionDialog) .financeCollectionHistory {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .financeV2Drawer:not(.financeCollectionDialog) .financeCollectionHistory > .financeCollectionHistoryHeader,
+  .financeV2Drawer:not(.financeCollectionDialog) .financeCollectionHistory > .ant-alert,
+  .financeV2Drawer:not(.financeCollectionDialog) .financeCollectionHistory > .ant-empty {
+    grid-column: 1 / -1;
+  }
 }
 
 .financeRecordDrawer .ant-modal-footer,

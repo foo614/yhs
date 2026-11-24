@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Card, Descriptions, Form, InputNumber, Modal, Space, Typography, message } from "antd";
 import { getStaffWhatsAppLimits, humanizeApiError, updateStaffWhatsAppLimits,
@@ -29,7 +30,7 @@ export function StaffWhatsAppLimitSettings() {
 
   const reviewSave = (values: LimitsFormValues) => {
     const input = { dailyAttemptLimit: values.dailyAttemptLimit };
-    modal.confirm({
+    modal.confirm({ centered: true, width: dialogWidths.compact,
       title: "Save WhatsApp sending limits?",
       content: <Space direction="vertical">
         <span>Daily provider-attempt limit: {input.dailyAttemptLimit.toLocaleString("en-MY")}.</span>

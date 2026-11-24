@@ -1,4 +1,5 @@
 import { BusinessDialog } from "../shared/BusinessDialog";
+import { dialogWidths } from "../shared/dialogSizing";
 import { BankSettlementPanel } from "./BankSettlementPanel";
 import { formatDisplayDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -850,6 +851,8 @@ export function FinancePage({
   const confirmMarkVoucherPaid = (voucher: PaymentVoucher) => {
     let evidenceReference = "";
     Modal.confirm({
+      centered: true,
+      width: dialogWidths.compact,
       rootClassName: "financeOverlay",
       title: "Mark voucher paid?",
       content: <Input autoFocus placeholder="Bank transaction, cheque-clearance or receipt reference" onChange={(event) => { evidenceReference = event.target.value; }} />,
@@ -894,6 +897,8 @@ export function FinancePage({
 
   const confirmApproveVoucher = (voucher: PaymentVoucher) => {
     Modal.confirm({
+      centered: true,
+      width: dialogWidths.compact,
       rootClassName: "financeOverlay",
       title: "Approve payment voucher?",
       content: `${voucher.payeeName}: ${formatMoney(voucher.amount)}. This approves the voucher only; it does not record payment.`,
@@ -998,7 +1003,9 @@ export function FinancePage({
     const balance = selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice;
     if (input.amount === balance) {
       Modal.confirm({
-      rootClassName: "financeOverlay",
+        centered: true,
+        width: dialogWidths.compact,
+        rootClassName: "financeOverlay",
         title: "This payment covers the remaining balance",
         content: "Add it now? The sale becomes Paid only after Finance reconciles the payment.",
         okText: "Add payment",
@@ -1016,6 +1023,8 @@ export function FinancePage({
 
   const approveAndIssueInvoice = (payment: PaymentRecord) => {
     Modal.confirm({
+      centered: true,
+      width: dialogWidths.form,
       rootClassName: "financeOverlay",
       title: "Approve the NCD or nett-price adjustment and issue the invoice?",
       content: <Space direction="vertical" size={12} className="fullWidth">
@@ -1156,8 +1165,12 @@ export function FinancePage({
           {!physicalCash && collection.status !== "Reversed" && <Space wrap className="financeCollectionActions">
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Pending" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => void updateFinancing(collection, "Approved")}>Record bank approval</Button>}
             {bankDisbursement && collection.status === "Pending" && collection.financingStatus === "Approved" && <Button size="small" loading={v2MutationKey === `financing-${collection.id}`} disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => Modal.confirm({
+      centered: true,
+      width: dialogWidths.compact,
       rootClassName: "financeOverlay", title: "Record funds disbursed?", content: "Confirm the bank has released the funds. This will make the payment available for Finance reconciliation.", okText: "Record funds disbursed", cancelText: "Cancel", onOk: () => updateFinancing(collection, "Disbursed") })}>Record funds disbursed</Button>}
             {collection.status === "Pending" && <Tooltip title={canReconcile ? "" : evidenceUnavailable ? "Load the linked evidence before reconciliation." : !hasEvidence ? "Attach payment evidence before reconciliation." : "Bank financing must be disbursed before reconciliation."}><span><Button size="small" disabled={!canReconcile} loading={v2MutationKey === `reconcile-${collection.id}`} onClick={() => Modal.confirm({
+      centered: true,
+      width: dialogWidths.compact,
       rootClassName: "financeOverlay", title: "Reconcile and issue official receipt?", content: "Confirm the amount is visible in the company account. Successful reconciliation automatically issues one official Customer Receipt using the linked evidence and records your action in the audit trail.", okText: "Reconcile & issue receipt", cancelText: "Cancel", onOk: () => reconcileV2Collection(collection) })}>Reconcile</Button></span></Tooltip>}
             {collection.status === "Reconciled" && canApproveManagementReview && <Button size="small" danger disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => { setReverseCollectionId(collection.id); setReverseReason(""); }}>Reverse</Button>}
           </Space>}
@@ -1188,6 +1201,8 @@ export function FinancePage({
   const approveManagementReview = (payment: PaymentRecord) => {
     if (paymentLoadError || paymentRefreshing || legacySaving) return;
     Modal.confirm({
+      centered: true,
+      width: dialogWidths.compact,
       rootClassName: "financeOverlay",
       title: "Approve legacy payment management review?",
       content: `${plateFor(vehicles, payment.vehicleId)} · ${formatMoney(payment.nettPrice)} · ${payment.invoiceNumber || "No sales invoice"}. Confirm that the recorded sale and payment evidence have been reviewed. This records management approval; it does not reconcile the payment.`,
@@ -1205,6 +1220,8 @@ export function FinancePage({
       const blockReason = paymentReconcileBlockReason({ ...payment, status: current?.status ?? "Pending" }, payments);
       if (blockReason) { message.warning(blockReason); return; }
       Modal.confirm({
+      centered: true,
+      width: dialogWidths.compact,
         rootClassName: "financeOverlay",
         title: "Reconcile legacy payment?",
         content: `${plateFor(vehicles, payment.vehicleId)} · ${formatMoney(payment.nettPrice)} · ${payment.receiptNumber || "No customer receipt"}. Confirm that the collection, management review, documents and checklist have been checked. This records the payment as Reconciled.`,
@@ -1771,6 +1788,7 @@ export function FinancePage({
       <Modal mask={{ closable: false }} centered
         rootClassName="financeOverlay"
         title={invoiceRequestToResolve ? `Mark ${invoiceRequestToResolve.plateNumber} invoice request resolved?` : "Mark invoice request resolved?"}
+        width={dialogWidths.compact}
         open={Boolean(invoiceRequestToResolve)}
         okText="Picked up"
         cancelText="Keep open"
@@ -1928,7 +1946,7 @@ export function FinancePage({
       <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="Prepare sales invoice / 准备销售发票"
-        width={700}
+        width={dialogWidths.formWide}
         open={prepareInvoiceOpen}
         onCancel={() => {
           setInvoiceReviewInput(undefined);
@@ -2003,6 +2021,7 @@ export function FinancePage({
         title={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
           ? "Review invoice · approval required"
           : "Review invoice"}
+        width={dialogWidths.formWide}
         open={Boolean(invoiceReviewInput)}
         okText={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
           ? "Send for approval"
@@ -2023,7 +2042,7 @@ export function FinancePage({
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeCollection" type="primary" htmlType="submit" disabled={!selectedCollectionPayment || Boolean(paymentLoadError || paymentRefreshing)} loading={v2MutationKey === `collection-${selectedCollectionPayment?.id}`}>Add payment</Button></div>}
         title="Add payment / 新增收款"
-        width={600}
+        width={dialogWidths.data}
         open={Boolean(collectionPaymentId)}
         onClose={() => {
           setCollectionPaymentId(undefined);
@@ -2031,26 +2050,28 @@ export function FinancePage({
           collectionForm.resetFields();
         }}
         destroyOnClose
-        className="recordEditDrawer financeRecordDrawer financeV2Drawer"
+        className="recordEditDrawer financeRecordDrawer financeV2Drawer financeCollectionDialog"
       >
-        {selectedCollectionPayment && <Space direction="vertical" size={16} className="fullWidth">
-          <FinanceV2BalanceSummary payment={selectedCollectionPayment} vehicles={vehicles} customers={customers} />
-          <Form id="financeCollection" name="financeCollection" form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
-            <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}><InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
-            <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
-            {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}><Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} /></Form.Item>}
-            <Form.Item name="receivedDate" label="Received date / 收款日期" rules={[{ required: true, message: "Choose the received date." }]}><DatePicker className="fullWidth" /></Form.Item>
-            <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
-            <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
-            <Alert type="info" showIcon message="For physical cash, use Cash Custody" description="Cash Custody records the actual partial amount, physical handover, independent checker, and official receipt." action={<Button size="small" onClick={() => { setCollectionPaymentId(undefined); changeFinanceTab("cash-custody", undefined, selectedCollectionPayment.id); }}>Open Cash Custody</Button>} />
+        {selectedCollectionPayment && <div className="financeCollectionLayout">
+          <div className="financeCollectionEntry">
+            <FinanceV2BalanceSummary payment={selectedCollectionPayment} vehicles={vehicles} customers={customers} />
+            <Form id="financeCollection" name="financeCollection" form={collectionForm} layout="vertical" className="drawerForm" onFinish={(values) => void submitCollection(values)}>
+              <Form.Item name="amount" label="Amount received / 已收金额" rules={[{ required: true, message: "Enter the payment amount." }]}><InputNumber className="fullWidth" min={0.01} max={selectedCollectionPayment.availableToAllocate ?? selectedCollectionPayment.balanceAmount ?? selectedCollectionPayment.nettPrice} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="method" label="Payment method / 收款方式" rules={[{ required: true, message: "Choose a payment method." }]}><Select onChange={(method) => collectionForm.setFieldValue("financingStatus", method === "BankDisbursement" ? "Pending" : "NotApplicable")} options={collectionMethodOptions} /></Form.Item>
+              {selectedCollectionMethod === "BankDisbursement" && <Form.Item name="financingStatus" label="Bank financing status / 银行放款状态" rules={[{ required: true }]}><Select disabled options={[{ value: "Pending", label: financingStatusLabel("Pending") }]} /></Form.Item>}
+              <Form.Item name="receivedDate" label="Received date / 收款日期" rules={[{ required: true, message: "Choose the received date." }]}><DatePicker className="fullWidth" /></Form.Item>
+              <Form.Item name="reference" label="Payment reference / 收款编号" rules={[{ required: true, whitespace: true, message: "Enter a bank, cheque, card, or agreement reference." }]}><Input maxLength={100} placeholder="Example: bank transaction or cheque number" /></Form.Item>
+              <Form.Item name="notes" label="Notes / 备注"><Input.TextArea rows={2} maxLength={500} /></Form.Item>
+              <Alert type="info" showIcon message="For physical cash, use Cash Custody" description="Cash Custody records the actual partial amount, physical handover, independent checker, and official receipt." action={<Button size="small" onClick={() => { setCollectionPaymentId(undefined); changeFinanceTab("cash-custody", undefined, selectedCollectionPayment.id); }}>Open Cash Custody</Button>} />
 
-          </Form>
+            </Form>
+          </div>
           {collectionHistory(selectedCollectionPayment)}
-        </Space>}
+        </div>}
       </BusinessDialog>
       <BusinessDialog
         title="Sales invoice & collection details / 销售发票与收款详情"
-        width={600}
+        width={dialogWidths.data}
         open={Boolean(v2DetailsPaymentId)}
         onClose={() => setV2DetailsPaymentId(undefined)}
         className="recordEditDrawer financeRecordDrawer financeV2Drawer"
@@ -2069,7 +2090,7 @@ export function FinancePage({
           {collectionHistory(selectedV2DetailsPayment)}
         </Space>}
       </BusinessDialog>
-      <Modal centered mask={{ closable: false }} rootClassName="financeOverlay" title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim() || Boolean(paymentLoadError || paymentRefreshing), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
+      <Modal centered mask={{ closable: false }} width={dialogWidths.compact} rootClassName="financeOverlay" title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim() || Boolean(paymentLoadError || paymentRefreshing), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
         if (!reverseCollectionId || !reverseReason.trim()) return;
         await runV2Mutation(`reverse-${reverseCollectionId}`, () => onReverseCollection(reverseCollectionId, reverseReason.trim()));
         setReverseCollectionId(undefined);
@@ -2082,7 +2103,7 @@ export function FinancePage({
       <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="New Bank Collection / 新增收款"
-        width={680}
+        width={dialogWidths.formWide}
         open={financeCreateOpen === "payment"}
         onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
         footer={null}
@@ -2184,7 +2205,7 @@ export function FinancePage({
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financePaymentEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPayment || Boolean(paymentLoadError || paymentRefreshing)}>Update Payment</Button></div>}
         title="Payment Details / 收款详情"
-        width={560}
+        width={dialogWidths.form}
         open={financeEditorOpen === "payment"}
         onClose={() => {
           if (!legacySaving) setFinanceEditorOpen(null);
@@ -2278,7 +2299,7 @@ export function FinancePage({
           <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Broker Commission / 新增经纪人佣金"
-            width={620}
+            width={dialogWidths.form}
             open={financeCreateOpen === "brokerCommission"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
             footer={<div className="financeFormFooter"><Button form="financeCommissionCreate" type="primary" htmlType="submit" disabled={registerBlocked("brokerCommissions")} loading={legacySaving}>Save Commission</Button></div>}
@@ -2318,7 +2339,7 @@ export function FinancePage({
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeCommissionEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditBrokerCommission || registerBlocked("brokerCommissions")}>Update Commission</Button></div>}
         title="Broker Commission Details / 经纪人佣金详情"
-        width={560}
+        width={dialogWidths.form}
         open={financeEditorOpen === "brokerCommission"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
@@ -2399,7 +2420,7 @@ export function FinancePage({
           <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Debt Recovery Case / 新增欠款追讨"
-            width={620}
+            width={dialogWidths.form}
             open={financeCreateOpen === "debtRecovery"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
             footer={<div className="financeFormFooter"><Button form="financeDebtRecoveryCreate" type="primary" htmlType="submit" disabled={registerBlocked("debtRecoveries")} loading={legacySaving}>Save Debt Case</Button></div>}
@@ -2437,7 +2458,7 @@ export function FinancePage({
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeDebtRecoveryEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDebtRecovery || registerBlocked("debtRecoveries")}>Update Debt Case</Button></div>}
         title="Debt Case Details / 欠款追讨详情"
-        width={560}
+        width={dialogWidths.form}
         open={financeEditorOpen === "debtRecovery"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
@@ -2587,7 +2608,7 @@ export function FinancePage({
           <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Payment Voucher / 新增付款凭证"
-            width={620}
+            width={dialogWidths.form}
             open={financeCreateOpen === "paymentVoucher"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
             footer={<div className="financeFormFooter"><Button form="financePaymentVoucherCreate" type="primary" htmlType="submit" disabled={registerBlocked("paymentVouchers")} loading={legacySaving}>Save Voucher</Button></div>}
@@ -2639,7 +2660,7 @@ export function FinancePage({
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financePaymentVoucherEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPaymentVoucher || selectedEditPaymentVoucher.status !== "Pending" || registerBlocked("paymentVouchers")}>Update pending voucher</Button></div>}
         title="Payment Voucher Details / 付款凭证详情"
-        width={560}
+        width={dialogWidths.form}
         open={financeEditorOpen === "paymentVoucher"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
@@ -2729,7 +2750,7 @@ export function FinancePage({
           <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Daily Spend / 新增日常支出"
-            width={560}
+            width={dialogWidths.form}
             open={financeCreateOpen === "dailySpend"}
             onCancel={() => { if (!legacySaving) setFinanceCreateOpen(null); }}
             footer={<div className="financeFormFooter"><Button form="financeDailySpendCreate" type="primary" htmlType="submit" disabled={registerBlocked("dailySpends")} loading={legacySaving}>Save Daily Spend</Button></div>}
@@ -2761,7 +2782,7 @@ export function FinancePage({
       <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeDailySpendEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDailySpend || registerBlocked("dailySpends")}>Update Daily Spend</Button></div>}
         title="Daily Spend Details / 日常支出详情"
-        width={560}
+        width={dialogWidths.form}
         open={financeEditorOpen === "dailySpend"}
         onClose={() => { if (!legacySaving) setFinanceEditorOpen(null); }}
         destroyOnClose
@@ -2800,7 +2821,7 @@ export function FinancePage({
       </BusinessDialog>
       <BusinessDialog
         title="Purchase Invoice Version History / 收车发票版本记录"
-        width={620}
+        width={dialogWidths.data}
         open={Boolean(selectedPurchaseInvoiceDetails)}
         onClose={() => setPurchaseInvoiceDetailsId(undefined)}
         destroyOnClose

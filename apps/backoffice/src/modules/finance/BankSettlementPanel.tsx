@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { settlementBanks as banks } from "../../settlementBanks";
 import { OperationsProTable } from "../shared/OperationsProTable";
@@ -81,7 +82,7 @@ export function BankSettlementPanel({ records, vehicles, canManage, refresh }: {
       { title: "Status / 状态", render: (_, r) => <Tag color={r.isPaid ? "green" : "orange"}>{r.supersededById ? "Replaced" : r.isPaid ? "Done" : r.direction === "PayBank" ? "To pay" : "Needs review"}</Tag> },
       { title: "Action / 操作", fixed: "right", render: (_, r) => renderActions(r) }
     ]} />
-    <Modal centered title={editing ? "Update bank settlement" : source ? "Review and replace seller settlement" : "New bank settlement"} okText={editing ? "Confirm update" : "Confirm bank settlement"} open={createOpen} confirmLoading={busy} onOk={() => form.submit()} onCancel={() => { if (!busy) setCreateOpen(false); }} maskClosable={false}>
+    <Modal width={dialogWidths.form} centered title={editing ? "Update bank settlement" : source ? "Review and replace seller settlement" : "New bank settlement"} okText={editing ? "Confirm update" : "Confirm bank settlement"} open={createOpen} confirmLoading={busy} onOk={() => form.submit()} onCancel={() => { if (!busy) setCreateOpen(false); }} maskClosable={false}>
       {error && <Alert type="error" message={error} />}
       {source && <Alert type="info" message={`Original seller amount ${formatMoney(source.amount)} stays in history. Confirming replaces its pending task with a bank payment of ${formatMoney(source.bankDebtAmount ?? 0)}.`} />}
       <Form form={form} layout="vertical" disabled={busy} onFinish={async (values: Omit<BankSettlementInput, "deadline"> & { deadline: Dayjs }) => {
@@ -102,7 +103,7 @@ export function BankSettlementPanel({ records, vehicles, canManage, refresh }: {
         <Form.Item name="bankAccountNumber" label="Bank account number" rules={[{ required: true, whitespace: true, max: 80 }]}><Input /></Form.Item>
       </Form>
     </Modal>
-    <Modal centered title="Confirm full bank settlement / 确认还清" open={Boolean(complete)} confirmLoading={busy} onOk={() => paymentForm.submit()} onCancel={() => { if (!busy) setComplete(undefined); }} maskClosable={false}>
+    <Modal width={dialogWidths.form} centered title="Confirm full bank settlement / 确认还清" open={Boolean(complete)} confirmLoading={busy} onOk={() => paymentForm.submit()} onCancel={() => { if (!busy) setComplete(undefined); }} maskClosable={false}>
       {error && <Alert type="error" message={error} />}
       {complete && <>
         <p>{complete.bankName} · {complete.bankAccountNumber} · {formatMoney(complete.bankDebtAmount ?? 0)}</p>

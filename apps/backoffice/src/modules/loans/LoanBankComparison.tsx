@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Empty, Form, Input, InputNumber, Modal, Popconfirm, Space, Tag, Typography } from "antd";
 import { LoanBankNameInput } from "../../LoanBankNameInput";
@@ -166,13 +167,13 @@ export function LoanBankComparison({ loan, banks, loading, loadError, canProcess
         </Space>
       </div>)}</div>
     </section>)}
-    <Modal centered title={edit === "new" ? "Add bank application / 新增银行申请" : "Edit bank application / 编辑银行申请"} open={Boolean(edit)} onCancel={() => { if (!busy) setEdit(undefined); }} footer={null} destroyOnHidden mask={{ closable: false }}>
+    <Modal width={dialogWidths.form} centered title={edit === "new" ? "Add bank application / 新增银行申请" : "Edit bank application / 编辑银行申请"} open={Boolean(edit)} onCancel={() => { if (!busy) setEdit(undefined); }} footer={null} destroyOnHidden mask={{ closable: false }}>
       {error && <Alert type="error" title={error} />}
       <Form form={bankForm} layout="vertical" onFinish={values => run(() => edit && edit !== "new" ? updateLoanBankOption({ ...edit, ...values }) : createLoanBankOption(loan.id, { loanApplicationId: loan.id, bankName: values.bankName || "", loanAmount: values.loanAmount, interestRate: values.interestRate, tenureMonths: values.tenureMonths, terms: values.terms, isSelected: false }), () => setEdit(undefined))}>
         {termsFields()}<Button type="primary" htmlType="submit" disabled={!writable} loading={busy}>Save application / 保存申请</Button>
       </Form>
     </Modal>
-    <Modal centered title="Review LOU file / 复核 LOU 文件" open={Boolean(review)} onCancel={() => { if (!busy) setReview(undefined); }} footer={null} destroyOnHidden mask={{ closable: false }}>
+    <Modal width={dialogWidths.formWide} centered title="Review LOU file / 复核 LOU 文件" open={Boolean(review)} onCancel={() => { if (!busy) setReview(undefined); }} footer={null} destroyOnHidden mask={{ closable: false }}>
       {review && <Space direction="vertical" className="fullWidth">
         <Typography.Text strong>{review.bank.bankName} · {review.file.fileName}</Typography.Text>{documentLink(review.file)}
         <Typography.Paragraph>Read the original and confirm the terms for this specific file. / 请核对原文件，再确认此文件的条款。</Typography.Paragraph>
@@ -183,7 +184,7 @@ export function LoanBankComparison({ loan, banks, loading, loadError, canProcess
         </Form>
       </Space>}
     </Modal>
-    <Modal centered title="Confirm final LOU and complete loan / 确认最终 LOU 并完成贷款" open={Boolean(final)} onCancel={() => { if (!busy) setFinal(undefined); }} onOk={() => final && run(() => finalizeLoanBankLouFile(loan.id, final.bank.id, final.file), () => setFinal(undefined))} confirmLoading={busy} okButtonProps={{ disabled: !writable }} okText="Confirm final LOU & complete / 确认并完成" mask={{ closable: false }}>
+    <Modal width={dialogWidths.form} centered title="Confirm final LOU and complete loan / 确认最终 LOU 并完成贷款" open={Boolean(final)} onCancel={() => { if (!busy) setFinal(undefined); }} onOk={() => final && run(() => finalizeLoanBankLouFile(loan.id, final.bank.id, final.file), () => setFinal(undefined))} confirmLoading={busy} okButtonProps={{ disabled: !writable }} okText="Confirm final LOU & complete / 确认并完成" mask={{ closable: false }}>
       {final && <Space direction="vertical" className="fullWidth">
         <Typography.Text strong>{final.file.bankName || final.bank.bankName}</Typography.Text><Typography.Text type="secondary">Application / 申请：{final.bank.bankName}</Typography.Text><Typography.Text>{final.file.fileName}</Typography.Text><Typography.Text type="secondary">{uploadTime(final.file.uploadedAt)}</Typography.Text>
         {documentLink(final.file)}
@@ -194,7 +195,7 @@ export function LoanBankComparison({ loan, banks, loading, loadError, canProcess
         {error && <Button loading={busy} onClick={() => void reloadFinalFile()}>Reload files / 重新读取文件</Button>}
       </Space>}
     </Modal>
-    <Modal centered title="Bank rejection / 银行拒绝" open={Boolean(reject)} onCancel={() => { if (!busy) setReject(undefined); }} onOk={() => reject && run(() => rejectLoanBank(reject, rejectionReason.trim()), () => setReject(undefined))} okButtonProps={{ disabled: !writable || !rejectionReason.trim() }} confirmLoading={busy} mask={{ closable: false }}>
+    <Modal width={dialogWidths.form} centered title="Bank rejection / 银行拒绝" open={Boolean(reject)} onCancel={() => { if (!busy) setReject(undefined); }} onOk={() => reject && run(() => rejectLoanBank(reject, rejectionReason.trim()), () => setReject(undefined))} okButtonProps={{ disabled: !writable || !rejectionReason.trim() }} confirmLoading={busy} mask={{ closable: false }}>
       <Input.TextArea value={rejectionReason} maxLength={500} onChange={event => setRejectionReason(event.target.value)} placeholder="Reason / 原因" />
       {error && <Alert type="error" title={error} />}
     </Modal>

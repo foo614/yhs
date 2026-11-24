@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { settlementBanks } from "../../settlementBanks";
 import { formatDisplayDate, formatDisplayDateTime } from "../../dateDisplay";
@@ -1513,7 +1514,7 @@ export function VehiclePage({
 
   const approveVehicle = (vehicle: Vehicle) => {
     if (!canApproveVehicles || vehicle.bossConfirmed) return;
-    Modal.confirm({
+    Modal.confirm({ centered: true, width: dialogWidths.compact,
       title: `Approve ${vehicle.plateNumber}?`,
       content: "Confirm the vehicle and selling price have been checked. Approval is recorded for your account; the vehicle remains private until published separately.",
       okText: "Approve vehicle",
@@ -1526,7 +1527,7 @@ export function VehiclePage({
   };
 
   const requestPublicationApproval = (vehicle: Vehicle) => {
-    publicationModal.confirm({
+    publicationModal.confirm({ centered: true, width: dialogWidths.compact,
       title: `Request website listing approval for ${vehicle.plateNumber}?`,
       content: "Admin will review the vehicle. This request does not approve or publish the listing.",
       okText: "Request approval",
@@ -2163,7 +2164,7 @@ export function VehiclePage({
   const closeVehicleCreate = (force = false) => {
     const hasUnsavedIntake = Object.keys(vehicleIntakeDraft).length > 0 || Boolean(sellerNricFile || sellerVocFile || pendingOwnerDraft);
     if (!force && hasUnsavedIntake) {
-      Modal.confirm({
+      Modal.confirm({ centered: true, width: dialogWidths.compact,
         title: "Discard vehicle intake?",
         content: "You have entered vehicle intake details that have not been saved. Close this window and discard them?",
         okText: "Discard",
@@ -2344,7 +2345,7 @@ export function VehiclePage({
   return (
     <>
       {publicationModalContext}
-      {canApproveVehicles && <Modal mask={{ closable: false }} centered
+      {canApproveVehicles && <Modal width={dialogWidths.form} mask={{ closable: false }} centered
         title={`Export stock ${stockExportLabel} / 导出库存 ${stockExportLabel}`}
         open={Boolean(stockExportFormat)}
         onCancel={() => { if (!stockExporting) setStockExportFormat(undefined); }}
@@ -2599,7 +2600,7 @@ export function VehiclePage({
       <Modal centered
         mask={{ closable: false }}
         title={loanHandoffVehicle ? `Start Loan / 开始贷款 - ${loanHandoffVehicle.plateNumber}` : "Start Loan / 开始贷款"}
-        width={600}
+        width={dialogWidths.form}
         open={Boolean(loanHandoffVehicle)}
         onCancel={closeLoanHandoff}
         footer={null}
@@ -2679,7 +2680,7 @@ export function VehiclePage({
       <BusinessDialog
         mask={{ closable: false }}
         title={selectedVehicle ? `Vehicle Details / 车辆详情 - ${selectedVehicle.plateNumber}` : "Vehicle Details / 车辆详情"}
-        width={960}
+        width={dialogWidths.data}
         open={vehicleDetailOpen}
         onClose={() => setVehicleDetailOpen(false)}
         destroyOnClose
@@ -2808,7 +2809,7 @@ export function VehiclePage({
                 }
 
                 if (selectedVehicle.bossConfirmed && vehicleSellingPriceChanged(selectedVehicle.sellingPrice, vehicle.sellingPrice)) {
-                  Modal.confirm({
+                  Modal.confirm({ centered: true, width: dialogWidths.compact,
                     title: "Reprice this approved vehicle?",
                     content: "Saving the new selling price revokes management confirmation and immediately hides the vehicle from the public website. A Admin must review and approve the new price in a separate step before it can be published or invoiced.",
                     okText: "Save & revoke approval",
@@ -3257,7 +3258,7 @@ export function VehiclePage({
       <Modal centered
         mask={{ closable: false }}
         title="Create Vehicle / 新增车辆"
-        width={860}
+        width={dialogWidths.formWide}
         open={vehicleCreateOpen}
         onCancel={() => {
           if (!vehicleCreateSaving) closeVehicleCreate();
@@ -3567,7 +3568,7 @@ export function VehiclePage({
       <Modal centered
         mask={{ closable: false }}
         title="Check Previous Owner NRIC / 核对原车主身份证"
-        width={620}
+        width={dialogWidths.form}
         open={sellerIdentityReviewOpen}
         onCancel={() => setSellerIdentityReviewOpen(false)}
         footer={null}
@@ -3686,7 +3687,7 @@ export function VehiclePage({
       <Modal centered
         mask={{ closable: false }}
         title="Generate Purchase Invoice / 生成收车发票"
-        width={560}
+        width={dialogWidths.form}
         open={purchaseInvoiceCreateOpen}
         onCancel={() => {
           if (purchaseInvoiceGenerating) return;
@@ -3779,7 +3780,7 @@ export function VehiclePage({
       <BusinessDialog
         mask={{ closable: false }}
         title="Purchase Invoice Details / 收车发票详情"
-        width={560}
+        width={dialogWidths.formWide}
         open={purchaseInvoiceEditorOpen}
         onClose={() => setPurchaseInvoiceEditorOpen(false)}
         destroyOnClose
@@ -3842,7 +3843,7 @@ export function VehiclePage({
                   <OperationsProTable rowKey="id" columns={customerColumns} dataSource={customers} pagination={tablePagination(5)} scroll={{ x: 720 }} locale={{ emptyText: "No customer records yet." }} />
                   <Modal mask={{ closable: false }} centered
                     title="New Customer / 新增客户"
-                    width={620}
+                    width={dialogWidths.form}
                     open={customerCreateOpen}
                     onCancel={() => setCustomerCreateOpen(false)}
                     footer={null}
@@ -3931,7 +3932,7 @@ export function VehiclePage({
                   <OperationsProTable rowKey="id" columns={ownerColumns} dataSource={owners} pagination={tablePagination(5)} scroll={{ x: 520 }} locale={{ emptyText: "No previous owner records yet." }} />
                   <Modal mask={{ closable: false }} centered
                     title="New Owner / 新增原车主"
-                    width={560}
+                    width={dialogWidths.form}
                     open={ownerCreateOpen}
                     onCancel={() => setOwnerCreateOpen(false)}
                     footer={null}
@@ -3998,7 +3999,7 @@ export function VehiclePage({
       <Modal centered
         mask={{ closable: false }}
         title="New Customer / 新增客户"
-        width={620}
+        width={dialogWidths.form}
         open={customerCreateOpen}
         onCancel={() => {
           setCustomerCreateOpen(false);
@@ -4063,7 +4064,7 @@ export function VehiclePage({
       <Modal centered
         mask={{ closable: false }}
         title="New Owner / 新增原车主"
-        width={560}
+        width={dialogWidths.form}
         open={ownerCreateOpen}
         onCancel={() => {
           setOwnerCreateOpen(false);
@@ -4107,7 +4108,7 @@ export function VehiclePage({
       <BusinessDialog
         mask={{ closable: false }}
         title="Customer Details / 客户详情"
-        width={560}
+        width={dialogWidths.form}
         open={customerEditorOpen}
         onClose={() => setCustomerEditorOpen(false)}
         destroyOnClose
@@ -4155,7 +4156,7 @@ export function VehiclePage({
       <BusinessDialog
         mask={{ closable: false }}
         title="Owner Details / 原车主详情"
-        width={560}
+        width={dialogWidths.form}
         open={ownerEditorOpen}
         onClose={() => setOwnerEditorOpen(false)}
         destroyOnClose
@@ -4277,7 +4278,7 @@ export function VehiclePage({
           scroll={{ x: 760 }}
         />
       </ProCard>}
-      <Modal centered
+      <Modal width={dialogWidths.compact} centered
         title="Delete saved vehicle photo?"
         open={Boolean(photoDeleteConfirmation)}
         onCancel={() => {

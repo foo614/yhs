@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Checkbox, Form, Input, Modal, Space, Tag, Typography, message } from "antd";
 import { connectStaffWhatsApp, disconnectStaffWhatsApp, getStaffWhatsAppConnection, humanizeApiError, resendStaffWhatsAppInvitation, type StaffWhatsAppConnectInput, type StaffWhatsAppConnection as Connection, type StaffWhatsAppLink } from "../../api";
@@ -57,7 +58,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
   }, [connection?.state, connection?.expiresAt, load]);
   const isSelf = !staffUserId;
 
-  const connect = (values: StaffWhatsAppConnectInput) => modal.confirm({
+  const connect = (values: StaffWhatsAppConnectInput) => modal.confirm({ centered: true, width: dialogWidths.compact,
     title: isSelf ? "Connect your WhatsApp number?" : "Connect this number to the selected staff account?",
     content: manualLink ? "No invitation will be sent. Confirm the number owner's consent, then send the private one-time command to the company WhatsApp from that same number within 10 minutes. The account is connected only after verification; its roles do not change." : isSelf ? "An approved invitation will be queued to this number. It contains no verification secret. After it arrives, copy the one-time command from this portal and send it from the same number. Your account roles do not change." : "Confirm the employee's consent. An approved invitation will be queued to their number without a verification secret. Give the one-time portal command only to that employee; they must send it from the same number. Their account roles do not change.",
     okText: manualLink ? "Create verification command" : "Queue invitation and create command",
@@ -72,7 +73,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
       finally { mutationInFlight.current = false; setBusy(false); }
     }
   });
-  const disconnect = () => modal.confirm({
+  const disconnect = () => modal.confirm({ centered: true, width: dialogWidths.compact,
     title: "Disconnect WhatsApp?",
     content: isSelf ? "Future queries and queued replies for your account will stop. Reconnecting requires a new one-time verification." : "Future queries and queued replies for this employee will stop. Reconnecting requires a new one-time verification.",
     okText: "Disconnect",
@@ -86,7 +87,7 @@ export function StaffWhatsAppConnection({ staffUserId }: { staffUserId?: string 
       finally { mutationInFlight.current = false; setBusy(false); }
     }
   });
-  const resend = () => modal.confirm({
+  const resend = () => modal.confirm({ centered: true, width: dialogWidths.compact,
     title: "Resend the invitation?",
     content: "Only the approved setup invitation will be queued again. It contains no verification command; the portal command remains the same and keeps its original expiry.",
     okText: "Resend invitation",

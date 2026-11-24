@@ -1,3 +1,4 @@
+import { dialogWidths } from "./dialogSizing";
 import { BusinessDialog } from "./BusinessDialog";
 import { BookOutlined, PlayCircleOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
 import { Alert, Button, Collapse, Divider, Space, Steps, Tag, Tour, Typography } from "antd";
@@ -95,7 +96,7 @@ export function ModuleGuideExperience({
             <span>How to use / 使用指南</span>
           </Space>
         )}
-        width="min(680px, 96vw)"
+        width={dialogWidths.form}
         open={drawerOpen}
         onClose={onCloseDrawer}
         className="moduleGuideDrawer"

@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Card, Form, Grid, Input, Modal, Pagination, Select, Space, Tag, Typography, message } from "antd";
 import { OperationsProTable } from "../shared/OperationsProTable";
@@ -25,7 +26,7 @@ export function WhatsAppSettings() {
   }, [state, page, pageSize]);
   useEffect(() => { void load(); }, [load]);
 
-  const act = (row: WhatsAppQueueItem, action: "retry" | "suppress") => modal.confirm({
+  const act = (row: WhatsAppQueueItem, action: "retry" | "suppress") => modal.confirm({ centered: true, width: dialogWidths.compact,
     title: action === "retry" ? (row.eventKind === "test" ? "Retry this test notification?" : "Retry this customer notification?") : "Suppress this pending notification?",
     content: action === "retry" ? (row.eventKind === "test" ? "Consent, test recipient and expiry will be checked again. This queues only the separate test flow." : "This can send a real WhatsApp notification to the customer. Consent, approved template, expiry, remaining attempts and sending limits will be checked again. Unknown outcomes cannot be retried.") : "This prevents the pending notification from being sent. Messages already submitted cannot be recalled.",
     okText: action === "retry" ? "Confirm retry" : "Confirm suppression",
@@ -41,7 +42,7 @@ export function WhatsAppSettings() {
     {row.canSuppress && <Button disabled={busy} onClick={() => act(row, "suppress")}>Suppress</Button>}
     {!row.canRetry && !row.canSuppress && <Typography.Text type="secondary">No action</Typography.Text>}
   </Space>;
-  const saveConsent = (values: WhatsAppConsentInput) => modal.confirm({
+  const saveConsent = (values: WhatsAppConsentInput) => modal.confirm({ centered: true, width: dialogWidths.compact,
     title: values.optedIn ? "Record explicit WhatsApp consent?" : "Revoke WhatsApp consent?",
     content: `${values.optedIn ? "Confirm the recipient explicitly agreed to notifications. A saved phone number alone is not consent." : "Pending notifications will be suppressed."} Language: ${values.language === "ms" ? "Bahasa Malaysia" : "English"}.`,
     okText: "Confirm and save",

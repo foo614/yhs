@@ -1,3 +1,4 @@
+import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Card, DatePicker, Descriptions, Form, Grid, InputNumber, Modal, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from "antd";
@@ -135,7 +136,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       delayMinutes: category === "OutstandingDigest" || category === "AttendanceSummary" || category === "LeaveApproval" || category === "CalendarTasks" || category === "InspectionReminder" || category === "InsuranceReminder" ? 0 : values.delayMinutes,
       thresholdPercent: category === "OcrUsage" ? values.thresholdPercent : editing.thresholdPercent
     };
-    modal.confirm({
+    modal.confirm({ centered: true, width: dialogWidths.compact,
       title: `Save ${descriptions[category].title} settings?`,
       content: <Space direction="vertical">
         <span>{input.enabled ? "Enable" : "Disable"} this staff message category.</span>
@@ -276,7 +277,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     </section>}
 
     <BusinessDialog title="Staff WhatsApp message" open={!!selected} onClose={() => setSelected(null)}
-      width={screens.md ? 560 : "100%"} destroyOnClose className="recordEditDrawer">
+      width={dialogWidths.formWide} destroyOnClose className="recordEditDrawer">
       {selected && <Space direction="vertical" size="middle" className="fullWidth">
         <Descriptions size="small" bordered column={1} items={[
           { key: "staff", label: "Staff", children: selected.staffName || staffUsers.find(user => user.id === selected.staffUserId)?.displayName || "Staff member" },
@@ -306,7 +307,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
     </BusinessDialog>
 
     <BusinessDialog mask={{ closable: false }} title={editing ? `Edit ${descriptions[editing.category].title}` : "Edit message category"}
-      open={!!editing} onClose={() => setEditing(null)} width={screens.md ? 480 : "100%"} destroyOnClose className="recordEditDrawer">
+      open={!!editing} onClose={() => setEditing(null)} width={dialogWidths.form} destroyOnClose className="recordEditDrawer">
       {editing && <Form form={form} layout="vertical" onFinish={reviewSave}>
         <Typography.Paragraph type="secondary">{descriptions[editing.category].detail}</Typography.Paragraph>
         <Form.Item name="enabled" label="Category" valuePropName="checked"><Switch checkedChildren="On" unCheckedChildren="Off" /></Form.Item>

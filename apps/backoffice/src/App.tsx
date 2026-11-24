@@ -1,3 +1,4 @@
+import { dialogWidths } from "./modules/shared/dialogSizing";
 import { BusinessDialog } from "./modules/shared/BusinessDialog";
 import { RepairReviewPanel } from "./modules/repairs/RepairReviewPanel";
 import { LoanBankComparison } from "./modules/loans/LoanBankComparison";
@@ -1331,7 +1332,7 @@ export default function App() {
         ]}
       >
       {notificationContextHolder}
-      <BusinessDialog mask={{ closable: false }} title="My WhatsApp" width={520} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
+      <BusinessDialog mask={{ closable: false }} title="My WhatsApp" width={dialogWidths.form} open={whatsAppConnectionOpen} onClose={() => setWhatsAppConnectionOpen(false)} destroyOnClose className="recordEditDrawer">
         {whatsAppConnectionOpen && <StaffWhatsAppConnection key={currentUser.id} />}
       </BusinessDialog>
       <PageContainer title={false}>
@@ -2671,7 +2672,7 @@ export function DashboardPage({
           <Typography.Paragraph>Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update. Calculated vehicle margins use recorded prices and costs, not cash received or accounting profit.</Typography.Paragraph>
         </details>
       </ProCard>
-      <Modal mask={{ closable: false }} centered title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
+      <Modal width={dialogWidths.form} mask={{ closable: false }} centered title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
         <Typography.Paragraph>Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</Typography.Paragraph>
         <Space direction="vertical" className="fullWidth" size={12}>{moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
           <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text><Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
@@ -3601,7 +3602,7 @@ function RepairPage({
   const supplierPage = Math.min(mobileSupplierPage, Math.max(1, Math.ceil(filteredSupplierMaster.length / supplierPageSize)));
   useEffect(() => setMobileSupplierPage(1), [supplierKeyword, supplierStatus]);
   const showRepairCompletionConfirmation = (repair: RepairJob, onConfirm: () => Promise<void> | void) => {
-    Modal.confirm({
+    Modal.confirm({ centered: true, width: dialogWidths.form,
       title: "Confirm Repair Completed / 确认维修完成",
       content: (
         <Space direction="vertical" size={12} className="fullWidth">
@@ -3625,7 +3626,7 @@ function RepairPage({
     });
   };
   const confirmRepairApproval = (repair: RepairJob) => {
-    Modal.confirm({
+    Modal.confirm({ centered: true, width: dialogWidths.form,
       title: "Approve Repair / 批准维修",
       content: (
         <Space direction="vertical" size={12} className="fullWidth">
@@ -3969,7 +3970,7 @@ function RepairPage({
         </div>
       </ProCard>
       </details>
-      <Modal centered
+      <Modal width={dialogWidths.form} centered
         mask={{ closable: false }}
         title={creatingSupplierFromReceipt ? "Create supplier from receipt / 从收据建立供应商" : "New Supplier / 新增供应商"}
         open={supplierCreateOpen}
@@ -4031,7 +4032,7 @@ function RepairPage({
       <Modal centered
         mask={{ closable: false }}
         title="New Repair / 新增整备"
-        width={920}
+        width={dialogWidths.formWide}
         open={repairCreateOpen}
         onCancel={() => {
           setRepairCreateOpen(false);
@@ -4641,7 +4642,7 @@ export function LoanPage({
   };
 
   const rejectionModal = (
-    <Modal centered
+    <Modal width={dialogWidths.form} centered
       mask={{ closable: false }}
       title="Record loan rejection / 记录贷款拒绝"
       open={Boolean(rejectionLoan)}
@@ -4680,7 +4681,7 @@ export function LoanPage({
   );
 
   const completionModal = (
-    <Modal mask={{ closable: false }} centered
+    <Modal width={dialogWidths.formWide} mask={{ closable: false }} centered
       title="Complete loan / 完成贷款"
       open={Boolean(completionLoan)}
       okText="Confirm completion / 确认完成"
@@ -5207,7 +5208,7 @@ export function LoanPage({
       <Modal centered
         mask={{ closable: false }}
         title="Buyer & loan application / 买家与贷款申请"
-        width={680}
+        width={dialogWidths.formWide}
         open={loanCreateOpen}
         onCancel={() => { setLoanCreateOpen(false); setIntakeFile(undefined); loanIntakeForm.resetFields(); setNewBuyer(false); intakeId.current = newId(); }}
         footer={null}
@@ -5715,7 +5716,7 @@ export function LeadsPage({ initialMyCarsPlate, initialLeadId, currentUser, vehi
           locale={{ emptyText: "No leads match the current filters." }}
         />
       </ProCard>
-      <Modal centered
+      <Modal width={dialogWidths.form} centered
         mask={{ closable: false }}
         title="Link vehicle / 关联车辆"
         open={Boolean(linkingLead)}
@@ -5750,7 +5751,7 @@ export function LeadsPage({ initialMyCarsPlate, initialLeadId, currentUser, vehi
             .map((vehicle) => ({ value: vehicle.id, label: `${vehicle.make} ${vehicle.model} · ${vehicle.plateNumber} · ${formatMoney(vehicle.sellingPrice)}` }))}
         />
       </Modal>
-      <Modal centered
+      <Modal width={dialogWidths.form} centered
         mask={{ closable: false }}
         title="Close lead / 结束询问"
         open={Boolean(closingLead)}
@@ -6066,7 +6067,7 @@ function AdminPage({
       return;
     }
 
-    Modal.confirm({
+    Modal.confirm({ centered: true, width: dialogWidths.compact,
       title: "Update staff roles?",
       content: `${row.displayName} will have: ${roles.map(roleLabel).join(", ")}.`,
       okText: "Update roles",
@@ -6253,7 +6254,7 @@ function AdminPage({
                 <BusinessDialog
                   mask={{ closable: false }}
                   title="Staff Details / 员工详情"
-                  width={520}
+                  width={dialogWidths.form}
                   open={staffEditorOpen}
                   onClose={() => setStaffEditorOpen(false)}
                   destroyOnClose
@@ -6318,7 +6319,7 @@ function AdminPage({
                 <BusinessDialog
                   mask={{ closable: false }}
                   title="Reset Password / 重设密码"
-                  width={520}
+                  width={dialogWidths.compact}
                   open={passwordResetOpen}
                   onClose={() => setPasswordResetOpen(false)}
                   destroyOnClose
@@ -6345,7 +6346,7 @@ function AdminPage({
                         return;
                       }
 
-                      Modal.confirm({
+                      Modal.confirm({ centered: true, width: dialogWidths.compact,
                         title: "Reset staff password?",
                         content: `Reset password for ${selectedEditStaffUser.displayName}. The new password will take effect immediately.`,
                         okText: "Reset password",
@@ -6371,7 +6372,7 @@ function AdminPage({
                 <Modal centered
                   mask={{ closable: false }}
                   title="Create Staff / 新增员工"
-                  width={680}
+                  width={dialogWidths.form}
                   open={staffCreateOpen}
                   onCancel={() => setStaffCreateOpen(false)}
                   footer={null}
