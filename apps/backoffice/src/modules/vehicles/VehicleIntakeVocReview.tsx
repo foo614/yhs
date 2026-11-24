@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { useEffect, useRef, useState } from "react";
 import { EyeOutlined, UploadOutlined } from "@ant-design/icons";
 import { Alert, Button, Space, Typography, Upload, message } from "antd";
@@ -383,13 +384,8 @@ export function VehicleIntakeVocReview({
 
   return (
     <div className="vehicleIntakeVocReview">
-      <Alert
-        className="compactOcrGuidanceAlert"
-        type="info"
-        showIcon
-        message="Optional VOC check / 可选 VOC 核对"
-        description="Upload an English VOC (PDF: 1–15 readable, unencrypted pages; JPG, PNG, or WebP; maximum 10 MB). The first scan fills empty fields only. Replacing the VOC updates only unchanged suggestions from the previous scan."
-      />
+      <Typography.Text strong>Optional VOC check / 可选 VOC 核对<FieldHelp label="VOC upload guidance">{"Optional VOC check / 可选 VOC 核对"}<br />{"Upload an English VOC (PDF: 1–15 readable, unencrypted pages; JPG, PNG, or WebP; maximum 10 MB). The first scan fills empty fields only. Replacing the VOC updates only unchanged suggestions from the previous scan."}</FieldHelp></Typography.Text>
+
       {!result ? (
         <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
           <Button icon={<UploadOutlined />} loading={busy} disabled={disabled || busy}>Scan VOC / 扫描 VOC</Button>
@@ -439,21 +435,19 @@ export function VehicleIntakeVocReview({
               description={`OCR reference: ${ocrCatalogReference}. The detailed OCR variant remains visible for review; the vehicle will use the existing canonical catalogue model.`}
             />
           ) : null}
-          <Typography.Text type="secondary">
-            Replace scans a new VOC and updates unchanged suggestions. Remove detaches the VOC and clears only unchanged suggestions; manual edits stay.
-          </Typography.Text>
+
           <Space wrap>
             {selectedFile && selectedFileUrl && <Button icon={<EyeOutlined />} onClick={() => setFilePreviewOpen(true)}>Preview VOC</Button>}
             <Upload accept="application/pdf,image/jpeg,image/png,image/webp" maxCount={1} showUploadList={false} disabled={disabled || busy} customRequest={(option) => void scanVoc(option)}>
               <Button icon={<UploadOutlined />} loading={busy} disabled={disabled || busy}>Replace VOC file</Button>
             </Upload>
-            <Button danger onClick={clear} disabled={disabled || busy}>Remove VOC</Button>
+            <Button danger onClick={clear} disabled={disabled || busy}>Remove VOC</Button><FieldHelp label="VOC file actions guidance">Replace scans a new VOC and updates unchanged suggestions. Remove detaches the VOC and clears only unchanged suggestions; manual edits stay.</FieldHelp>
           </Space>
         </Space>
       )}
       <DocumentPreviewDrawer
         open={filePreviewOpen}
-        title="VOC preview / VOC预览"
+        title={<>VOC preview / VOC预览</>}
         source={selectedFile && selectedFileUrl ? {
           fileName: selectedFile.name,
           mimeType: selectedFile.type || "application/octet-stream",

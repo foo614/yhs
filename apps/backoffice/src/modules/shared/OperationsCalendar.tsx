@@ -1,3 +1,4 @@
+import { fieldTooltip } from "./FieldHelp";
 import { dialogWidths } from "./dialogSizing";
 import { BusinessDialog } from "./BusinessDialog";
 import { useEffect, useRef, useState } from "react";
@@ -214,9 +215,9 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
       <Form form={taskForm} layout="vertical">
         <Form.Item name="title" label="Task / 任务" rules={[{ required: true, message: "Enter a task title." }]}><Input maxLength={160} showCount /></Form.Item>
         <Form.Item name="description" label="Details / 备注"><Input.TextArea maxLength={2000} showCount rows={3} /></Form.Item>
-        <Typography.Paragraph type="secondary">Date and time / 日期与时间 · Malaysia (MYT)</Typography.Paragraph>
+
         <div className="calendarTaskTimeGrid">
-          <Form.Item name="startDate" label="Start / 开始日期" rules={[{ required: true, message: "Select the start date." }]}><DatePicker className="fullWidth" format="DD MMM YYYY" allowClear={false} /></Form.Item>
+          <Form.Item name="startDate" label="Start / 开始日期" tooltip={fieldTooltip(<>Date and time / 日期与时间 · Malaysia (MYT)</>, "Calendar date and time guidance")} rules={[{ required: true, message: "Select the start date." }]}><DatePicker className="fullWidth" format="DD MMM YYYY" allowClear={false} /></Form.Item>
           <Form.Item name="startTime" label="Time / 开始时间" rules={[{ required: true, message: "Select the start time." }]}><TimePicker className="fullWidth" format="HH:mm" needConfirm={false} /></Form.Item>
           <Form.Item name="endDate" label="End / 结束日期" rules={[{ required: true, message: "Select the end date." }]}><DatePicker className="fullWidth" format="DD MMM YYYY" allowClear={false} /></Form.Item>
           <Form.Item name="endTime" label="Time / 结束时间" dependencies={["startDate", "startTime", "endDate"]} rules={[

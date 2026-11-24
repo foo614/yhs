@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Card, Form, Grid, Input, Modal, Pagination, Select, Space, Tag, Typography, message } from "antd";
@@ -83,8 +84,8 @@ export function WhatsAppSettings() {
       </Card>)}
     </Space>}
     {!screens.md && <Pagination current={page} pageSize={pageSize} total={queue?.totalCount ?? queue?.items.length ?? 0} showSizeChanger pageSizeOptions={[10, 20, 30]} disabled={loading} onChange={(next, size) => { setPage(size === pageSize ? next : 1); setPageSize(size); }} />}
-    <Card title="Record consent and language">
-      <Typography.Paragraph type="secondary">Use evidence of the recipient's agreement or withdrawal. Only the selected, approved language can be sent when production sending is enabled.</Typography.Paragraph>
+    <Card title={<>Record consent and language<FieldHelp label="Consent evidence guidance">Use evidence of the recipient's agreement or withdrawal. Only the selected, approved language can be sent when production sending is enabled.</FieldHelp></>}>
+
       <Form form={form} layout="vertical" initialValues={{ language: "ms", optedIn: false }} onFinish={saveConsent} disabled={!queue?.captureEnabled || busy}>
         <div className="formGrid">
           <Form.Item name="recipient" label="International phone number" rules={[{ required: true, pattern: /^\+?[1-9][0-9]{7,14}$/, message: "Use country code and digits, for example +60123456789." }]}><Input autoComplete="off" /></Form.Item>

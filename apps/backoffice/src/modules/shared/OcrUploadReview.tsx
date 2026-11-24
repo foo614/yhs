@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "./FieldHelp";
 import { dialogWidths } from "./dialogSizing";
 import { BusinessDialog } from "./BusinessDialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -481,12 +482,12 @@ export function OcrUploadReview({
       </Space>
       <OcrReviewShell
         presentation={reviewPresentation}
-        title={(
+        title={<>{(
           <div className="ocrReviewDrawerTitle">
             <span className="ocrStepLabel">Step 2 of 3</span>
             <span>{failureMessage || manualFallbackMessage ? "OCR could not read this document" : "Check the details we found"}</span>
           </div>
-        )}
+        )}{normalReview && <FieldHelp label="Saving reviewed details guidance">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</FieldHelp>}</>}
         open={reviewOpen}
         onClose={() => { if (!busy) setReviewOpen(false); }}
         actions={(
@@ -556,7 +557,7 @@ export function OcrUploadReview({
           </div>}
           {normalReview || manualReviewOpen ? <Form name={`ocrReview-${job?.id ?? category}`} form={form} disabled={busy || Boolean(savedStep)} component={reviewPresentation === "inline" ? false : undefined} layout="vertical" className="drawerForm">
             {reviewConflicts.length > 0 ? (
-              <Form.Item label="Information already on file" extra="The current value is shown below. Edit it if this document proves it should change.">
+              <Form.Item label="Information already on file" tooltip={fieldTooltip("The current value is shown below. Edit it if this document proves it should change.", "Information already on file guidance")}>
                 <Space direction="vertical" size={8} className="fullWidth">
                   {reviewConflicts.map((conflict) => (
                     <Alert
@@ -571,15 +572,14 @@ export function OcrUploadReview({
               </Form.Item>
             ) : null}
             <div className="ocrReviewSectionHeading">
-              <Typography.Text strong>Details from this document</Typography.Text>
-              <Typography.Text type="secondary">Edit any value before you continue.</Typography.Text>
+              <Typography.Text strong>Details from this document<FieldHelp label="Extracted details guidance">Edit any value before you continue.</FieldHelp></Typography.Text>
+
             </div>
             {reviewFieldGroups.map((group) => (
               <section key={group.key} className={group.section ? "ocrReviewFieldSection" : undefined}>
                 {group.section ? (
                   <div className="ocrReviewFieldSectionHeading">
-                    <Typography.Text strong>{group.section.title}</Typography.Text>
-                    {group.section.description ? <Typography.Text type="secondary">{group.section.description}</Typography.Text> : null}
+                    <Typography.Text strong>{group.section.title}{group.section.description ? <FieldHelp label={`${group.section.title} guidance`}>{group.section.description}</FieldHelp> : null}</Typography.Text>
                   </div>
                 ) : null}
                 <div className={group.section ? "ocrReviewFieldGrid" : undefined}>
@@ -608,7 +608,7 @@ export function OcrUploadReview({
                     <Button size="small" icon={<PlusOutlined />} onClick={addLineItem}>Add item</Button>
                   </Space>
                 )}
-                extra="Check the description, quantity, unit, unit price, and line amount against the receipt before you continue."
+                tooltip={fieldTooltip("Check the description, quantity, unit, unit price, and line amount against the receipt before you continue.", "Receipt items guidance")}
               >
                 <OperationsProTable<OcrLineItem>
                   className="ocrLineItemsTable"
@@ -644,7 +644,7 @@ export function OcrUploadReview({
               children: <Input.TextArea rows={5} value={job?.result?.rawText ?? ""} readOnly aria-label="Original text read from the document" />
             }]}
           /> : null}
-          {normalReview ? <Typography.Text type="secondary">Step 3: save the reviewed values. The system records every change for OCR accuracy reporting.</Typography.Text> : null}
+
         </Space>
       </OcrReviewShell>
     </>

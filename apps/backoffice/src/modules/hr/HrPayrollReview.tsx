@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useState } from "react";
@@ -96,10 +97,10 @@ export function HrPayrollReview({ currentUser, slip, period, onClose, onChanged,
         {onLoadPayslip ? <DocumentPreviewButton fileName={`payslip-${slip.id}.pdf`} mimeType="application/pdf" downloadUrl={hrPayslipPdfUrl(slip.id)} loadContent={() => onLoadPayslip(slip)} previewLabel="Preview PDF / 预览" downloadLabel="Download PDF / 下载" /> : onDownloadPayslip && <Button onClick={() => void onDownloadPayslip(slip)}>Download PDF / 下载</Button>}
       </Space>}
     </BusinessDialog>
-    <Modal centered title="Monthly statutory amounts / 每月法定扣款" open={editing && Boolean(slip)} confirmLoading={busy} width={dialogWidths.form} closable={!busy} mask={{ closable: false }} keyboard={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Save for review / 保存待核对">
+    <Modal centered title={<>Monthly statutory amounts / 每月法定扣款<FieldHelp label="Statutory amounts guidance">Use the official employee-specific assessment for this month. Enter zero explicitly when not applicable and explain the exemption. Do not include these amounts again in manual deductions. / 按此员工本月的正式计算填写；不适用时请填写零并说明，勿重复计入手动扣款。</FieldHelp></>} open={editing && Boolean(slip)} confirmLoading={busy} width={dialogWidths.form} closable={!busy} mask={{ closable: false }} keyboard={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Save for review / 保存待核对">
       {error && <Alert type="error" message={error} />}
       <Typography.Paragraph strong>{context}</Typography.Paragraph>
-      <Typography.Paragraph>Use the official employee-specific assessment for this month. Enter zero explicitly when not applicable and explain the exemption. Do not include these amounts again in manual deductions. / 按此员工本月的正式计算填写；不适用时请填写零并说明，勿重复计入手动扣款。</Typography.Paragraph>
+
       <Form form={form} layout="vertical" className="formGrid" onFinish={values => { if (slip && !busy) void run(() => saveHrStatutory(slip.id, { ...values, version: slip.version ?? 0 } as HrStatutoryInput)); }}>
         {statutoryFields.map(([key, label]) => <Form.Item key={key} name={key} label={`${label} (MYR)`} rules={[{ required: true }]}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>)}
         <Form.Item name="reference" label="Calculation source, month and exemption reasons / 计算依据" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item>

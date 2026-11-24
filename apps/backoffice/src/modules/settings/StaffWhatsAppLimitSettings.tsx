@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Card, Descriptions, Form, InputNumber, Modal, Space, Typography, message } from "antd";
@@ -57,8 +58,8 @@ export function StaffWhatsAppLimitSettings() {
     <Space direction="vertical" size="large" className="fullWidth">
       <div className="staffWhatsAppSectionHead">
         <div>
-          <Typography.Title level={5}>Sending limits</Typography.Title>
-          <Typography.Text type="secondary">Shared daily provider-attempt limits for staff messages, staff invitations and customer notifications. Attempts are not billed-message counts; provider outcomes remain in message history.</Typography.Text>
+          <Typography.Title level={5}>Sending limits<FieldHelp label="Provider attempt limit guidance">Shared daily provider-attempt limits for staff messages, staff invitations and customer notifications. Attempts are not billed-message counts; provider outcomes remain in message history.</FieldHelp></Typography.Title>
+
         </div>
         <Button loading={loading} onClick={() => void load()}>Refresh limits</Button>
       </div>
@@ -73,10 +74,10 @@ export function StaffWhatsAppLimitSettings() {
       </Card>}
       <Card size="small" title="Configure daily limit" loading={loading && !limits}>
         <Form form={form} layout="vertical" onFinish={reviewSave} disabled={saving || !limits}>
-          <Form.Item name="dailyAttemptLimit" label="Daily provider attempts" rules={[{ required: true, type: "number", min: 1, message: "Enter at least 1 attempt." }]}>
+          <Form.Item name="dailyAttemptLimit" label="Daily provider attempts" tooltip={fieldTooltip(<>Lowering the limit below current usage blocks new attempts; it does not recall messages already submitted to WhatsApp. Provider acceptance, delivery and failure outcomes remain in history.</>, "Changing the daily limit guidance")} rules={[{ required: true, type: "number", min: 1, message: "Enter at least 1 attempt." }]}>
             <InputNumber min={1} precision={0} className="fullWidth" />
           </Form.Item>
-          <Typography.Paragraph type="secondary">Lowering the limit below current usage blocks new attempts; it does not recall messages already submitted to WhatsApp. Provider acceptance, delivery and failure outcomes remain in history.</Typography.Paragraph>
+
           <Button type="primary" htmlType="submit" loading={saving}>Review and save</Button>
         </Form>
       </Card>

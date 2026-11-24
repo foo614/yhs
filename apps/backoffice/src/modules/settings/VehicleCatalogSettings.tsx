@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Empty, Form, Input, Pagination, Select, Space, Tag, Typography, message } from "antd";
@@ -159,10 +160,9 @@ export function VehicleCatalogSettings() {
       <div className="settingsOverview">
         <div>
           <span className="moduleEyebrow">Website filters</span>
-          <Typography.Title level={3}>Website Make & Model Catalogue / 网站品牌车型目录</Typography.Title>
-          <Typography.Text>
-            Manage the make and model options shown in public inventory filters without changing existing vehicle records.
-          </Typography.Text>
+          <Typography.Title level={3}>Website Make & Model Catalogue / 网站品牌车型目录<FieldHelp label="Catalogue management guidance">Manage the make and model options shown in public inventory filters without changing existing vehicle records.
+          </FieldHelp></Typography.Title>
+
         </div>
         <div className="rbacSummary">
           <span><strong>{makeCount}</strong>makes</span>

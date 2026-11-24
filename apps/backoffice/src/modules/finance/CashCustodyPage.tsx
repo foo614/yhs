@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useMemo, useState } from "react";
@@ -209,25 +210,21 @@ export function CashCustodyPage({
   return (
     <Space direction="vertical" size={16} className="fullWidth">
       <ProCard
-        title="Cash Custody / 现金交接"
+        title={<>{<>Cash Custody / 现金交接<FieldHelp label="Cash custody workflow guidance">{"Broker records physical cash. Finance confirms receipt, and a different Finance or Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance."}</FieldHelp></>}<FieldHelp label="Receipt export guidance">{"Download the receipt, then use Compose Email to address the customer and attach the PDF. WhatsApp dispatch will be enabled through the notification engine once FOO-40 is delivered."}</FieldHelp></>}
         extra={isSales ? <Button type="primary" disabled={Boolean(loadError || loading)} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>Record Cash Received</Button> : null}
       >
         <Space direction="vertical" size={12} className="fullWidth">
           {loadError && <Alert type="error" showIcon message="Cash custody data is unavailable" description={`${loadError} Creating or changing custody is disabled until the register reloads successfully.`} action={<Button loading={retrying} onClick={async () => { setRetrying(true); try { await onRetry(); } finally { setRetrying(false); } }}>Retry</Button>} />}
           <FinanceListNotice label="Cash custody records" loading={loading} />
           {prefillPaymentId && !isSales && <Alert type="info" showIcon message="The assigned Broker must record this physical cash" description="Your payment context is retained below. Finance can review an existing custody record, but only the assigned Broker can start a new cash custody record." />}
-          <Alert type="warning" showIcon message="Broker records physical cash. Finance confirms receipt, and a different Finance or Admin checker accepts or rejects custody. Finance V2 cash updates the invoice only after acceptance." />
+
           <div className="metricGrid">
             <Metric label="Open custody" value={summaryUnavailable ?? handovers.filter((handover) => handover.status !== "Receipted" && handover.status !== "Rejected").length} />
             <Metric label="Overdue handovers" value={summaryUnavailable ?? overdueCount} danger={overdueCount > 0} />
             <Metric label="Amount mismatches" value={summaryUnavailable ?? mismatchCount} danger={mismatchCount > 0} />
             <Metric label="Official receipts" value={summaryUnavailable ?? handovers.filter((handover) => Boolean(handover.officialReceiptId)).length} />
           </div>
-          <Alert
-            type="info"
-            showIcon
-            message="Download the receipt, then use Compose Email to address the customer and attach the PDF. WhatsApp dispatch will be enabled through the notification engine once FOO-40 is delivered."
-          />
+
         </Space>
       </ProCard>
 

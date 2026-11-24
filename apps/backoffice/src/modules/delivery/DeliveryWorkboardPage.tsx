@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { formatScheduledDateTime } from "../../dateDisplay";
@@ -921,13 +922,13 @@ function CreateDeliveryModal({
   return (
     <Modal width={dialogWidths.form} centered mask={{ closable: false }}
       open={open}
-      title="New delivery / 新交车"
+      title={<>New delivery / 新交车<FieldHelp label="Delivery planning guidance">Start with the people, time, and place. The workboard will guide the remaining steps.</FieldHelp></>}
       okText="Schedule delivery"
       okButtonProps={{ loading: saving }}
       onCancel={onCancel}
       onOk={() => form.submit()}
     >
-      <Typography.Paragraph type="secondary">Start with the people, time, and place. The workboard will guide the remaining steps.</Typography.Paragraph>
+
       <Form form={form} layout="vertical" onFinish={(values) => void onCreate(values)}>
         <Form.Item name="vehicleId" label="Car / 车辆" rules={[{ required: true, message: "Choose a car." }]}>
           <Select showSearch optionFilterProp="label" options={vehicles.map((vehicle) => ({ value: vehicle.id, label: `${vehicle.plateNumber} · ${vehicle.make} ${vehicle.model}` }))} />
@@ -1099,7 +1100,7 @@ export function CurrentStageForm({
       initialValues={item}
       onFinish={(values) => void onSave(values, "Delivery document checks saved")}
     >
-      <Alert type="info" showIcon message="Inspection and vehicle preparation are managed outside Delivery / 验车及车辆准备由其他模块负责" description="Open Inspection for inspection records and files. Delivery no longer duplicates those uploads or checklist steps." />
+      <Typography.Text strong>Vehicle preparation / 车辆准备<FieldHelp label="Inspection and preparation guidance">Inspection and vehicle preparation are managed outside Delivery / 验车及车辆准备由其他模块负责<br />Open Inspection for inspection records and files. Delivery no longer duplicates those uploads or checklist steps.</FieldHelp></Typography.Text>
       <Button type="primary" htmlType="submit" loading={saving}>Save delivery document checks / 保存交车文件确认</Button>
     </Form>;
   }
@@ -1147,8 +1148,8 @@ export function CurrentStageForm({
         </Form.Item>
       </section>
       <div className="deliveryEvidenceReviewIntro">
-        <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认</Typography.Text>
-        <Typography.Paragraph type="secondary">Received means a file is on record. Open each file and confirm it is correct before checking the matching item below.</Typography.Paragraph>
+        <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认<FieldHelp label="Evidence review guidance">Received means a file is on record. Open each file and confirm it is correct before checking the matching item below.</FieldHelp></Typography.Text>
+
       </div>
       <div className="deliveryCheckGrid">
         <Form.Item name="documentsPrepared" valuePropName="checked"><Checkbox>Delivery documents reviewed and confirmed / 交车文件已审核确认</Checkbox></Form.Item>
@@ -1159,14 +1160,13 @@ export function CurrentStageForm({
         <Alert
           type={item.financeCleared ? "success" : "warning"}
           showIcon
-          message={item.financeCleared ? "Finance cleared / 财务已确认" : "Waiting for Finance / 等待财务"}
-          description="Delivery can see clearance only. Invoice amounts and payment details stay with Finance."
+          message={<>{item.financeCleared ? "Finance cleared / 财务已确认" : "Waiting for Finance / 等待财务"}<FieldHelp label="Finance clearance guidance">Delivery can see clearance only. Invoice amounts and payment details stay with Finance.</FieldHelp></>}
         />
         <Alert
           type={item.invoiceUpdateRequested ? "info" : "success"}
           showIcon
-          message={item.invoiceUpdateRequested ? "Sales Invoice update pending with Finance / 销售发票更新处理中" : "Sales Invoice is owned by Finance / 销售发票由财务负责"}
-          description={item.invoiceUpdateRequested ? "Finance has received the request. Another request cannot be sent until Finance resolves it." : "Delivery uses the existing Sales Invoice. Request an update only when its details need correction."}
+          message={<>{item.invoiceUpdateRequested ? "Sales Invoice update pending with Finance / 销售发票更新处理中" : "Sales Invoice is owned by Finance / 销售发票由财务负责"}{!item.invoiceUpdateRequested && <FieldHelp label="Sales Invoice update guidance">Delivery uses the existing Sales Invoice. Request an update only when its details need correction.</FieldHelp>}</>}
+          description={item.invoiceUpdateRequested ? "Finance has received the request. Another request cannot be sent until Finance resolves it." : undefined}
           action={<Button disabled={item.invoiceUpdateRequested} onClick={onRequestInvoice}>{item.invoiceUpdateRequested ? "Request pending / 请求处理中" : "Request Sales Invoice Update / 要求更新销售发票"}</Button>}
         />
       </div>

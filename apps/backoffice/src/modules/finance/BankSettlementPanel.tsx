@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { DocumentPreviewButton } from "../shared/DocumentPreviewButton";
 import { settlementBanks as banks } from "../../settlementBanks";
@@ -59,7 +60,7 @@ export function BankSettlementPanel({ records, vehicles, canManage, refresh }: {
       { key: "done", label: `Done / 已完成 (${bankRows.filter(x => x.isPaid).length})` },
       { key: "history", label: "Previous records / 旧记录" }
     ]} />
-    {tab === "history" && <Alert type="info" showIcon message="Original seller records are preserved. Review outstanding bank debt before replacing an unpaid record." />}
+    {tab === "history" && <span>Previous records / 旧记录<FieldHelp label="Previous settlement records guidance">Original seller records are preserved. Review outstanding bank debt before replacing an unpaid record.</FieldHelp></span>}
     <div className="mobileRecordList">
       {rows.slice((Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize))) - 1) * pageSize, Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize))) * pageSize).map(r => <article className="mobileRecordCard" key={r.id}>
         <div className="mobileRecordHeader"><strong>{vehicles.find(v => v.id === r.vehicleId)?.plateNumber ?? "—"}</strong><Tag>{r.supersededById ? "Replaced" : r.isPaid ? "Done" : r.direction === "PayBank" ? "To pay" : "Needs review"}</Tag></div>

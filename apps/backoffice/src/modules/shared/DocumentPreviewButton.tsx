@@ -1,3 +1,4 @@
+import { FieldHelp } from "./FieldHelp";
 import { useEffect, useRef, useState } from "react";
 import { DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import { Button, Space, Typography } from "antd";
@@ -99,7 +100,7 @@ export function DocumentPreviewButton({
       {downloadError && <Typography.Paragraph type="danger" role="alert" className="documentDownloadError">{downloadError}</Typography.Paragraph>}
       <DocumentPreviewDrawer
         open={open}
-        title="Document preview / 文件预览"
+        title={<>Document preview / 文件预览<FieldHelp label="Document preview guidance">Read-only preview. If it cannot be displayed, download the file.</FieldHelp></>}
         source={source}
         loading={loading}
         error={error}
@@ -107,7 +108,7 @@ export function DocumentPreviewButton({
         footer={(
           <div className="documentPreviewFooter documentPreviewFooterActionsOnly">
             <div>
-              <Typography.Text type="secondary">Read-only preview. If it cannot be displayed, download the file.</Typography.Text>
+
               {downloadError && <Typography.Paragraph type="danger" role="alert" className="documentDownloadError">{downloadError}</Typography.Paragraph>}
             </div>
             <Button icon={<DownloadOutlined />} loading={downloading} onClick={() => void download()}>{downloadLabel}</Button>

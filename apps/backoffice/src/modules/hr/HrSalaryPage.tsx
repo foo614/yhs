@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { HrAttendanceWorkflow, malaysiaDate, malaysiaTime } from "./HrAttendanceWorkflow";
 import { HrPayrollReview, hasCompleteStatutory, payrollAmountLabel, statutoryFields } from "./HrPayrollReview";
@@ -1083,9 +1084,9 @@ export function HrSalaryPage({
             key: "business-trips",
             label: tabLabel("Outstation / 外勤", businessTrips.length),
             children: (
-              <ProCard title="Business Trip / Outstation Duty / 出差外勤">
+              <ProCard title={<>Business Trip / Outstation Duty / 出差外勤<FieldHelp label="Outstation attendance guidance">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</FieldHelp></>}>
                 <Space direction="vertical" size={14} className="fullWidth">
-                  <Typography.Text type="secondary">Outstation attendance requires an approved trip. If there is no approved trip, submit an urgent exception request first; it must still be approved by HR/Admin. / 外勤打卡必须先有已批准的出差安排；没有安排时先提交临时例外申请，仍需 HR/Admin 批准。</Typography.Text>
+
                   <Form name="hrBusinessTrip" form={businessTripForm} layout="vertical" onFinish={(values) => onCreateBusinessTrip(businessTripFromValues(values, selfId))} initialValues={{ staffUserId: selfId, startDate: dayjs(today), endDate: dayjs(today), isUrgentException: false }}>
                     <div className="leaveDetailsGrid businessTripDetailsGrid">
                       {isHrManager && <Form.Item name="staffUserId" label="Staff / 员工" rules={[{ required: true }]}><Select options={staffOptions} /></Form.Item>}
@@ -1231,12 +1232,12 @@ export function HrSalaryPage({
             key: "qr-display",
             label: "QR Display / 二维码",
             children: (
-              <ProCard title="Office Attendance QR / 办公室打卡二维码" extra={<Button icon={<ReloadOutlined />} onClick={() => void onCreateQrChallenge()}>Generate 5-minute QR / 生成5分钟二维码</Button>}>
+              <ProCard title={<>Office Attendance QR / 办公室打卡二维码<FieldHelp label="Office QR guidance">Employees scan this QR at both the start and end of their shift. Manual Punch In/Out is the fallback. / 员工上班和放工都扫描此二维码，手动打卡只作备用。</FieldHelp></>} extra={<Button icon={<ReloadOutlined />} onClick={() => void onCreateQrChallenge()}>Generate 5-minute QR / 生成5分钟二维码</Button>}>
                 <Space direction="vertical" size={16} align="center" className="fullWidth">
                   {attendanceQrChallenge ? <>
                     <QRCodeSVG value={qrUrl} size={260} includeMargin />
                     <Typography.Text strong>Expires in {Math.floor(qrSecondsRemaining / 60)}:{String(qrSecondsRemaining % 60).padStart(2, "0")} / 剩余时间</Typography.Text>
-                    <Typography.Text type="secondary">Employees scan this QR at both the start and end of their shift. Manual Punch In/Out is the fallback. / 员工上班和放工都扫描此二维码，手动打卡只作备用。</Typography.Text>
+
                   </> : <Empty description="Generate a QR code for the office display / 先生成办公室二维码" />}
                 </Space>
               </ProCard>
@@ -1301,7 +1302,7 @@ export function HrSalaryPage({
                     </div>
                     {leaveCalculationPreviewError && <Alert type="warning" showIcon message="Leave preview unavailable / 请假预览暂不可用" description={leaveCalculationPreviewError} />}
                     {shouldShowOptionalMcUpload(leaveType) && (
-                      <Form.Item label="MC document (optional) / 病假单（可选）" extra="Upload a PDF or image before approval. Without an MC at approval, annual leave is used if it covers the full request; otherwise the full request is unpaid leave. Maximum 10 MB.">
+                      <Form.Item label="MC document (optional) / 病假单（可选）" tooltip={fieldTooltip("Upload a PDF or image before approval. Without an MC at approval, annual leave is used if it covers the full request; otherwise the full request is unpaid leave. Maximum 10 MB.", "MC document (optional) / 病假单（可选） guidance")}>
                         <Space direction="vertical" size={4}>
                           <Upload
                             accept=".pdf,image/png,image/jpeg,image/webp"
@@ -1467,14 +1468,14 @@ export function HrSalaryPage({
                         <Form.Item name="payPeriod" label="Pay Period / 薪资月份" rules={[{ required: true }]}><DatePicker picker="month" className="fullWidth" format="MMMM YYYY" onChange={(value) => value && payPeriodForm.setFieldsValue(payPeriodDefaults(value))} /></Form.Item>
                         <Form.Item name="startDate" label="Start / 开始" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
                         <Form.Item name="endDate" label="End / 结束" rules={[{ required: true }]}><DatePicker className="fullWidth" format="YYYY-MM-DD" disabled /></Form.Item>
-                        <Form.Item name="workingDays" label="Working Days / 工作天" extra="Auto-filled for Monday–Friday. Adjust for public holidays if needed." rules={[{ required: true }]}><InputNumber className="fullWidth" min={1} /></Form.Item>
+                        <Form.Item name="workingDays" label="Working Days / 工作天" tooltip={fieldTooltip("Auto-filled for Monday–Friday. Adjust for public holidays if needed.", "Working Days / 工作天 guidance")} rules={[{ required: true }]}><InputNumber className="fullWidth" min={1} /></Form.Item>
                         <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Period / 新增月份</Button></Form.Item>
                       </Form>
                     </ProCard>
                   </>
                 ) }]} />}
                 <Space wrap className="hrPayslipPeriodBar">
-                  <Typography.Text strong>Pay month / 薪资月份</Typography.Text>
+                  <Typography.Text strong>Pay month / 薪资月份{(isHrManager) && <FieldHelp label="Payroll preparation guidance">Select staff, review the amounts, then confirm. Existing payslips are only changed through their separate Recalculate action. / 选择员工、核对金额后再确认；现有薪资单须另行点击重新计算。</FieldHelp>}{(isHrManager || currentUser?.roles.includes("Finance")) && <FieldHelp label="Payroll approval guidance">{"HR prepares → Finance approves → Admin approves & publishes"}<br />{"Enter employee and employer statutory amounts from the applicable assessment. Published and finalized historical payslips are locked. / 法定金额须按适用计算另行填写；已发布及已结算的旧薪资单已锁定。"}</FieldHelp>}</Typography.Text>
                   <Select
                     aria-label="Selected pay month / 选择薪资月份"
                     style={{ width: 260, maxWidth: "100%" }}
@@ -1485,8 +1486,8 @@ export function HrSalaryPage({
                   />
                   {isHrManager && <Button type="primary" style={{ minHeight: 44 }} disabled={!selectedPayslipPeriodId || previewBusy || preparingPayslips} onClick={() => void loadPayrollPreview()}>Prepare new payslips / 准备新薪资单</Button>}
                 </Space>
-                {isHrManager && <Typography.Paragraph type="secondary">Select staff, review the amounts, then confirm. Existing payslips are only changed through their separate Recalculate action. / 选择员工、核对金额后再确认；现有薪资单须另行点击重新计算。</Typography.Paragraph>}
-                {isHrManager || currentUser?.roles.includes("Finance") ? <Alert type="info" showIcon message="HR prepares → Finance approves → Admin approves & publishes" description="Enter employee and employer statutory amounts from the applicable assessment. Published and finalized historical payslips are locked. / 法定金额须按适用计算另行填写；已发布及已结算的旧薪资单已锁定。" /> : null}
+
+
                 {payrollNotice && <Alert type="error" showIcon message={payrollNotice} />}
                 {!payPeriods.length && <Empty description={isHrManager ? "Create a pay period in Payroll setup first. / 请先在薪资设置新增月份。" : "No pay periods available. / 暂无薪资月份。"} />}
                 <HrRecordFilterControls
@@ -1536,15 +1537,14 @@ export function HrSalaryPage({
             <div className="attendanceQrInstructions">
               <QrcodeOutlined aria-hidden />
               <div>
-                <Typography.Text strong>Office QR / 办公室二维码</Typography.Text>
-                <Typography.Paragraph>Use your phone camera to scan the office QR, then confirm. / 用手机相机扫描办公室二维码，再确认打卡。</Typography.Paragraph>
+                <Typography.Text strong>Office QR / 办公室二维码<FieldHelp label="Office QR attendance guidance">Use your phone camera to scan the office QR, then confirm. / 用手机相机扫描办公室二维码，再确认打卡。</FieldHelp></Typography.Text>
               </div>
             </div>
             <div className="attendancePunchActions">
               <Button type="primary" icon={<ClockCircleOutlined aria-hidden />} loading={clockBusy} onClick={() => void (openSession ? clockOut() : clockIn())}>
                 {openSession ? "Manual Check Out / 手动放工" : "Manual Check In / 手动上班"}
               </Button>
-              <Typography.Text type="secondary">QR unavailable? Use manual attendance. / 二维码无法使用时可手动打卡。</Typography.Text>
+              <FieldHelp label="Manual attendance guidance">QR unavailable? Use manual attendance. / 二维码无法使用时可手动打卡。</FieldHelp>
             </div>
           </>}
           {clockError && <Alert type="error" showIcon message={clockError} />}
@@ -1570,7 +1570,7 @@ export function HrSalaryPage({
         <Form form={earlyForm} layout="vertical" onFinish={async values => { if (!earlyAction) return; setClockBusy(true); setClockError(""); try { await finishClock(earlyAction.qr, { confirmEarly: true, reason: values.reason }); setEarlyAction(undefined); } catch (error) { setClockError(humanizeApiError(error)); } finally { setClockBusy(false); } }}><Form.Item name="reason" label="Reason / 原因" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item></Form>
       </Modal>
       <Modal centered
-        title={previewReviewing ? "Review selected payslips / 核对所选薪资单" : "Select staff / 选择员工"}
+        title={<>{<>{previewReviewing ? "Review selected payslips / 核对所选薪资单" : "Select staff / 选择员工"}{(!previewReviewing) && <FieldHelp label="Payslip selection guidance">Choose new payslips only. Existing payslips are unchanged; use Recalculate from their row if needed. / 仅选择需新增薪资单的员工，现有薪资单不受影响。</FieldHelp>}</>}{(previewReviewing) && <FieldHelp label="Payslip review guidance">These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Admin for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及管理员审批。</FieldHelp>}</>}
         open={Boolean(previewGeneratePeriodId)}
         width={dialogWidths.data}
         closable={!preparingPayslips}
@@ -1602,7 +1602,7 @@ export function HrSalaryPage({
         {previewError && <Alert type="error" showIcon message={previewError} />}
         {previewBusy && <Typography.Paragraph>Loading current payroll data… / 正在读取当前薪资资料…</Typography.Paragraph>}
         {!previewReviewing && !previewBusy && !previewError && <>
-          <Typography.Paragraph>Choose new payslips only. Existing payslips are unchanged; use Recalculate from their row if needed. / 仅选择需新增薪资单的员工，现有薪资单不受影响。</Typography.Paragraph>
+
           {payrollPreview.length === 0 && <Empty description="No new staff to prepare. Check Payroll setup or use Recalculate for an editable payslip. / 暂无可新增员工，请检查薪资设置或重新计算现有草稿。" />}
           {payrollPreview.some(candidate => candidate.action === "Prepare") && <Button onClick={() => setPreviewSelections(Object.fromEntries(payrollPreview.filter(candidate => candidate.action === "Prepare" && candidate.previewToken).map(candidate => [candidate.staffUserId, "Prepare"])))}>Select all eligible new staff / 全选可新增员工</Button>}
           <Space direction="vertical" size={12} className="fullWidth" style={{ marginTop: 16 }}>
@@ -1631,7 +1631,7 @@ export function HrSalaryPage({
               }))} />
             </div>;
           })}
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>These are drafts, not approved payments. Enter statutory amounts next, then submit to Finance and Admin for approval. / 生成的是草稿，尚未批准支付；下一步填写法定金额，再提交财务及管理员审批。</Typography.Paragraph>
+
         </>}
       </Modal>
       <Modal width={dialogWidths.form} centered mask={{ closable: false }} title={editingHolidayId ? "Edit Johor holiday / 编辑柔佛假期" : "Add Johor holiday / 新增柔佛假期"} open={holidayEditorOpen} onCancel={() => setHolidayEditorOpen(false)} onOk={() => void saveHoliday()} okText="Save / 保存" destroyOnClose>

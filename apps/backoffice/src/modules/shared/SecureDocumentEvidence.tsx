@@ -1,3 +1,4 @@
+import { FieldHelp } from "./FieldHelp";
 import { DownloadOutlined, EyeOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Alert, Button, Empty, Space, Spin, Typography } from "antd";
 import { useEffect, useState } from "react";
@@ -72,10 +73,10 @@ export function SecureDocumentEvidence({ vehicleId, document }: { vehicleId: str
       )}
       <DocumentPreviewDrawer
         open={fullViewOpen}
-        title="Document preview / 文件预览"
+        title={<>Document preview / 文件预览<FieldHelp label="Document preview guidance">If the preview cannot be displayed, download the original file.</FieldHelp></>}
         source={objectUrl ? { fileName: document.fileName, mimeType: previewMimeType, url: objectUrl } : undefined}
         onClose={() => setFullViewOpen(false)}
-        footer={objectUrl ? <div className="documentPreviewFooter"><Typography.Text type="secondary">If the preview cannot be displayed, download the original file.</Typography.Text><Button icon={<DownloadOutlined />} href={objectUrl} download={document.fileName}>Download original</Button></div> : undefined}
+        footer={objectUrl ? <div className="documentPreviewFooter"><Button icon={<DownloadOutlined />} href={objectUrl} download={document.fileName}>Download original</Button></div> : undefined}
       />
     </div>
   );

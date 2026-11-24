@@ -1,3 +1,4 @@
+import { FieldHelp } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -170,8 +171,8 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
   return <Space direction="vertical" size="large" className="fullWidth staffWhatsAppSettings">
     {contextHolder}
     <div>
-      <Typography.Title level={5}>Staff WhatsApp settings</Typography.Title>
-      <Typography.Paragraph type="secondary">Review staff reminders and their actual delivery history. My WhatsApp remains the place for each employee to connect a number.</Typography.Paragraph>
+      <Typography.Title level={5}>Staff WhatsApp settings<FieldHelp label="Staff WhatsApp settings guidance">Review staff reminders and their actual delivery history. My WhatsApp remains the place for each employee to connect a number.</FieldHelp></Typography.Title>
+
     </div>
     <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
       { key: "history", label: "Message history" },
@@ -219,8 +220,8 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
 
     {activeTab === "history" && <section aria-label="Staff message history">
       <div className="staffWhatsAppSectionHead">
-        <div><Typography.Title level={5}>Message history</Typography.Title>
-          <Typography.Text type="secondary">Provider acceptance and delivery callbacks are shown as distinct states. History is read only; retry is unavailable.</Typography.Text></div>
+        <div><Typography.Title level={5}>Message history<FieldHelp label="Message history guidance">Provider acceptance and delivery callbacks are shown as distinct states. History is read only; retry is unavailable.</FieldHelp></Typography.Title>
+          </div>
         <Button loading={historyLoading} onClick={() => void loadHistory()}>Refresh history</Button>
       </div>
       <div className="staffWhatsAppFilters">
@@ -276,7 +277,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       </div>
     </section>}
 
-    <BusinessDialog title="Staff WhatsApp message" open={!!selected} onClose={() => setSelected(null)}
+    <BusinessDialog title={<>Staff WhatsApp message<FieldHelp label="Message delivery guidance">No retry action is available from history. Check the recipient connection, sender readiness and failure reason before a new event.</FieldHelp></>} open={!!selected} onClose={() => setSelected(null)}
       width={dialogWidths.formWide} destroyOnClose className="recordEditDrawer">
       {selected && <Space direction="vertical" size="middle" className="fullWidth">
         <Descriptions size="small" bordered column={1} items={[
@@ -293,16 +294,16 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
           { key: "suppressed", label: "Suppressed", children: timestamp(selected.suppressedAt) }
         ]} />
         {selected.waitingReason && <Alert type="warning" showIcon message="Sending status / 发送状态" description={selected.waitingReason} />}
-        <Card size="small" title="Submitted content">
+        <Card size="small" title={<>Submitted content<FieldHelp label="Submitted content guidance">This is the recorded text parameter submitted to the provider. The provider's fixed template wrapper is not stored here.</FieldHelp></>}>
           {selected.submittedBody ? <Typography.Paragraph className="staffWhatsAppSubmittedBody">{selected.submittedBody}</Typography.Paragraph> :
             <Typography.Text type="secondary">Content has not been submitted or was not captured for this record.</Typography.Text>}
           {(selected.submittedTemplateName || selected.submittedLanguage) && <Typography.Text type="secondary">
             Template: {selected.submittedTemplateName || "Not recorded"} · Language: {selected.submittedLanguage || "Not recorded"}
           </Typography.Text>}
-          <Typography.Paragraph type="secondary">This is the recorded text parameter submitted to the provider. The provider's fixed template wrapper is not stored here.</Typography.Paragraph>
+
         </Card>
         {selected.failureReason && <Alert type="warning" showIcon message="Delivery issue" description={selected.failureReason} />}
-        <Typography.Text type="secondary">No retry action is available from history. Check the recipient connection, sender readiness and failure reason before a new event.</Typography.Text>
+
       </Space>}
     </BusinessDialog>
 

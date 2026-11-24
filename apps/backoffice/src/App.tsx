@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "./modules/shared/FieldHelp";
 import { dialogWidths } from "./modules/shared/dialogSizing";
 import { BusinessDialog } from "./modules/shared/BusinessDialog";
 import { RepairReviewPanel } from "./modules/repairs/RepairReviewPanel";
@@ -2404,7 +2405,7 @@ export function ModuleDocumentList({
       {enablePreview && (
         <DocumentPreviewDrawer
           open={Boolean(previewDocument)}
-          title="Document preview / 文件预览"
+          title={<>Document preview / 文件预览<FieldHelp label="Read-only document preview guidance">Preview is read-only. Download the original file when needed.</FieldHelp></>}
           source={previewDocument ? {
             fileName: previewDocument.fileName,
             mimeType: previewDocument.mimeType,
@@ -2415,7 +2416,6 @@ export function ModuleDocumentList({
           onClose={closeDocumentPreview}
           footer={previewDocument && vehicleId ? (
             <div className="documentPreviewFooter documentPreviewFooterActionsOnly">
-              <Typography.Text type="secondary">Preview is read-only. Download the original file when needed.</Typography.Text>
               <Button icon={<DownloadOutlined />} href={vehicleDocumentContentUrl(vehicleId, previewDocument.id)} target="_blank">Download original</Button>
             </div>
           ) : undefined}
@@ -2672,8 +2672,8 @@ export function DashboardPage({
           <Typography.Paragraph>Sales use sale dates; enquiries and repair jobs use creation dates in {analyticsPeriodLabel}. Stock, costs, projected margin, loans, collection, settlement and aging are current records at the summary update. Calculated vehicle margins use recorded prices and costs, not cash received or accounting profit.</Typography.Paragraph>
         </details>
       </ProCard>
-      <Modal width={dialogWidths.form} mask={{ closable: false }} centered title="Outstanding Collection / 待收总额" open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
-        <Typography.Paragraph>Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</Typography.Paragraph>
+      <Modal width={dialogWidths.form} mask={{ closable: false }} centered title={<>Outstanding Collection / 待收总额<FieldHelp label="Outstanding collection guidance">Current outstanding payment balances plus open debt recovery. These are operational record totals, not cash received.</FieldHelp></>} open={collectionBreakdownOpen} onCancel={() => setCollectionBreakdownOpen(false)} footer={null}>
+
         <Space direction="vertical" className="fullWidth" size={12}>{moneyRiskBreakdown.filter(item => receivableLabels.has(item.label)).map(item => <div className="dashboardCollectionCategory" key={item.label}>
           <Typography.Text>{dashboardLabel(item.label)}: {formatMoney(item.amount)}</Typography.Text><Button onClick={() => onNavigate(financeRiskTarget(item.label))}>Open {dashboardLabel(item.label)}</Button>
         </div>)}</Space>
@@ -3700,7 +3700,7 @@ function RepairPage({
             <Form.Item name="assignedTo" label="Repair owner / 负责人"><Input placeholder="Staff or workshop name" /></Form.Item>
             <Form.Item name="startedOn" label="Started on / 开始日期"><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
             <Form.Item name="expectedCompletionDate" label="Expected completion / 预计完成"><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-            <Form.Item name="checklistDone" label="Work status / 工作状态" extra="Set to Completed only after the actual repair work is finished."><Select options={[{ value: "done", label: "Completed" }, { value: "pending", label: "In progress" }]} /></Form.Item>
+            <Form.Item name="checklistDone" label="Work status / 工作状态" tooltip={fieldTooltip(<>Set to Completed only after the actual repair work is finished.<br />An Admin records approval separately after checking the repair work and cost. / 管理员检查整备工作和费用后，另行记录批准。</>, "Work status / 工作状态 guidance")}><Select options={[{ value: "done", label: "Completed" }, { value: "pending", label: "In progress" }]} /></Form.Item>
             <Descriptions size="small" column={1} className="fullWidth">
               <Descriptions.Item label="Approval / 审批">{selectedRepair.approvalStatus ?? "Pending"}</Descriptions.Item>
               <Descriptions.Item label="Approval note / 审批备注">{selectedRepair.approvalNotes || "-"}</Descriptions.Item>
@@ -3708,7 +3708,7 @@ function RepairPage({
             <Form.Item className="formActions"><Button type="primary" htmlType="submit">Update Repair</Button></Form.Item>
           </Form>
         </ProCard>
-        <ProCard title="Repair Documents / 整备文件">
+        <ProCard title={<>Repair Documents / 整备文件<FieldHelp label="Repair receipt file guidance">Use a clear JPG, PNG, or WebP photo for OCR. PDFs remain available through the document upload workflow.</FieldHelp></>}>
           <Space direction="vertical" size={12} className="fullWidth">
             {repairDocumentsError && <DocumentLoadFailureNotice message="Repair documents could not be loaded" description={repairDocumentsError} onRetry={() => setDocumentReloadKey((value) => value + 1)} />}
             {repairDocumentsLoading && <Typography.Text type="secondary">Loading repair documents…</Typography.Text>}
@@ -3762,7 +3762,6 @@ function RepairPage({
                 };
               })}
             />
-            <Alert type="info" showIcon message="Use a clear JPG, PNG, or WebP photo for OCR. PDFs remain available through the document upload workflow." />
             <ModuleDocumentList
               vehicleId={selectedRepair.vehicleId}
               categories={repairDocumentCategories}
@@ -3972,7 +3971,7 @@ function RepairPage({
       </details>
       <Modal width={dialogWidths.form} centered
         mask={{ closable: false }}
-        title={creatingSupplierFromReceipt ? "Create supplier from receipt / 从收据建立供应商" : "New Supplier / 新增供应商"}
+        title={<>{creatingSupplierFromReceipt ? "Create supplier from receipt / 从收据建立供应商" : "New Supplier / 新增供应商"}{creatingSupplierFromReceipt && unmatchedReceiptSupplier && <FieldHelp label="Supplier receipt review guidance">Review the OCR details and complete the required fields. The new supplier can be used immediately after creation.</FieldHelp>}</>}
         open={supplierCreateOpen}
         onCancel={closeSupplierCreate}
         footer={null}
@@ -4010,22 +4009,14 @@ function RepairPage({
             setSupplierSaving(false);
           }
         }}>
-          {creatingSupplierFromReceipt && unmatchedReceiptSupplier ? (
-            <Alert
-              className="operationalInfoAlert"
-              type="warning"
-              showIcon
-              message={`“${unmatchedReceiptSupplier.companyName}” was not found in Supplier Master.`}
-              description="Review the OCR details and complete the required fields. The new supplier can be used immediately after creation."
-            />
-          ) : null}
+          {creatingSupplierFromReceipt && unmatchedReceiptSupplier ? <Alert className="operationalInfoAlert" type="warning" showIcon message={`“${unmatchedReceiptSupplier.companyName}” was not found in Supplier Master.`} /> : null}
           <Form.Item name="companyName" label="Company name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="registrationNumber" label="Registration number"><Input /></Form.Item>
           <Form.Item name="tinNumber" label="TIN"><Input /></Form.Item>
           <Form.Item name="address" label="Address" rules={[{ required: true }]}><Input.TextArea rows={3} /></Form.Item>
           <Form.Item name="phone" label="Phone" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="contactPerson" label="Contact person"><Input /></Form.Item>
-          <Form.Item name="autoCountCreditorCode" label="AutoCount creditor code" extra="If left blank, Finance must confirm the creditor mapping before manual import."><Input /></Form.Item>
+          <Form.Item name="autoCountCreditorCode" label="AutoCount creditor code" tooltip={fieldTooltip("If left blank, Finance must confirm the creditor mapping before manual import.", "AutoCount creditor code guidance")}><Input /></Form.Item>
           <Button type="primary" htmlType="submit" loading={supplierSaving}>Create supplier</Button>
         </Form>
       </Modal>
@@ -4171,11 +4162,8 @@ function RepairPage({
                 name="supplierId"
                 label="Supplier / 供应商"
                 rules={[{ required: true }]}
-                extra={repairCreateMode === "receipt"
-                  ? receiptDraft
-                    ? repairCreateSupplierId ? "Matched or selected after receipt review. / 已在收据审核后匹配或选择。" : "Choose an active supplier to continue. / 请选择启用中的供应商以继续。"
-                    : "This will be matched after the receipt review. / 审核收据后将进行匹配。"
-                  : undefined}
+                extra={repairCreateMode === "receipt" && receiptDraft && repairCreateSupplierId ? "Matched or selected after receipt review. / 已在收据审核后匹配或选择。" : undefined}
+                tooltip={fieldTooltip(repairCreateMode === "receipt" ? receiptDraft ? !repairCreateSupplierId ? "Choose an active supplier to continue. / 请选择启用中的供应商以继续。" : undefined : "This will be matched after the receipt review. / 审核收据后将进行匹配。" : undefined, "Supplier selection guidance")}
               >
                 <Select
                   showSearch
@@ -4210,8 +4198,8 @@ function RepairPage({
               <div className="repairReceiptStart">
                 <div className="repairReceiptStartHeading">
                   <span className="ocrStepLabel">Step 1 of 3 / 步骤一</span>
-                  <Typography.Text strong>Upload a repair receipt / 上传整备收据</Typography.Text>
-                  <Typography.Text type="secondary">Receipt scanning fills supplier and amount details only. Enter the repair instructions below. / 扫描收据只会填写供应商和金额资料。请在下方填写整备说明。</Typography.Text>
+                  <Typography.Text strong>Upload a repair receipt / 上传整备收据<FieldHelp label="Repair receipt guidance">Receipt scanning fills supplier and amount details only. Enter the repair instructions below. / 扫描收据只会填写供应商和金额资料。请在下方填写整备说明。</FieldHelp></Typography.Text>
+
                 </div>
               </div>
               <div className="repairReceiptUploadAction">
@@ -4299,8 +4287,8 @@ function RepairPage({
                 <section className="repairReceiptFinalStep">
                   <div className="repairReceiptFinalStepHeading">
                     <span className="ocrStepLabel">Step 3 of 3 / 步骤三</span>
-                    <Typography.Text strong>Finish this repair / 完成整备记录</Typography.Text>
-                    <Typography.Text type="secondary">Receipt details and items have been reviewed. Add one short title for this repair work. / 收据资料和项目已经审核。请为此整备工作填写简短标题。</Typography.Text>
+                    <Typography.Text strong>Finish this repair / 完成整备记录<FieldHelp label="Repair instructions guidance">Receipt details and items have been reviewed. Add one short title for this repair work. / 收据资料和项目已经审核。请为此整备工作填写简短标题。</FieldHelp></Typography.Text>
+
                   </div>
                   <Form.Item name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement / 例如：更换挡风玻璃" /></Form.Item>
                   <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!repairCreateSupplierId}>Create repair / 建立整备</Button></Form.Item>
@@ -4312,8 +4300,8 @@ function RepairPage({
             <section className="repairManualFlow" aria-label="Manual repair entry">
               <div className="repairManualIntro">
                 <span className="repairManualEyebrow">Manual entry / 手动建立</span>
-                <Typography.Text strong>Add the supplier invoice / 填写供应商发票</Typography.Text>
-                <Typography.Text type="secondary">The selected supplier will be used for this repair. Enter the printed invoice details and a short repair title. / 此整备记录将使用已选择的供应商。请填写发票上的资料和简短整备标题。</Typography.Text>
+                <Typography.Text strong>Add the supplier invoice / 填写供应商发票<FieldHelp label="Supplier invoice guidance">The selected supplier will be used for this repair. Enter the printed invoice details and a short repair title. / 此整备记录将使用已选择的供应商。请填写发票上的资料和简短整备标题。</FieldHelp></Typography.Text>
+
               </div>
               <div className="repairManualFields">
                 <Form.Item name="invoiceNumber" label="Receipt / Invoice reference / 收据或发票编号" rules={[{ required: true }]}><Input /></Form.Item>
@@ -4329,10 +4317,10 @@ function RepairPage({
                   getValueFromEvent={supplierInvoiceDateFromPicker}
                 ><DatePicker disabled className="fullWidth" format="YYYY-MM-DD" onKeyDown={handleInvoiceDateKeyDown} /></Form.Item>
                 <Form.Item className="repairManualFieldFullWidth" name="plateNumberOnInvoice" label="Plate on receipt / invoice / 收据或发票车牌"><Input placeholder="Plate number printed on the receipt or invoice / 收据或发票上印有的车牌" /></Form.Item>
-                <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement / 例如：更换挡风玻璃" /></Form.Item>
+                <Form.Item className="repairManualFieldFullWidth" name="whatToDo" label="Repair title / 整备标题" tooltip={fieldTooltip("An Admin records approval separately after checking the repair work and cost. / 管理员检查整备工作和费用后，另行记录批准。", "Repair approval guidance")} rules={[{ required: true }]}><Input placeholder="Example: Windscreen replacement / 例如：更换挡风玻璃" /></Form.Item>
               </div>
               <div className="repairManualApprovalNote">
-                <Typography.Text type="secondary">An Admin records approval separately after checking the repair work and cost. / 管理员检查整备工作和费用后，另行记录批准。</Typography.Text>
+
               </div>
               <Form.Item className="formActions repairManualSubmit"><Button type="primary" htmlType="submit">Save repair / 保存整备</Button></Form.Item>
             </section>
@@ -5207,7 +5195,7 @@ export function LoanPage({
         {completionModal}
       <Modal centered
         mask={{ closable: false }}
-        title="Buyer & loan application / 买家与贷款申请"
+        title={<>Buyer & loan application / 买家与贷款申请<FieldHelp label="Buyer registration guidance">{"Register buyer details / 登记买家资料"}<br />{"Financed buyers receive a Pending loan case. Cash buyers are saved without a loan application. / 贷款买家建立待处理案件，现金买家无需建立贷款。"}</FieldHelp></>}
         width={dialogWidths.formWide}
         open={loanCreateOpen}
         onCancel={() => { setLoanCreateOpen(false); setIntakeFile(undefined); loanIntakeForm.resetFields(); setNewBuyer(false); intakeId.current = newId(); }}
@@ -5215,13 +5203,7 @@ export function LoanPage({
         destroyOnClose
         className="recordCreateModal"
       >
-        <Alert
-          type="warning"
-          showIcon
-          message="Register buyer details / 登记买家资料"
-          description="Financed buyers receive a Pending loan case. Cash buyers are saved without a loan application. / 贷款买家建立待处理案件，现金买家无需建立贷款。"
-          className="manualLoanRecordAlert"
-        />
+
         {eligibleBuyerVehiclesError && <Alert
           type="error"
           showIcon
@@ -5753,7 +5735,7 @@ export function LeadsPage({ initialMyCarsPlate, initialLeadId, currentUser, vehi
       </Modal>
       <Modal width={dialogWidths.form} centered
         mask={{ closable: false }}
-        title="Close lead / 结束询问"
+        title={<>Close lead / 结束询问<FieldHelp label="Lead outcome guidance">Record the real outcome so the Dashboard can distinguish sales from lost enquiries.</FieldHelp></>}
         open={Boolean(closingLead)}
         okText="Close lead"
         zIndex={2100}
@@ -5770,7 +5752,7 @@ export function LeadsPage({ initialMyCarsPlate, initialLeadId, currentUser, vehi
           { key: "customer", label: "Enquirer / 询问客户", children: renderLeadCustomer(closingLead) },
           { key: "buyer", label: "Confirmed buyer / 确认买家", children: closingVehicle?.customerId ? contactFor(customers, closingVehicle.customerId) : "Not assigned / 尚未指定" }
         ]} />}
-        <Typography.Paragraph type="secondary">Record the real outcome so the Dashboard can distinguish sales from lost enquiries.</Typography.Paragraph>
+
         {!canCloseSold && <Alert type="info" showIcon message="Sold is available only when this lead is linked to the vehicle's confirmed buyer. Confirm the buyer in Vehicle Details first." />}
         {closingLead && leadErrors[closingLead.id] && <Alert type="error" showIcon message={leadErrors[closingLead.id]} />}
         <Select value={closureOutcome} onChange={setClosureOutcome} className="fullWidth" options={[
@@ -6253,7 +6235,8 @@ function AdminPage({
                 />
                 <BusinessDialog
                   mask={{ closable: false }}
-                  title="Staff Details / 员工详情"
+                  title={<>Staff Details / 员工详情<FieldHelp label="Staff role guidance">Role changes are confirmed separately and take effect immediately after saving.
+                    </FieldHelp></>}
                   width={dialogWidths.form}
                   open={staffEditorOpen}
                   onClose={() => setStaffEditorOpen(false)}
@@ -6307,9 +6290,7 @@ function AdminPage({
                         placeholder="Select at least one department role"
                       />
                     </Form.Item>
-                    <Typography.Text type="secondary">
-                      Role changes are confirmed separately and take effect immediately after saving.
-                    </Typography.Text>
+
                     <Form.Item className="formActions">
                       <Button type="primary" htmlType="submit" disabled={!selectedEditStaffUser}>Update Staff</Button>
                     </Form.Item>
@@ -6416,13 +6397,8 @@ function AdminPage({
             label: "AI Usage / AI 使用量",
             children: (
               <Space direction="vertical" size={16} className="fullWidth">
-                <Alert
-                  className="operationalInfoAlert"
-                  type="info"
-                  showIcon
-                  message="OCR limits are enforced by the server and reset on the UTC calendar day and month."
-                />
-                <ProCard title="OCR Limit / OCR 限额">
+
+                <ProCard title={<>OCR Limit / OCR 限额<FieldHelp label="OCR quota reset guidance">{"OCR limits are enforced by the server and reset on the UTC calendar day and month."}</FieldHelp></>}>
                   {ocrLimitSnapshot ? (
                     <Space direction="vertical" size={16} className="fullWidth">
                       <AiUsageSnapshotDescriptions snapshot={ocrLimitSnapshot} />

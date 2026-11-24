@@ -1,3 +1,4 @@
+import { FieldHelp, fieldTooltip } from "../shared/FieldHelp";
 import { dialogWidths } from "../shared/dialogSizing";
 import { BusinessDialog } from "../shared/BusinessDialog";
 import { settlementBanks } from "../../settlementBanks";
@@ -328,8 +329,7 @@ export function PurchaseInvoiceHistory({
     <section className="purchaseInvoiceHistory">
       <div className="vehicleContactHeader">
         <div>
-          <Typography.Text className="moduleEyebrow">Purchase Invoice / 收车发票</Typography.Text>
-          <Typography.Text type="secondary">Generate one formal owner-acquisition invoice from the approved vehicle intake. Existing supplier records remain available for reference.</Typography.Text>
+          <Typography.Text className="moduleEyebrow">Purchase Invoice / 收车发票<FieldHelp label="Purchase invoice history guidance">Generate one formal owner-acquisition invoice from the approved vehicle intake. Existing supplier records remain available for reference.</FieldHelp></Typography.Text>
         </div>
         <Button type="primary" onClick={onGenerate}>{generatedOwnerInvoice ? "Open current purchase invoice" : "Generate Purchase Invoice"}</Button>
       </div>
@@ -395,7 +395,7 @@ function PurchaseInvoiceLineFields() {
     <Form.List name="lines" rules={[{ validator: async (_, lines) => { if (!lines?.length) throw new Error("Add at least one classified line."); } }]}>
       {(fields, { add, remove }, { errors }) => (
         <Space direction="vertical" className="fullWidth">
-          <Typography.Text strong>Classified invoice lines</Typography.Text>
+          <Typography.Text strong>Classified invoice lines<FieldHelp label="Invoice line total guidance">The total is calculated from these lines. Tax code remains a separate Finance mapping.</FieldHelp></Typography.Text>
           {fields.map((field) => (
             <ProCard key={field.key} size="small" variant="outlined">
               <Form.Item {...field} name={[field.name, "lineType"]} label="Fee classification" rules={[{ required: true }]}><Select options={lineTypeOptions} /></Form.Item>
@@ -407,7 +407,6 @@ function PurchaseInvoiceLineFields() {
           ))}
           <Button onClick={() => add({ lineType: "Other", capitaliseIntoVehicleCost: false })}>Add fee line</Button>
           <Form.ErrorList errors={errors} />
-          <Typography.Text type="secondary">The total is calculated from these lines. Tax code remains a separate Finance mapping.</Typography.Text>
         </Space>
       )}
     </Form.List>
@@ -1258,9 +1257,7 @@ export function VehiclePage({
   const photoPreviewGrid = (
     <>
       {visiblePhotos.length > 1 && (
-        <Typography.Text type="secondary" className="vehiclePhotoOrderHint">
-          Drag photos into the order shown on the website. Use the arrow buttons for keyboard or touch control.
-        </Typography.Text>
+        <Typography.Text strong>Photo order / 照片顺序<FieldHelp label="Website photo order guidance">Drag photos into the order shown on the website. Use the arrow buttons for keyboard or touch control.</FieldHelp></Typography.Text>
       )}
       <div className="vehiclePhotoPreviewGrid">
       {visiblePhotos.length > 0 ? visiblePhotos.map((photo) => {
@@ -2633,7 +2630,7 @@ export function VehiclePage({
               <Form.Item
                 name="customerId"
                 label="Confirmed Buyer / 确认买家"
-                extra={loanHandoffBuyerPolicy.locked ? "This is the vehicle's linked buyer. To use a different buyer after a rejected loan, close this dialog and update Customer in Vehicle Record first." : undefined}
+                tooltip={fieldTooltip(loanHandoffBuyerPolicy.locked ? "This is the vehicle's linked buyer. To use a different buyer after a rejected loan, close this dialog and update Customer in Vehicle Record first." : undefined, "Confirmed Buyer / 确认买家 guidance")}
                 rules={[{ required: true, message: "Select the confirmed buyer before starting the loan." }]}
               >
                 <Select
@@ -2858,7 +2855,7 @@ export function VehiclePage({
                 name="isPublic"
                 label="Website Visible / 网站展示"
                 valuePropName="checked"
-                extra={!selectedVehicle?.bossConfirmed && !canApproveVehicles ? "Website visibility stays hidden until Admin approval." : undefined}
+                tooltip={fieldTooltip(!selectedVehicle?.bossConfirmed && !canApproveVehicles ? "Website visibility stays hidden until Admin approval." : undefined, "Website Visible / 网站展示 guidance")}
               >
                 <Switch checkedChildren="Visible" unCheckedChildren="Hidden" disabled={!canApproveVehicles && !selectedVehicle?.bossConfirmed} />
               </Form.Item>
@@ -2919,25 +2916,25 @@ export function VehiclePage({
               <Form.Item
                 name="sellingPrice"
                 label="Selling / 售价"
-                extra={selectedVehiclePricePolicy.locked
+                tooltip={fieldTooltip(selectedVehiclePricePolicy.locked
                   ? "Locked at the management-approved amount."
                   : selectedVehiclePricePolicy.warnsBeforeReprice
                     ? "A changed amount will be saved as unapproved and hidden until explicit reapproval."
-                    : "This amount becomes locked after management approval."}
+                    : "This amount becomes locked after management approval.", "Selling / 售价 guidance")}
               >
                 <InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} disabled={selectedVehiclePricePolicy.locked} />
               </Form.Item>
-              <Form.Item name="contraRangePrice" label="Contra / 抵扣金额" extra="Fill this only when the customer trades in a car and buys another car from us."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+              <Form.Item name="contraRangePrice" label="Contra / 抵扣金额" tooltip={fieldTooltip("Fill this only when the customer trades in a car and buys another car from us.", "Contra / 抵扣金额 guidance")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
               <Form.Item
                 className="vehicleMarkdownField"
                 name="publicDescriptionMarkdown"
                 label="Public Listing Description (Markdown)"
-                extra={(
+                tooltip={fieldTooltip((
                   <Space direction="vertical" size={2}>
                     <span>Fill in verified details and remove unused lines or sections before saving. This description is visible to customers when the vehicle is published.</span>
                     <span>Supports headings, paragraphs, bullet lists, bold, italics, and safe HTTPS links. Raw HTML is displayed as text.</span>
                   </Space>
-                )}
+                ), "Public Listing Description (Markdown) guidance")}
               >
                 <MDEditor preview="edit" height={220} visibleDragbar={false} textareaProps={{ maxLength: 6000, placeholder: neutralVehicleDescriptionTemplate }} />
               </Form.Item>
@@ -2955,12 +2952,11 @@ export function VehiclePage({
             <Space direction="vertical" size={16} className="fullWidth">
           <ProCard
             id="vehicle-leads-card"
-            title="Leads For This Vehicle"
+            title={<>Leads For This Vehicle<FieldHelp label="Vehicle enquiries guidance">Multiple customers can enquire about the same car. The confirmed buyer is shown in Overview.
+            </FieldHelp></>}
             extra={<Tag color={selectedVehicleActiveLeads.length > 1 ? "red" : selectedVehicleActiveLeads.length === 1 ? "green" : "default"}>{selectedVehicleActiveLeads.length} active</Tag>}
           >
-            <Typography.Text type="secondary">
-              Multiple customers can enquire about the same car. The confirmed buyer is shown in Overview.
-            </Typography.Text>
+
             {selectedVehicleLeads.length > 0 && <Space className="toolbarForm pageFilterMobileOnly vehicleLeadFilters" wrap>
               <Input.Search
                 allowClear
@@ -3071,7 +3067,7 @@ export function VehiclePage({
             />
             <Form name="vehicleUpload" layout="vertical" className="formGrid vehicleUploadForm">
               <div hidden={vehicleAssetTab !== "photos"}>
-              <Form.Item className="vehiclePhotoDropField" label="Website Photos">
+              <Form.Item className="vehiclePhotoDropField" label="Website Photos" tooltip={fieldTooltip("Supports multiple JPG, PNG, or WebP images for the public website gallery.", "Website photo guidance")}>
                 <Upload.Dragger
                   accept="image/jpeg,image/png,image/webp"
                   disabled={uploadDisabled}
@@ -3098,7 +3094,6 @@ export function VehiclePage({
                 >
                   <p className="vehiclePhotoDropIcon"><UploadOutlined /></p>
                   <p className="vehiclePhotoDropTitle">Drag photos here or tap to upload</p>
-                  <p className="vehiclePhotoDropHint">Supports multiple JPG, PNG, or WebP images for the public website gallery.</p>
                 </Upload.Dragger>
               </Form.Item>
               <div className="vehiclePhotoSection">
@@ -3117,17 +3112,9 @@ export function VehiclePage({
               </div>
               <div className="vehicleDocumentFlow" hidden={vehicleAssetTab !== "documents"}>
               <div className="vehicleDocumentSection">
-                <Typography.Text className="moduleEyebrow">Add a vehicle document</Typography.Text>
-                <Typography.Text type="secondary">Choose a document type, then upload the original file.</Typography.Text>
+                <Typography.Text className="moduleEyebrow">Add a vehicle document<FieldHelp label="Vehicle document guidance">Choose a document type, then upload the original file.</FieldHelp>{selectedVehicleUploadReminders.length > 0 && <FieldHelp label="Optional document guidance">{"Optional: add VOC, IC or AP when available."}</FieldHelp>}</Typography.Text>
+
               </div>
-              {selectedVehicleUploadReminders.length > 0 && (
-                <Alert
-                  type="info"
-                  showIcon
-                  className="operationalInfoAlert"
-                  message="Optional: add VOC, IC or AP when available."
-                />
-              )}
               <Tabs
                 activeKey={documentOwnershipTab}
                 onChange={(key) => selectDocumentOwnershipTab(key as DocumentOwnershipType)}
@@ -3147,17 +3134,12 @@ export function VehiclePage({
                 </Space>
               </Form.Item>
               {documentCategory === "PurchaseInvoice" ? (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="Previous owner purchase invoice / 原车主收车发票"
-                  description="This formal invoice is generated from the approved vehicle intake and linked previous owner. Finance reviews every generated version before accounting export."
-                />
+                <Typography.Text strong>Previous owner purchase invoice / 原车主收车发票<FieldHelp label="Purchase invoice guidance">This formal invoice is generated from the approved vehicle intake and linked previous owner. Finance reviews every generated version before accounting export.</FieldHelp></Typography.Text>
               ) : personOwnedDocument ? (
                 <Space direction="vertical" size={0} className="fullWidth">
                   <Form.Item
                     label="Document owner / 文件归属"
-                    extra="The active ownership selection is saved with the document."
+                    tooltip={fieldTooltip("The active ownership selection is saved with the document.", "Document owner / 文件归属 guidance")}
                   >
                     <Tag color={documentOwnershipTab === "Seller" ? "gold" : "blue"}>
                       {documentOwnershipTab === "Seller" ? "Previous owner / 原车主" : "Buyer / 买家"}
@@ -3370,11 +3352,9 @@ export function VehiclePage({
             >
               <InputNumber className="fullWidth" min={earliestVehicleYear} max={latestVehicleYear} precision={0} step={1} />
             </Form.Item>
-            <Form.Item className="vehicleIntakePreviousOwner" label="Previous owner / 原车主" required>
+            <Form.Item className="vehicleIntakePreviousOwner" label="Previous owner / 原车主" tooltip={fieldTooltip("Search an existing record, scan NRIC, or enter the previous owner details manually. Scanning searches existing records first and offers creation only when no match is found.", "Previous owner selection guidance")} required>
               <div className="vehicleIntakePreviousOwnerControl">
-                <Typography.Text type="secondary">
-                  Search an existing record, scan NRIC, or enter the previous owner details manually. Scanning searches existing records first and offers creation only when no match is found.
-                </Typography.Text>
+
                 <Form.Item
                   name="ownerId"
                   noStyle
@@ -3494,7 +3474,7 @@ export function VehiclePage({
             >
               <InputNumber className="fullWidth" min={0.01} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} />
             </Form.Item>
-            <Form.Item name="contraRangePrice" label="Contra / 抵扣金额" extra="Fill this only when the customer trades in a car and buys another car from us."><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
+            <Form.Item name="contraRangePrice" label="Contra / 抵扣金额" tooltip={fieldTooltip("Fill this only when the customer trades in a car and buys another car from us.", "Contra / 抵扣金额 guidance")}><InputNumber className="fullWidth" min={0} precision={2} formatter={formatMoneyInput} parser={parseMoneyInput} /></Form.Item>
           </StepsForm.StepForm>
           <StepsForm.StepForm
             name="settlement"
@@ -3504,13 +3484,8 @@ export function VehiclePage({
             initialValues={{ prepareSettlement: canPrepareSettlement, bankDebtAmount: 0, settlementDeadline: singaporeTodayIsoDate() }}
           >
             {canPrepareSettlement ? <>
-              <Alert
-                type="info"
-                showIcon
-                message="Record bank debt or upload no-debt evidence"
-                description="Bank settlement uses the outstanding bank debt. Purchase price can be filled later. No debt includes cash purchases and loans already settled."
-              />
-              <Form.Item name="prepareSettlement" label="Bank debt / 银行欠款" valuePropName="checked">
+
+              <Form.Item name="prepareSettlement" label="Bank debt / 银行欠款" tooltip={fieldTooltip(<>Record bank debt or upload no-debt evidence<br />Bank settlement uses the outstanding bank debt. Purchase price can be filled later. No debt includes cash purchases and loans already settled.</>, "Bank debt guidance")} valuePropName="checked">
                 <Switch checkedChildren="Debt" unCheckedChildren="No debt" />
               </Form.Item>
               <Form.Item noStyle shouldUpdate={(previous, current) => previous.prepareSettlement !== current.prepareSettlement || previous.bankDebtAmount !== current.bankDebtAmount}>
@@ -3541,18 +3516,13 @@ export function VehiclePage({
                   <Form.Item name="settlementBankName" label="Bank name / 银行名称" rules={[{ required: true, whitespace: true }]}><AutoComplete options={settlementBanks.map(value => ({ value }))} filterOption={(input, option) => String(option?.value).toLowerCase().includes(input.toLowerCase())} /></Form.Item>
                   <Form.Item name="settlementBankAccountNumber" label="Bank account number / 银行户口号码" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
                 </> : <>
-                  <Alert type="info" showIcon message="No debt: upload supporting evidence for the cash purchase or settled loan." />
+                  <Typography.Text strong>No debt<FieldHelp label="No debt evidence guidance">No debt: upload supporting evidence for the cash purchase or settled loan.</FieldHelp></Typography.Text>
                   <Upload accept=".pdf,.jpg,.jpeg,.png" maxCount={1} beforeUpload={file => { setSettlementEvidenceFile(file); return false; }} onRemove={() => setSettlementEvidenceFile(null)}>
                     <Button>Upload supporting document / 上传证明文件</Button>
                   </Upload>
                 </>}
               </Form.Item>
-            </> : <Alert
-              type="info"
-              showIcon
-              message="Finance will prepare the previous owner settlement"
-              description="Your access can create the vehicle intake, but only Finance or Admin can create the settlement reminder."
-            />}
+            </> : <Typography.Text strong>Bank settlement<FieldHelp label="Previous owner settlement guidance">Finance will prepare the previous owner settlement<br />Your access can create the vehicle intake, but only Finance or Admin can create the settlement reminder.</FieldHelp></Typography.Text>}
           </StepsForm.StepForm>
           <StepsForm.StepForm name="review" title="Review">
             {vehicleCreateError ? <Alert
@@ -3637,7 +3607,7 @@ export function VehiclePage({
                   : "Review each field before confirming. A similar name may still be an existing owner."}
               />
               {possibleIdentityOwners.length ? (
-                <Form.Item label="Possible existing owner / 可能已有原车主" extra="Select only when you have confirmed this is the same person.">
+                <Form.Item label="Possible existing owner / 可能已有原车主" tooltip={fieldTooltip("Select only when you have confirmed this is the same person.", "Possible existing owner / 可能已有原车主 guidance")}>
                   <Select
                     showSearch
                     optionFilterProp="label"
@@ -3653,7 +3623,7 @@ export function VehiclePage({
               <Form.Item name="name" label="Owner Name / 原车主姓名" rules={[{ required: true, message: "Confirm the owner name." }]}>
                 <Input />
               </Form.Item>
-              <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true, message: "Enter the previous owner phone number." }]} extra="NRIC does not contain a phone number. Enter it before continuing.">
+              <Form.Item name="phone" label="Phone / 电话" rules={[{ required: true, message: "Enter the previous owner phone number." }]} tooltip={fieldTooltip("NRIC does not contain a phone number. Enter it before continuing.", "Phone / 电话 guidance")}>
                 <Input />
               </Form.Item>
               <Form.Item
@@ -3739,7 +3709,7 @@ export function VehiclePage({
         ]}
       >
         <Space direction="vertical" size={16} className="fullWidth purchaseInvoiceGenerationSummary">
-          <Alert type="info" showIcon message="Review the confirmed intake source before issuing" description="Generate creates the official invoice number and PDF immediately. It does not create a draft, Supplier, or editable manual invoice number." />
+          <Alert type="warning" showIcon message="Review the confirmed intake source before issuing" description="Generate creates the official invoice number and PDF immediately. It does not create a draft, Supplier, or editable manual invoice number." />
           <Descriptions size="small" column={1} bordered>
             <Descriptions.Item label="Car plate">{selectedVehicle?.plateNumber || "Not selected"}</Descriptions.Item>
             <Descriptions.Item label="Vehicle">{selectedVehicle ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}` : "Not selected"}</Descriptions.Item>

@@ -6537,6 +6537,26 @@ button .navActionBadge .navActionBadgeUrgent {
   flex-shrink: 0;
 }
 
+.fieldHelpButton.ant-btn {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.ant-pro-card-title:has(.fieldHelpButton),
+.ant-card-header-title:has(.fieldHelpButton),
+.ant-card-head-title:has(.fieldHelpButton) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+@media (max-width: 720px) {
+  .fieldHelpButton.ant-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 .ant-modal .ant-typography p,
 .ant-modal p.ant-typography,
 .ant-modal div.ant-typography,
