@@ -1,5 +1,5 @@
 import { RepairReviewPanel } from "./modules/repairs/RepairReviewPanel";
-import { LoanBankNameInput } from "./LoanBankNameInput";
+import { LoanBankComparison } from "./modules/loans/LoanBankComparison";
 import { formatDisplayDate, formatDisplayDateTime } from "./dateDisplay";
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { DashboardUpdatesPanel } from "./modules/dashboard/DashboardUpdatesPanel";
@@ -259,14 +259,7 @@ import {
   updateSupplier,
   updateSupplierInvoice,
   updateVehicle,
-  createLoanBankOption,
-  submitLoanBank,
-  rejectLoanBank,
-  approveLoanBank,
-  selectFinalLoanBank,
-  saveReviewedLoanLou,
   createLoanBuyerIntake,
-  updateLoanBankOption,
   uploadHrMedicalCertificate,
   uploadVehicleDocument,
   uploadVehicleDocumentWithProgress,
@@ -4411,14 +4404,11 @@ export function LoanPage({
   const [loanDetailForm] = Form.useForm<Partial<LoanApplication>>();
   const windscreenSelected = Form.useWatch("windscreenCovered", loanDetailForm) === true;
   const ncdDetailsVisible = (Form.useWatch("ncdPercentage", loanDetailForm) ?? 0) > 0;
-  const [louTarget, setLouTarget] = useState<string>();
-  const [manualBankOpen, setManualBankOpen] = useState(false);
   const [finalDealEditing, setFinalDealEditing] = useState(false);
   const [finalDealSaving, setFinalDealSaving] = useState(false);
-  const [loanBankForm] = Form.useForm<Partial<LoanBankOption>>();
-  const editingBankId = Form.useWatch("id", loanBankForm);
   const [loanBankOptions, setLoanBankOptions] = useState<LoanBankOption[]>([]);
   const [loanBankOptionsLoading, setLoanBankOptionsLoading] = useState(false);
+  const [loanBankOptionsError, setLoanBankOptionsError] = useState("");
   const selectedLoan: LoanApplication | undefined = loans.find((loan) => loan.id === uploadLoanId);
   const currentLoanIdRef = useRef(uploadLoanId);
   currentLoanIdRef.current = uploadLoanId;
@@ -4445,8 +4435,6 @@ export function LoanPage({
   });
   useEffect(() => {
     setFinalDealEditing(false);
-    setManualBankOpen(false);
-    setLouTarget(undefined);
   }, [uploadLoanId]);
   useEffect(() => {
     if (!selectedLoan || !canOpenLoanDetails(selectedLoan)) {
@@ -4455,11 +4443,11 @@ export function LoanPage({
     }
     let active = true;
     setLoanBankOptions([]);
-    loanBankForm.resetFields();
     setLoanBankOptionsLoading(true);
+    setLoanBankOptionsError("");
     void getLoanBankOptions(selectedLoan.id)
       .then((options) => { if (active) setLoanBankOptions(options); })
-      .catch(() => { if (active) message.warning("Bank options could not be loaded."); })
+      .catch(() => { if (active) setLoanBankOptionsError("Bank applications could not be loaded. / 无法读取银行申请。"); })
       .finally(() => { if (active) setLoanBankOptionsLoading(false); });
     return () => { active = false; };
   }, [selectedLoan?.id, selectedLoan?.takenByUserId, isBossAdmin, currentUser?.id]);
@@ -4796,42 +4784,9 @@ export function LoanPage({
       const refreshedOptions = await getLoanBankOptions(selectedLoan.id);
       if (currentLoanIdRef.current !== selectedLoan.id) return;
       setLoanBankOptions(refreshedOptions);
+      setLoanBankOptionsError("");
       setDocumentReloadKey((value) => value + 1);
       await onRefresh();
-    };
-    const reviewableBanks = loanBankOptions.filter(bank => bank.loanApplicationId === selectedLoan.id &&
-      !bank.isSelected && bank.status !== "Rejected");
-    const targetBank = louTarget === undefined && reviewableBanks.length === 1
-      ? reviewableBanks[0]
-      : reviewableBanks.find(bank => bank.id === louTarget);
-    const reviewLou = (option?: LoanBankOption) => {
-      const useAsFinal = !loanBankOptionsLoading && !loanBankOptions.some(bank =>
-        bank.loanApplicationId === selectedLoan.id && bank.status !== "Rejected" && bank.id !== option?.id);
-      const save = async (values: OcrReviewValues, documentId: string) => {
-        await saveReviewedLoanLou(selectedLoan.id, documentId, values, option?.id, useAsFinal);
-      };
-      return <OcrUploadReview
-        key={`lou-review-${option?.id ?? "new"}`} compact commitAfterApply vehicleId={selectedLoan.vehicleId} category="LoanDocument"
-        resumeJobId={resumeOcrJobId}
-        uploadOwner={{ ...loanDocumentUploadOwner(selectedLoan), louPreview: true }}
-        buttonLabel={option ? `Upload LOU for ${option.bankName}` : "Upload LOU and review / 上传 LOU 并复核"}
-        applyLabel={useAsFinal ? "Confirm and use this LOU / 确认采用此 LOU" : "Confirm bank and terms / 确认银行与条款"}
-        fields={[
-          { name: "loanBank", required: Boolean(resumeOcrJobId), label: "Bank / 银行", type: "bank" },
-          { name: "loanAmount", required: Boolean(resumeOcrJobId), label: "Loan amount / 贷款金额", type: "number" },
-          { name: "interestRate", required: Boolean(resumeOcrJobId), label: "Interest rate / 利率 (%)", type: "number" },
-          { name: "loanTenureMonths", required: Boolean(resumeOcrJobId), label: "Tenure / 期限 (months)", type: "number" },
-          { name: "loanTerms", label: "Exact bank terms / 银行原文条款", fullWidth: true }
-        ]}
-        onUploaded={() => setDocumentReloadKey(nextLoanDocumentReloadKey)}
-        onManualApply={save}
-        onApply={(values, job) => save(values, job.documentId)}
-        onCompleted={refreshBanks}
-      />;
-    };
-    const bankAction = async (action: () => Promise<unknown>) => {
-      try { await action(); await refreshBanks(); }
-      catch (error) { message.error(humanizeApiError(error, "Bank action could not be saved.")); }
     };
     const progressStep = selectedLoan.status === "Done" ? 3 : selectedLoan.status === "Approved" ? 2 : selectedLoan.status === "Draft" ? 0 : 1;
     const progressStatus = selectedLoan.status === "Rejected" ? "error" : selectedLoan.status === "Done" ? "finish" : "process";
@@ -4844,7 +4799,7 @@ export function LoanPage({
           : selectedLoan.status === "Done"
             ? "Loan file complete and ready for Finance and Delivery follow-up."
             : check?.isComplete
-              ? "Approval and all required documents are recorded. Mark the loan file complete when the final check is finished."
+              ? "Review the bank applications below and confirm the customer's final LOU to complete the loan."
               : "Approval recorded. Link a valid LOU or upload an original Loan document before finishing the loan file. Edited Loan Documents are optional.";
     return (
       <Space direction="vertical" size={16} className="fullWidth">
@@ -4890,79 +4845,10 @@ export function LoanPage({
           </Space>
         </ProCard>
         <ProCard title="Bank approval & LOU / 银行审批与 LOU">
-          <Space direction="vertical" size={16} className="fullWidth">
-            {loanBankOptionsLoading && <Typography.Text type="secondary">Loading bank options…</Typography.Text>}
-            {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !loanBankOptionsLoading && <>
-              {reviewableBanks.length > 0 && <Form.Item label="LOU for / 对应银行">
-                <Select
-                  aria-label="LOU for / 对应银行"
-                  value={targetBank?.id ?? "new"}
-                  onChange={setLouTarget}
-                  options={[
-                    { value: "new", label: "Read bank from LOU / 从 LOU 读取银行" },
-                    ...reviewableBanks.map(bank => ({ value: bank.id, label: bank.bankName }))
-                  ]}
-                />
-              </Form.Item>}
-              {reviewLou(targetBank)}
-            </>}
-            {loanBankOptions.filter((option) => option.loanApplicationId === selectedLoan.id).map((option) => <div key={option.id}>
-              <Space wrap>
-                <Typography.Text strong>{option.bankName}</Typography.Text><Tag>{option.status}</Tag>
-                <Typography.Text>{option.loanAmount != null ? `RM ${option.loanAmount.toLocaleString("en-MY")}` : "Amount pending / 待填金额"}</Typography.Text>
-                {option.interestRate != null && <Typography.Text>{option.interestRate}%</Typography.Text>}
-                {option.tenureMonths != null && <Typography.Text>{option.tenureMonths} months / 个月</Typography.Text>}
-                <Typography.Text>Submitted / 提交: {option.submittedAt ? formatDisplayDateTime(option.submittedAt) : "Not recorded / 未记录"}</Typography.Text>
-                {option.isSelected && <Tag color="green">Final LOU / 最终方案</Tag>}
-                {option.louDocumentId && <Button size="small" href={vehicleDocumentContentUrl(selectedLoan.vehicleId, option.louDocumentId)} target="_blank" rel="noopener noreferrer">Original LOU / 原始 LOU</Button>}
-                {option.editedLouDocumentId && <Button size="small" href={vehicleDocumentContentUrl(selectedLoan.vehicleId, option.editedLouDocumentId)} target="_blank" rel="noopener noreferrer">Edited LOU / 修改版 LOU</Button>}
-                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && (option.status === "Submitted" || option.status === "Approved") && <PreviewDocumentUpload
-                  documentLabel={option.louDocumentId ? "Edited LOU" : "Original LOU"}
-                  buttonLabel={option.louDocumentId ? "Upload edited LOU (optional) / 上传修改版（可选）" : "Upload original LOU / 上传原始 LOU"}
-                  onUpload={async (file, onProgress) => {
-                    await onUploadDocument(selectedLoan.vehicleId, file, "LoanDocument", onProgress, {
-                      ...loanDocumentUploadOwner(selectedLoan), loanBankOptionId: option.id, louEdited: Boolean(option.louDocumentId)
-                    });
-                    await refreshBanks();
-                  }}
-                />}
-                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && option.status === "Submitted" && !option.isSelected && <Popconfirm
-                  title={`Approve ${option.bankName} / 批准此银行?`}
-                  description="Use the existing original LOU and saved bank terms. Edited LOU is optional. / 采用已有原始 LOU 和已保存条款；修改版可选。"
-                  onConfirm={() => bankAction(() => approveLoanBank(option))}
-                ><Button type="primary" disabled={!option.louDocumentId || (option.loanAmount ?? 0) <= 0 || (option.interestRate ?? 0) <= 0 || (option.tenureMonths ?? 0) <= 0}>Approve / 批准</Button></Popconfirm>}
-                {canProcessLoan(selectedLoan) && option.status === "Submitted" && !option.louDocumentId && <Typography.Text type="secondary">Original LOU required to approve / 批准前须有原始 LOU</Typography.Text>}
-                {canProcessLoan(selectedLoan) && option.status === "Submitted" && option.louDocumentId && (!option.loanAmount || !option.interestRate || !option.tenureMonths) && <Typography.Text type="secondary">Enter the loan amount, interest rate and tenure before approval. / 批准前请填写贷款金额、利率和期数。</Typography.Text>}
-                {canEditLoanDetails(selectedLoan) && option.status === "Approved" && !option.isSelected && <Popconfirm title="Use this final LOU / 采用此方案?" onConfirm={() => bankAction(() => selectFinalLoanBank(option))}><Button>Select final LOU / 选择最终方案</Button></Popconfirm>}
-                {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && !option.isSelected && option.status !== "Rejected" && <Button onClick={() => { setManualBankOpen(true); loanBankForm.setFieldsValue(option); }}>Edit / 编辑</Button>}
-                {canProcessLoan(selectedLoan) && option.status === "Pending" && <Popconfirm title="Record bank submission / 记录已提交银行?" onConfirm={() => bankAction(() => submitLoanBank(option))}><Button>Submitted to bank / 已提交银行</Button></Popconfirm>}
-                {canProcessLoan(selectedLoan) && option.status === "Submitted" && <Button danger onClick={() => {
-                  let reason = "";
-                  Modal.confirm({ title: "Bank rejection / 银行拒绝", content: <Input.TextArea placeholder="Reason / 原因" onChange={(event) => { reason = event.target.value; }} />, onOk: async () => { if (!reason.trim()) throw new Error("Enter a rejection reason."); await rejectLoanBank(option, reason.trim()); await refreshBanks(); } });
-                }}>Reject / 拒绝</Button>}
-              </Space>
-              {option.rejectionReason && <Typography.Paragraph type="secondary">{option.rejectionReason}</Typography.Paragraph>}
-            </div>)}
-            {canProcessLoan(selectedLoan) && canEditLoanDetails(selectedLoan) && <Collapse activeKey={manualBankOpen ? ["manual-bank"] : []} onChange={(keys) => setManualBankOpen(keys.includes("manual-bank"))} items={[{ key: "manual-bank", label: "Record bank application / 记录银行申请", children: <Form form={loanBankForm} layout="vertical" onFinish={async (values) => {
-              try {
-                const existing = loanBankOptions.find((option) => option.id === values.id);
-                if (existing) await updateLoanBankOption({ ...existing, ...values });
-                else await createLoanBankOption(selectedLoan.id, { loanApplicationId: selectedLoan.id, bankName: values.bankName || "", loanAmount: values.loanAmount, interestRate: values.interestRate, tenureMonths: values.tenureMonths, terms: values.terms, isSelected: false });
-                await refreshBanks(); loanBankForm.resetFields(); setManualBankOpen(false);
-                message.success("Bank option saved / 银行方案已保存");
-              } catch (error) { message.error(humanizeApiError(error, "Bank option could not be saved.")); }
-            }}>
-              <Form.Item name="id" hidden><Input /></Form.Item>
-              <div className="formGridTwo">
-                <Form.Item name="bankName" label="Bank / 银行" rules={[{ required: true, whitespace: true }]}><LoanBankNameInput key={editingBankId ?? "new"} /></Form.Item>
-                <Form.Item name="loanAmount" label="Loan amount / 贷款金额"><InputNumber className="fullWidth" min={0.01} precision={2} /></Form.Item>
-                <Form.Item name="interestRate" label="Interest rate / 利率 (%)"><InputNumber className="fullWidth" min={0.001} precision={3} /></Form.Item>
-                <Form.Item name="tenureMonths" label="Tenure / 期数 (months)"><InputNumber className="fullWidth" min={1} precision={0} /></Form.Item>
-              </div>
-              <Form.Item name="terms" label="Bank terms / 银行条款"><Input.TextArea rows={3} /></Form.Item>
-              <Space wrap><Button type="primary" htmlType="submit">Save bank option / 保存银行方案</Button><Button onClick={() => loanBankForm.resetFields()}>Clear / 清空</Button></Space>
-            </Form> }]} />}
-          </Space>
+          <LoanBankComparison key={selectedLoan.id} loan={selectedLoan} banks={loanBankOptions}
+            loading={loanBankOptionsLoading} loadError={loanBankOptionsError} canProcess={canProcessLoan(selectedLoan)}
+            canSelectBank={canEditLoanDetails(selectedLoan)} uploadOwner={loanDocumentUploadOwner(selectedLoan)}
+            resumeOcrJobId={resumeOcrJobId} onRefresh={refreshBanks} />
         </ProCard>
         <ProCard
           title="Final deal / 最终成交资料"

@@ -1652,6 +1652,7 @@ public static class SeedData
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "WarrantyInsurance" numeric NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "WarrantyInsuranceSelected" boolean NULL;
             ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "AgreementSignedAt" date NULL;
+            ALTER TABLE "LoanApplications" ADD COLUMN IF NOT EXISTS "FinalLouDocumentId" uuid NULL;
             CREATE INDEX IF NOT EXISTS "IX_LoanApplications_TakenByUserId" ON "LoanApplications" ("TakenByUserId");
 
             CREATE TABLE IF NOT EXISTS "LoanBankOptions" (
@@ -1677,6 +1678,22 @@ public static class SeedData
                 ON "LoanBankOptions" ("LoanApplicationId", "BankName");
             CREATE INDEX IF NOT EXISTS "IX_LoanBankOptions_LouDocumentId"
                 ON "LoanBankOptions" ("LouDocumentId");
+            CREATE TABLE IF NOT EXISTS "LoanBankLouDocuments" (
+                "DocumentId" uuid NOT NULL,
+                "BankOptionId" uuid NOT NULL,
+                "ReviewedAt" timestamp with time zone NULL,
+                "ReviewedBy" text NULL,
+                "BankName" text NULL,
+                "LoanAmount" numeric NULL,
+                "InterestRate" numeric NULL,
+                "TenureMonths" integer NULL,
+                "Terms" text NULL,
+                "IsLegacy" boolean NOT NULL DEFAULT FALSE,
+                CONSTRAINT "PK_LoanBankLouDocuments" PRIMARY KEY ("DocumentId"),
+                CONSTRAINT "FK_LoanBankLouDocuments_LoanBankOptions_BankOptionId" FOREIGN KEY ("BankOptionId") REFERENCES "LoanBankOptions" ("Id") ON DELETE CASCADE,
+                CONSTRAINT "FK_LoanBankLouDocuments_DocumentBlobs_DocumentId" FOREIGN KEY ("DocumentId") REFERENCES "DocumentBlobs" ("Id") ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS "IX_LoanBankLouDocuments_BankOptionId" ON "LoanBankLouDocuments" ("BankOptionId");
         """);
     }
 }

@@ -84,13 +84,13 @@ public sealed class PendingDocumentReviewPostgresTests
             Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/ocr-jobs/{fixture.RepairJob.Id}/review", review)).StatusCode);
             Assert.Equal(HttpStatusCode.Conflict, (await admin.PutAsJsonAsync($"/api/ocr-jobs/{fixture.RepairJob.Id}/review", review with { Result = new(new() { ["amount"] = "999" }) })).StatusCode);
 
-            // Concurrent edits to the same original LOU may create only one bank option; differing terms lose safely.
+            // Concurrent reviews of the same bank-linked file preserve one snapshot; differing terms lose safely.
             var loanRequests = new[] {
-                new LoanLouReviewRequest("Synthetic Bank", 80000m, 3m, 60, "Terms"),
-                new LoanLouReviewRequest("Synthetic Bank", 81000m, 3m, 60, "Terms")
+                new LoanLouReviewRequest("Synthetic Bank", 80000m, 3m, 60, "Terms", fixture.Bank.Id),
+                new LoanLouReviewRequest("Synthetic Bank", 81000m, 3m, 60, "Terms", fixture.Bank.Id)
             };
             var loanResponses = await Task.WhenAll(loanRequests.Select(request => admin.PostAsJsonAsync($"/api/loans/{fixture.Loan.Id}/banks/from-document/{fixture.LoanDocument.Id}", request)));
-            var winningIndex = Array.FindIndex(loanResponses, response => response.StatusCode == HttpStatusCode.Created);
+            var winningIndex = Array.FindIndex(loanResponses, response => response.StatusCode == HttpStatusCode.OK);
             Assert.InRange(winningIndex, 0, 1);
             Assert.Equal(HttpStatusCode.Conflict, loanResponses[1 - winningIndex].StatusCode);
             foreach (var response in loanResponses) response.Dispose();
@@ -98,7 +98,7 @@ public sealed class PendingDocumentReviewPostgresTests
             var clearedRequiredAmount = loanRequests[winningIndex] with { LoanAmount = null, RequireCompleteTerms = true };
             Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/loans/{fixture.Loan.Id}/banks/from-document/{fixture.LoanDocument.Id}", clearedRequiredAmount)).StatusCode);
             Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/loans/{fixture.Loan.Id}/banks/from-document/{fixture.LoanDocument.Id}",
-                new LoanLouReviewRequest(null, null, null, null, null, RequireCompleteTerms: true))).StatusCode);
+                new LoanLouReviewRequest(null, null, null, null, null, fixture.Bank.Id, RequireCompleteTerms: true))).StatusCode);
             Assert.Equal(HttpStatusCode.Conflict, (await admin.GetAsync($"/api/dashboard/document-reviews/{fixture.LoanJob.Id}")).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/ocr-jobs/{fixture.LoanJob.Id}/review", new OcrReviewRequest(new(new() { ["loanAmount"] = loanRequests[winningIndex].LoanAmount!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) }), "Synthetic loan review"))).StatusCode);
             using (var queue = JsonDocument.Parse(await admin.GetStringAsync("/api/dashboard/document-reviews")))
@@ -143,7 +143,9 @@ public sealed class PendingDocumentReviewPostgresTests
         var validLineItems = new[] { new OcrLineItem("Repair item", "1", "100", "100", .9m, "Repair item 100") };
         var repairJob = Job(repairDocument) with { ResultJson = JsonSerializer.Serialize(new OcrExtractionResult(repairDocument.Category, .9m, [], [], "PRIVATE OCR TEXT", [], validLineItems)) };
         var loanJob = Job(loanDocument);
-        db.AddRange(customer, vehicle, repair, loan, repairDocument, loanDocument, repairJob, loanJob);
+        var bank = new LoanBankOption { LoanApplicationId = loan.Id, BankName = "Synthetic Bank", LouDocumentId = loanDocument.Id };
+        db.AddRange(customer, vehicle, repair, loan, bank, repairDocument, loanDocument, repairJob, loanJob,
+            new LoanBankLouDocument { BankOptionId = bank.Id, DocumentId = loanDocument.Id });
         var unsupported = repairDocument with { Id = Guid.NewGuid(), Category = FileCategory.IdentityCard, RepairJobId = null };
         var unlinked = repairDocument with { Id = Guid.NewGuid(), RepairJobId = null };
         var closedRepair = repair with { Id = Guid.NewGuid(), ApprovalStatus = RepairApprovalStatus.Approved };
@@ -165,10 +167,10 @@ public sealed class PendingDocumentReviewPostgresTests
             Job(nullLineItem) with { ResultJson = JsonSerializer.Serialize(new { DocumentCategory = nullLineItem.Category, Fields = new Dictionary<string, string?> { ["amount"] = "100" }, LineItems = new OcrLineItem?[] { null } }) });
         db.RepairReceipts.Add(new RepairReceipt { RepairJobId = repair.Id, DocumentId = applied.Id, TotalAmount = 50m });
         await db.SaveChangesAsync();
-        return new(vehicle, repair, loan, repairDocument, loanDocument, repairJob, loanJob);
+        return new(vehicle, repair, loan, bank, repairDocument, loanDocument, repairJob, loanJob);
     }
 
-    private sealed record Fixture(Vehicle Vehicle, RepairJob Repair, LoanApplication Loan, DocumentBlob RepairDocument, DocumentBlob LoanDocument, OcrJob RepairJob, OcrJob LoanJob);
+    private sealed record Fixture(Vehicle Vehicle, RepairJob Repair, LoanApplication Loan, LoanBankOption Bank, DocumentBlob RepairDocument, DocumentBlob LoanDocument, OcrJob RepairJob, OcrJob LoanJob);
 
     private sealed class PendingReviewApplicationFactory(string connectionString) : WebApplicationFactory<Program>
     {

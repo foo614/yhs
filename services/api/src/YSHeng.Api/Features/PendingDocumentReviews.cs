@@ -52,8 +52,8 @@ public static class PendingDocumentReviews
         var repairs = await db.RepairJobs.AsNoTracking().Where(repair => vehicleIds.Contains(repair.VehicleId)).ToDictionaryAsync(repair => repair.Id, ct);
         var receipts = await db.RepairReceipts.AsNoTracking().Where(receipt => documentIds.Contains(receipt.DocumentId) || repairs.Keys.Contains(receipt.RepairJobId)).ToListAsync(ct);
         var invoices = await db.SupplierInvoices.AsNoTracking().Where(invoice => vehicleIds.Contains(invoice.VehicleId)).ToListAsync(ct);
-        var banks = await db.LoanBankOptions.AsNoTracking().Where(bank => (bank.LouDocumentId.HasValue && documentIds.Contains(bank.LouDocumentId.Value)) ||
-            (bank.EditedLouDocumentId.HasValue && documentIds.Contains(bank.EditedLouDocumentId.Value))).ToListAsync(ct);
+        var reviewedLouIds = await db.LoanBankLouDocuments.AsNoTracking()
+            .Where(lou => documentIds.Contains(lou.DocumentId) && lou.ReviewedAt.HasValue).Select(lou => lou.DocumentId).ToListAsync(ct);
         var roles = SeedData.Roles.Where(user.IsInRole).ToArray();
         var items = new List<PendingDocumentReview>();
         foreach (var job in pending)
@@ -75,7 +75,7 @@ public static class PendingDocumentReviews
                 loans.FirstOrDefault(loan => loan.Id == loanId) is { } loan && loan.VehicleId == vehicle.Id &&
                 loan.CustomerId == vehicle.CustomerId && document.CustomerId == loan.CustomerId &&
                 loan.Status is not (LoanStatus.Done or LoanStatus.Rejected) && LoanDecisionRules.CanProcess(loan, user, userId) &&
-                !banks.Any(bank => bank.LouDocumentId == document.Id || bank.EditedLouDocumentId == document.Id))
+                !reviewedLouIds.Contains(document.Id))
             {
                 items.Add(new(job.Id, document.Id, vehicle.Id, vehicle.PlateNumber, document.FileName, job.Category,
                     job.CreatedAt, "Loan", loanId, $"/loans?loanId={loanId}&ocrJobId={job.Id}"));

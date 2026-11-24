@@ -634,6 +634,7 @@ export type RepairJob = {
 
 export type LoanApplication = {
   id: string;
+  finalLouDocumentId?: string;
   createdBy?: string;
   createdAt?: string;
   approvedBanks?: { id: string; bankName: string; isSelected: boolean }[];
@@ -685,6 +686,30 @@ export type LoanBankOption = {
   editedLouDocumentId?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type LoanBankLouFile = {
+  documentId: string;
+  bankOptionId: string;
+  fileName: string;
+  mimeType: string;
+  uploadedAt: string;
+  reviewedAt?: string | null;
+  bankName?: string | null;
+  loanAmount?: number | null;
+  interestRate?: number | null;
+  tenureMonths?: number | null;
+  terms?: string | null;
+  isFinal: boolean;
+  isLegacy: boolean;
+};
+
+export type LoanLouTerms = {
+  bankName: string;
+  loanAmount: number;
+  interestRate: number;
+  tenureMonths: number;
+  terms?: string;
 };
 
 export type DeliverySchedule = {
@@ -2938,6 +2963,18 @@ export async function saveReviewedLoanLou(
 
 export async function submitLoanBank(option: LoanBankOption): Promise<LoanBankOption> {
   return request<LoanBankOption>(`/api/loans/${option.loanApplicationId}/banks/${option.id}/submit`, { method: "POST" });
+}
+
+export function getLoanBankLouFiles(loanId: string, bankId: string) {
+  return request<LoanBankLouFile[]>(`/api/loans/${loanId}/banks/${bankId}/lous`);
+}
+
+export function reviewLoanBankLouFile(loanId: string, bankId: string, documentId: string, terms: LoanLouTerms) {
+  return request<LoanBankLouFile>(`/api/loans/${loanId}/banks/${bankId}/lous/${documentId}/review`, { method: "POST", body: JSON.stringify(terms) });
+}
+
+export function finalizeLoanBankLouFile(loanId: string, bankId: string, file: LoanBankLouFile) {
+  return request<LoanApplication>(`/api/loans/${loanId}/banks/${bankId}/lous/${file.documentId}/finalize`, { method: "POST", body: JSON.stringify({ expectedReviewedAt: file.reviewedAt }) });
 }
 
 export async function rejectLoanBank(option: LoanBankOption, rejectionReason: string): Promise<LoanBankOption> {

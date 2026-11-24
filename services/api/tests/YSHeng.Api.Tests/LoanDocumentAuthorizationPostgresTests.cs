@@ -11,6 +11,7 @@ using Npgsql;
 using Xunit;
 using YSHeng.Api.Data;
 using YSHeng.Api.Domain;
+using YSHeng.Api.Features;
 
 namespace YSHeng.Api.Tests;
 
@@ -178,42 +179,48 @@ public sealed class LoanDocumentAuthorizationPostgresTests
                     new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, useAsFinal = true });
                 Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
             }
-            using var incompleteReview = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankName = "Synthetic Bank", loanAmount = 0m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            using var application = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks", new { bankName = "Synthetic Bank" });
+            Assert.Equal(HttpStatusCode.Created, application.StatusCode);
+            using var applicationJson = JsonDocument.Parse(await application.Content.ReadAsStringAsync());
+            var reviewedBankId = applicationJson.RootElement.GetProperty("id").GetGuid();
+            using var incompleteReview = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankOptionId = reviewedBankId, bankName = "Synthetic Bank", loanAmount = 0m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
             Assert.Equal(HttpStatusCode.BadRequest, incompleteReview.StatusCode);
-            using var review = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms", useAsFinal = true });
-            Assert.Equal(HttpStatusCode.Created, review.StatusCode);
+            using var autoSelect = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankOptionId = reviewedBankId, bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms", useAsFinal = true });
+            Assert.Equal(HttpStatusCode.BadRequest, autoSelect.StatusCode);
+            using var review = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankOptionId = reviewedBankId, bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            Assert.Equal(HttpStatusCode.OK, review.StatusCode);
             using var reviewJson = JsonDocument.Parse(await review.Content.ReadAsStringAsync());
-            var reviewedBankId = reviewJson.RootElement.GetProperty("id").GetGuid();
+            Assert.Equal(reviewedBankId, reviewJson.RootElement.GetProperty("id").GetGuid());
+            Assert.False(reviewJson.RootElement.GetProperty("isSelected").GetBoolean());
             using (var scope = factory.Services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var loan = await db.LoanApplications.FindAsync(result.Loan.Id);
                 Assert.Equal(LoanStatus.Approved, loan!.Status);
                 Assert.True(loan.LouApproved);
-                Assert.Equal("Synthetic Bank", loan.LoanBank);
-                Assert.Equal(45000m, loan.LoanAmount);
-                Assert.Equal(3.5m, loan.InterestRate);
-                Assert.Equal(84, loan.LoanTenureMonths);
-                Assert.Equal("Terms", loan.LoanTerms);
+                Assert.Null(loan.LoanBank);
+                Assert.Null(loan.LoanAmount);
+                Assert.Null(loan.FinalLouDocumentId);
+                Assert.False(loan.LouDone);
             }
-            using var replay = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            using var replay = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{previewDocumentId}", new { bankOptionId = reviewedBankId, bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
             Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
             Assert.Equal(reviewedBankId, JsonDocument.Parse(await replay.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetGuid());
             var duplicatePreviewId = await UploadLouPreviewAsync();
-            using var duplicateBank = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{duplicatePreviewId}", new { bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
-            Assert.Equal(HttpStatusCode.BadRequest, duplicateBank.StatusCode);
+            using var duplicateBank = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{duplicatePreviewId}", new { bankOptionId = reviewedBankId, bankName = "Synthetic Bank", loanAmount = 45000m, interestRate = 3.5m, tenureMonths = 84, terms = "Terms" });
+            Assert.Equal(HttpStatusCode.OK, duplicateBank.StatusCode);
             using var secondBank = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks", new { loanApplicationId = result.Loan.Id, bankName = "Second Bank", loanAmount = 40000m, interestRate = 4m, tenureMonths = 60, terms = "Second terms" });
             Assert.Equal(HttpStatusCode.Created, secondBank.StatusCode);
             using var secondBankJson = JsonDocument.Parse(await secondBank.Content.ReadAsStringAsync());
             var secondBankId = secondBankJson.RootElement.GetProperty("id").GetGuid();
             var secondPreviewId = await UploadLouPreviewAsync();
             using var conflictingFinal = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{secondPreviewId}", new { bankName = "Second Bank", loanAmount = 40000m, interestRate = 4m, tenureMonths = 60, terms = "Second terms", useAsFinal = true });
-            Assert.Equal(HttpStatusCode.Conflict, conflictingFinal.StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, conflictingFinal.StatusCode);
             using var secondReview = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{secondPreviewId}", new { bankName = "Second Bank", bankOptionId = secondBankId, loanAmount = 40000m, interestRate = 4m, tenureMonths = 60, terms = "Second terms" });
-            Assert.Equal(HttpStatusCode.Created, secondReview.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, secondReview.StatusCode);
             var editedPreviewId = await UploadLouPreviewAsync();
             using var editedReview = await admin.PostAsJsonAsync($"/api/loans/{result.Loan.Id}/banks/from-document/{editedPreviewId}", new { bankName = "Second Bank", bankOptionId = secondBankId, loanAmount = 41000m, interestRate = 4m, tenureMonths = 60, terms = "Edited terms" });
-            Assert.Equal(HttpStatusCode.Created, editedReview.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, editedReview.StatusCode);
             using var editedReviewJson = JsonDocument.Parse(await editedReview.Content.ReadAsStringAsync());
             Assert.Equal(secondPreviewId, editedReviewJson.RootElement.GetProperty("louDocumentId").GetGuid());
             Assert.Equal(editedPreviewId, editedReviewJson.RootElement.GetProperty("editedLouDocumentId").GetGuid());
@@ -464,6 +471,7 @@ public sealed class LoanDocumentAuthorizationPostgresTests
             using var vehicleDocs = JsonDocument.Parse(await otherBroker.GetStringAsync($"/api/vehicles/{fixture.VehicleId}/documents"));
             Assert.Contains(vehicleDocs.RootElement.EnumerateArray(), row => row.GetProperty("id").GetGuid() == fixture.LegacyVocId);
             await AssertDeliveryVocPrivacyAsync(factory, admin);
+            await AssertLouComparisonAsync(factory, admin, taker, broker, otherLoan, loanTakerId, brokerId);
         }
         finally
         {
@@ -471,6 +479,150 @@ public sealed class LoanDocumentAuthorizationPostgresTests
             await using var drop = new NpgsqlCommand($"DROP DATABASE \"{database}\" WITH (FORCE)", adminConnection);
             await drop.ExecuteNonQueryAsync();
         }
+    }
+
+    // File identity, reviewed money and final selection must commit together or not change at all.
+    private static async Task AssertLouComparisonAsync(LoanDocumentApplicationFactory factory, HttpClient admin, HttpClient taker, HttpClient broker, HttpClient otherLoan, string takerId, string brokerId)
+    {
+        var customer = new Customer { Name = "Synthetic LOU comparison", Phone = "0100000098" };
+        var vehicle = new Vehicle { PlateNumber = "COMPARE-LOU", Make = "Synthetic", Model = "Comparison", Year = 2026, CustomerId = customer.Id, SalesAgentUserId = brokerId };
+        var loan = new LoanApplication { VehicleId = vehicle.Id, CustomerId = customer.Id, Status = LoanStatus.Pending, TakenByUserId = takerId, SubmittedAt = new DateOnly(2026, 11, 24),
+            FinalSellingPrice = 65000, ContraAmount = 0, NcdPercentage = 0, WindscreenCovered = false, WarrantyInsuranceSelected = false };
+        var bankA = new LoanBankOption { LoanApplicationId = loan.Id, BankName = "Bank A" };
+        var bankB = new LoanBankOption { LoanApplicationId = loan.Id, BankName = "Bank B" };
+        var legacyFile = new DocumentBlob { VehicleId = vehicle.Id, LoanApplicationId = loan.Id, CustomerId = customer.Id, Category = FileCategory.LoanDocument, FileName = "legacy.pdf", MimeType = "application/pdf", Content = [1, 2, 3] };
+        var unboundFile = legacyFile with { Id = Guid.NewGuid(), FileName = "Bank A LOU.pdf" };
+        var legacyBank = new LoanBankOption { LoanApplicationId = loan.Id, BankName = "Legacy Bank", LouDocumentId = legacyFile.Id, LoanAmount = 99000, InterestRate = 9, TenureMonths = 99 };
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.AddRange(customer, vehicle, loan, bankA, bankB, legacyBank, legacyFile, unboundFile);
+            await db.SaveChangesAsync();
+        }
+        string PathFor(LoanBankOption bank) => $"/api/loans/{loan.Id}/banks/{bank.Id}/lous";
+        async Task<LoanBankLouView[]> FilesAsync(LoanBankOption bank) => (await taker.GetFromJsonAsync<LoanBankLouView[]>(PathFor(bank)))!;
+        async Task<Guid> UploadAsync(LoanBankOption bank, string fileName)
+        {
+            using var form = new MultipartFormDataContent();
+            var file = new ByteArrayContent(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+            form.Add(file, "file", fileName);
+            using var response = await taker.PostAsync($"/api/vehicles/{vehicle.Id}/documents?category=LoanDocument&loanApplicationId={loan.Id}&loanBankOptionId={bank.Id}&louPreview=true&ownershipType=Buyer&customerId={customer.Id}", form);
+            Assert.True(response.StatusCode == HttpStatusCode.Created, await response.Content.ReadAsStringAsync());
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return json.RootElement.GetProperty("id").GetGuid();
+        }
+        async Task<LoanBankLouView> ReviewAsync(LoanBankOption bank, Guid documentId, decimal amount)
+        {
+            using var response = await taker.PostAsJsonAsync(PathFor(bank) + $"/{documentId}/review", new LoanLouReviewRequest(bank.BankName, amount, 3, 60, $"Terms {amount}"));
+            Assert.True(response.StatusCode == HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+            return (await response.Content.ReadFromJsonAsync<LoanBankLouView>())!;
+        }
+        var originalA = await UploadAsync(bankA, "a-original.png");
+        var originalB = await UploadAsync(bankB, "b-original.png");
+        Assert.Null(Assert.Single(await FilesAsync(bankA)).ReviewedAt);
+        Assert.Equal(originalB, Assert.Single(await FilesAsync(bankB)).DocumentId);
+        var legacy = Assert.Single(await FilesAsync(legacyBank));
+        Assert.True(legacy.IsLegacy);
+        Assert.Null(legacy.ReviewedAt);
+        Assert.Null(legacy.LoanAmount);
+        Assert.False(legacy.IsFinal);
+        Assert.DoesNotContain(await FilesAsync(bankA), row => row.DocumentId == unboundFile.Id);
+        Assert.Equal(HttpStatusCode.Forbidden, (await otherLoan.GetAsync(PathFor(bankA))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await broker.PostAsJsonAsync(PathFor(bankA) + $"/{originalA}/review", new LoanLouReviewRequest("Bank A", 50000, 3, 60, "Terms"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await taker.PostAsJsonAsync(PathFor(bankB) + $"/{originalA}/review", new LoanLouReviewRequest("Bank B", 50000, 3, 60, "Terms"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await taker.PostAsJsonAsync(PathFor(legacyBank) + $"/{legacyFile.Id}/finalize", new LoanLouFinalizeRequest(DateTime.UtcNow))).StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var unchanged = (await db.LoanApplications.FindAsync(loan.Id))!;
+            Assert.Equal(LoanStatus.Pending, unchanged.Status);
+            Assert.Null(unchanged.FinalLouDocumentId);
+            Assert.False(await db.LoanBankOptions.AnyAsync(row => row.LoanApplicationId == loan.Id && row.IsSelected));
+        }
+        var reviewedA = await ReviewAsync(bankA, originalA, 50000);
+        // The existing owning-Sales bank-selection path remains legal and separate from completion.
+        Assert.Equal(HttpStatusCode.OK, (await broker.PostAsync($"/api/loans/{loan.Id}/banks/{bankA.Id}/select-final", null)).StatusCode);
+        var revisionA = await UploadAsync(bankA, "a-revision.png");
+        var reviewedRevision = await ReviewAsync(bankA, revisionA, 51000);
+        var thirdA = await UploadAsync(bankA, "a-third.png");
+        var reviewedThird = await ReviewAsync(bankA, thirdA, 52000);
+        var reviewedB = await ReviewAsync(bankB, originalB, 45000);
+        var retained = await FilesAsync(bankA);
+        Assert.Equal(3, retained.Length);
+        Assert.Equal(50000, retained.Single(row => row.DocumentId == originalA).LoanAmount);
+        Assert.Equal(51000, retained.Single(row => row.DocumentId == revisionA).LoanAmount);
+        Assert.Equal(52000, retained.Single(row => row.DocumentId == thirdA).LoanAmount);
+        Assert.All(retained, row => Assert.False(row.IsFinal));
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var unchanged = (await db.LoanApplications.FindAsync(loan.Id))!;
+            Assert.Equal(50000, unchanged.LoanAmount);
+            Assert.Null(unchanged.FinalLouDocumentId);
+            Assert.Equal(50000, (await db.LoanBankOptions.FindAsync(bankA.Id))!.LoanAmount);
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await broker.PostAsJsonAsync(PathFor(bankA) + $"/{thirdA}/finalize", new LoanLouFinalizeRequest(reviewedThird.ReviewedAt))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await otherLoan.PostAsJsonAsync(PathFor(bankA) + $"/{thirdA}/finalize", new LoanLouFinalizeRequest(reviewedThird.ReviewedAt))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await taker.PostAsJsonAsync(PathFor(bankB) + $"/{thirdA}/finalize", new LoanLouFinalizeRequest(reviewedThird.ReviewedAt))).StatusCode);
+        var latestThird = await ReviewAsync(bankA, thirdA, 52500);
+        Assert.NotEqual(reviewedThird.ReviewedAt, latestThird.ReviewedAt);
+        Assert.Equal(HttpStatusCode.Conflict, (await taker.PostAsJsonAsync(PathFor(bankA) + $"/{thirdA}/finalize", new LoanLouFinalizeRequest(reviewedThird.ReviewedAt))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await taker.PostAsJsonAsync(PathFor(bankA) + $"/{thirdA}/finalize", new LoanLouFinalizeRequest(latestThird.ReviewedAt))).StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var unchanged = (await db.LoanApplications.FindAsync(loan.Id))!;
+            Assert.Equal(LoanStatus.Approved, unchanged.Status);
+            Assert.Null(unchanged.FinalLouDocumentId);
+            Assert.Equal(50000, unchanged.LoanAmount);
+            Assert.Equal(bankA.Id, (await db.LoanBankOptions.SingleAsync(row => row.LoanApplicationId == loan.Id && row.IsSelected)).Id);
+            using var saveDeal = await taker.PutAsJsonAsync($"/api/loans/{loan.Id}", unchanged with { DepositAmount = 0, FinalLouDocumentId = Guid.NewGuid() });
+            Assert.True(saveDeal.StatusCode == HttpStatusCode.OK, await saveDeal.Content.ReadAsStringAsync());
+        }
+        var contenders = new[] { (Bank: bankA, Document: thirdA, Review: latestThird), (Bank: bankB, Document: originalB, Review: reviewedB) };
+        var results = await Task.WhenAll(contenders.Select(choice => taker.PostAsJsonAsync(PathFor(choice.Bank) + $"/{choice.Document}/finalize", new LoanLouFinalizeRequest(choice.Review.ReviewedAt))));
+        var winnerIndex = Array.FindIndex(results, result => result.StatusCode == HttpStatusCode.OK);
+        Assert.InRange(winnerIndex, 0, 1);
+        Assert.Equal(HttpStatusCode.Conflict, results[1 - winnerIndex].StatusCode);
+        foreach (var result in results) result.Dispose();
+        var winner = contenders[winnerIndex];
+        Assert.Equal(HttpStatusCode.OK, (await taker.PostAsJsonAsync(PathFor(winner.Bank) + $"/{winner.Document}/finalize", new LoanLouFinalizeRequest(winner.Review.ReviewedAt))).StatusCode);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var completed = (await db.LoanApplications.FindAsync(loan.Id))!;
+            Assert.Equal(LoanStatus.Done, completed.Status);
+            Assert.True(completed.LouDone);
+            Assert.Equal(winner.Document, completed.FinalLouDocumentId);
+            Assert.Equal(winner.Review.LoanAmount, completed.LoanAmount);
+            Assert.Equal(winner.Bank.Id, (await db.LoanBankOptions.SingleAsync(row => row.LoanApplicationId == loan.Id && row.IsSelected)).Id);
+            Assert.Equal(1, await db.AuditLogs.CountAsync(row => row.Action == "loan.lou.finalized" && row.EntityId == winner.Document));
+            Assert.Equal(4, await db.LoanBankLouDocuments.CountAsync(row => row.BankOptionId == bankA.Id || row.BankOptionId == bankB.Id));
+        }
+        Assert.True((await FilesAsync(winner.Bank)).Single(row => row.DocumentId == winner.Document).IsFinal);
+        foreach (var file in retained) Assert.Equal(HttpStatusCode.BadRequest, (await admin.DeleteAsync($"/api/vehicles/{vehicle.Id}/loan-documents/{file.DocumentId}")).StatusCode);
+
+        var oldVehicle = vehicle with { Id = Guid.NewGuid(), PlateNumber = "LEGACY-DONE" };
+        var oldLoan = loan with { Id = Guid.NewGuid(), VehicleId = oldVehicle.Id, Status = LoanStatus.Approved, DepositAmount = 0,
+            LoanBank = "Legacy Bank", LoanAmount = 40000, InterestRate = 3, LoanTenureMonths = 60, LouApproved = true };
+        var oldLou = legacyFile with { Id = Guid.NewGuid(), VehicleId = oldVehicle.Id, LoanApplicationId = oldLoan.Id };
+        var oldBank = new LoanBankOption { LoanApplicationId = oldLoan.Id, BankName = "Legacy Bank", LoanAmount = 40000,
+            InterestRate = 3, TenureMonths = 60, Status = LoanBankOptionStatus.Approved, IsSelected = true, LouDocumentId = oldLou.Id };
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.AddRange(oldVehicle, oldLoan, oldLou, oldBank);
+            await db.SaveChangesAsync();
+        }
+        using var legacyCompletion = await taker.PutAsJsonAsync($"/api/loans/{oldLoan.Id}", oldLoan with { Status = LoanStatus.Done, LouDone = true });
+        Assert.True(legacyCompletion.StatusCode == HttpStatusCode.OK, await legacyCompletion.Content.ReadAsStringAsync());
+        using var completedLegacy = JsonDocument.Parse(await legacyCompletion.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Null, completedLegacy.RootElement.GetProperty("finalLouDocumentId").ValueKind);
+        var legacyList = (await taker.GetFromJsonAsync<LoanBankLouView[]>($"/api/loans/{oldLoan.Id}/banks/{oldBank.Id}/lous"))!;
+        Assert.False(Assert.Single(legacyList).IsFinal);
+        Assert.Null(legacyList[0].ReviewedAt);
+        Assert.Null(legacyList[0].LoanAmount);
     }
 
     // Delivery must retain its buyer-owned VOC without gaining access to Loan evidence.
