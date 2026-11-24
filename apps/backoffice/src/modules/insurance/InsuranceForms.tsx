@@ -4,6 +4,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { Alert, AutoComplete, Button, Checkbox, DatePicker, Drawer, Form, Input, InputNumber, Modal, Select, Space, Tooltip, Typography, Upload, message } from "antd";
 import { confirmInsuranceImport, getInsuranceChargeItems, previewInsuranceImport, previewInsuranceReceipt, recordInsuranceInsurerPayment, saveInsuranceCase, type InsuranceCase, type InsuranceCaseView, type InsuranceImportInput, type InsuranceImportPreview, type InsuranceReceipt, type InsuranceReceiptInput } from "../../api";
 import { formatDisplayDate } from "../../dateDisplay";
+import { insuranceCompanies } from "../../insuranceCompanies";
 import { calculateInsuranceRoadTax, roadTaxExpiryFromInsurance } from "./InsuranceRoadTax";
 
 function InsuranceHint({ label, children }: { label: string; children: ReactNode }) {
@@ -17,7 +18,7 @@ const headers = ["NAME", "IC NO.", "CUSTOMER PHONE NUMBER", "VEHICLE NO.", "EXP 
 
 export function InsuranceCaseForm({ record, insurerNames = [], onClose, onSaved }: { record?: InsuranceCase; insurerNames?: string[]; onClose: () => void; onSaved: (saved: InsuranceCaseView) => Promise<void> }) {
   const [form] = Form.useForm<CaseForm>();
-  const insurers = ["Tune", "Liberty", "Etiqa", "Kurnia", ...insurerNames, record?.insurer ?? ""].filter((value, index, names) => value && names.findIndex(name => name.toLowerCase() === value.toLowerCase()) === index);
+  const insurers = [...insuranceCompanies, ...insurerNames, record?.insurer ?? ""].filter((value, index, names) => value && names.findIndex(name => name.toLowerCase() === value.toLowerCase()) === index);
   const coverages = ["Third Party, Fire & Theft", "Comprehensive Plus", "Comprehensive", "Comprehensive Premier"];
   if (record?.coverage && !coverages.includes(record.coverage)) coverages.push(record.coverage);
   const [busy, setBusy] = useState(false);

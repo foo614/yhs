@@ -1,4 +1,5 @@
 import { formatScheduledDateTime } from "../../dateDisplay";
+import { insuranceCompanies } from "../../insuranceCompanies";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircleOutlined,
@@ -16,6 +17,7 @@ import { compareRecordDates } from "../../recordDates";
 import { DocumentPreviewDrawer, documentPreviewKind } from "../shared/DocumentPreviewDrawer";
 import {
   Alert,
+  AutoComplete,
   Button,
   Checkbox,
   Collapse,
@@ -1062,6 +1064,10 @@ export function CurrentStageForm({
   onRelease: () => void;
   onRequestInvoice: () => void;
 }) {
+  const roadTaxExpiryEditing = useRef({ deliveryId: item.id, manual: Boolean(item.roadTaxExpiryDate && item.roadTaxExpiryDate !== item.insuranceExpiryDate) });
+  if (roadTaxExpiryEditing.current.deliveryId !== item.id) {
+    roadTaxExpiryEditing.current = { deliveryId: item.id, manual: Boolean(item.roadTaxExpiryDate && item.roadTaxExpiryDate !== item.insuranceExpiryDate) };
+  }
   if (item.stage === "PlanDelivery") {
     return <Form
       key={`${item.id}-plan`}
@@ -1104,40 +1110,41 @@ export function CurrentStageForm({
       initialValues={{ ...item, roadTaxPaidViaEAuto: item.roadTaxPaidViaEAuto === true }}
       onFinish={(values) => void onSave(values, "Document checks saved")}
     >
-      <Form.Item noStyle shouldUpdate={(before, after) => before.roadTaxPaidViaEAuto !== after.roadTaxPaidViaEAuto}>
-        {({ getFieldValue }) => <div className="deliveryEvidenceGrid">
-        {(["Voc", "DeliveryDocument", "Policy", "RoadTaxReceipt"] as DocumentCategory[]).map((category) => (
+      <div className="deliveryEvidenceGrid">
+        {(["Voc", "DeliveryDocument", "Policy"] as DocumentCategory[]).map((category) => (
           <EvidenceUpload
             key={category}
-            item={{ ...item, roadTaxPaidViaEAuto: getFieldValue("roadTaxPaidViaEAuto") === true }}
+            item={item}
             category={category}
             saving={saving}
             onUpload={onUpload}
             allowAdditional={category === "Policy"}
           />
         ))}
-        </div>}
-      </Form.Item>
+      </div>
       <div className="deliveryStageFormGrid">
-        <Form.Item name="insuranceCompany" label="Insurance company / 保险公司"><Input placeholder="Manual entry / 手动填写" /></Form.Item>
+        <Form.Item name="insuranceCompany" label="Insurance company / 保险公司"><AutoComplete options={insuranceCompanies.map(value => ({ value }))} filterOption={(input, option) => String(option?.value).toLowerCase().includes(input.toLowerCase())} placeholder="Select or enter insurer / 选择或填写保险公司" /></Form.Item>
         <Form.Item name="insurancePrice" label="Insurance price / 保费"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
         <Form.Item name="insuranceSumInsured" label="Sum insured / 投保金额"><InputNumber className="fullWidth" min={0} precision={2} /></Form.Item>
         <Form.Item name="insurancePolicyReference" label="Policy reference / 保单编号"><Input placeholder="Policy required; endorsement or credit note optional." /></Form.Item>
-        <Form.Item name="insuranceExpiryDate" label="Insurance expiry / 保险到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-        <Form.Item name="roadTaxPaidViaEAuto" valuePropName="checked" extra="If unchecked, upload a JPJ receipt before confirming road tax. / 未勾选时，须上传JPJ收据后确认路税。">
-          <Checkbox>Renewed via eAuto / 通过 eAuto 更新路税</Checkbox>
+        <Form.Item noStyle shouldUpdate>
+          {({ setFieldValue }) => <Form.Item name="insuranceExpiryDate" label="Insurance expiry / 保险到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" onChange={(value) => {
+            if (value?.isValid() && !roadTaxExpiryEditing.current.manual) setFieldValue("roadTaxExpiryDate", deliveryDateString(value));
+          }} /></Form.Item>}
         </Form.Item>
-        <div>
-          <Form.Item name="roadTaxExpiryDate" label="Road tax expiry / 路税到期日" getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" /></Form.Item>
-          <Form.Item noStyle shouldUpdate={(before, after) => before.insuranceExpiryDate !== after.insuranceExpiryDate}>
-            {({ getFieldValue, setFieldValue }) => {
-              const expiry = getFieldValue("insuranceExpiryDate");
-              const valid = typeof expiry === "string" && /^\d{4}-\d{2}-\d{2}$/.test(expiry) && dayjs(expiry).isValid() && dayjs(expiry).format("YYYY-MM-DD") === expiry;
-              return <Button size="small" disabled={!valid} onClick={() => { if (valid) setFieldValue("roadTaxExpiryDate", expiry); }}>Use insurance expiry / 使用保险到期日</Button>;
-            }}
-          </Form.Item>
-        </div>
       </div>
+      <section className="deliveryRoadTaxSection" aria-label="Road tax / 路税">
+        <Typography.Title level={5}>Road tax / 路税</Typography.Title>
+        <div className="deliveryCreateGrid">
+          <Form.Item name="roadTaxPaidViaEAuto" label="Renewal method / 办理方式" tooltip={{ title: "eAuto renewal exempts only the JPJ receipt. For JPJ, upload a receipt for this delivery before confirming road tax. Existing files are kept when switching. / eAuto仅豁免JPJ收据；选择JPJ时须上传本次交车收据后确认路税。切换方式保留已有附件。", trigger: ["hover", "focus", "click"] }}>
+            <Select options={[{ value: true, label: "eAuto / eAuto 更新" }, { value: false, label: "JPJ / JPJ 办理" }]} />
+          </Form.Item>
+          <Form.Item name="roadTaxExpiryDate" label="Road tax expiry / 路税到期日" tooltip={{ title: "Follows insurance expiry until manually changed. Existing different dates are kept. / 默认跟随保险到期日；手动修改后保留，旧案不同日期不覆盖。", trigger: ["hover", "focus", "click"] }} getValueProps={(value?: string) => ({ value: deliveryDatePickerValue(value) })} normalize={deliveryDateString}><DatePicker className="fullWidth" format="YYYY-MM-DD" onChange={() => { roadTaxExpiryEditing.current.manual = true; }} /></Form.Item>
+        </div>
+        <Form.Item noStyle shouldUpdate={(before, after) => before.roadTaxPaidViaEAuto !== after.roadTaxPaidViaEAuto}>
+          {({ getFieldValue }) => <EvidenceUpload item={{ ...item, roadTaxPaidViaEAuto: getFieldValue("roadTaxPaidViaEAuto") === true }} category="RoadTaxReceipt" saving={saving} onUpload={onUpload} allowAdditional={false} label="JPJ receipt / JPJ 收据" />}
+        </Form.Item>
+      </section>
       <div className="deliveryEvidenceReviewIntro">
         <Typography.Text strong>Evidence reviewed and confirmed / 证据已审核确认</Typography.Text>
         <Typography.Paragraph type="secondary">Received means a file is on record. Open each file and confirm it is correct before checking the matching item below.</Typography.Paragraph>
@@ -1196,13 +1203,15 @@ function EvidenceUpload({
   category,
   saving,
   onUpload,
-  allowAdditional = true
+  allowAdditional = true,
+  label
 }: {
   item: DeliveryWorkboardItem;
   category: DocumentCategory;
   saving: boolean;
   onUpload: (file: File, category: DocumentCategory) => Promise<void>;
   allowAdditional?: boolean;
+  label?: string;
 }) {
   const evidences = item.evidence.filter((entry) => entry.category === category && entry.isPresent);
   const roadTaxReceiptNotRequired = category === "RoadTaxReceipt" && item.roadTaxPaidViaEAuto === true;
@@ -1232,8 +1241,9 @@ function EvidenceUpload({
   return (
     <div className="deliveryEvidenceItem">
       <div>
-        <Typography.Text strong>{evidenceLabels[category] ?? category}</Typography.Text>
-        {evidences.length === 0 ? <Typography.Text type="secondary">{roadTaxReceiptNotRequired ? "Not required / 不需要" : "Not uploaded yet"}</Typography.Text> : evidences.map((entry, index) => <Space key={entry.documentId ?? `${category}-${index}`} direction="vertical" size={2} className="fullWidth">
+        <Typography.Text strong>{label ?? evidenceLabels[category] ?? category}</Typography.Text>
+        {roadTaxReceiptNotRequired && <Typography.Text type="secondary">eAuto: JPJ receipt not required / eAuto：无需 JPJ 收据</Typography.Text>}
+        {evidences.length === 0 ? (!roadTaxReceiptNotRequired && <Typography.Text type="secondary">Not uploaded yet / 尚未上传</Typography.Text>) : evidences.map((entry, index) => <Space key={entry.documentId ?? `${category}-${index}`} direction="vertical" size={2} className="fullWidth">
           <Typography.Text type="secondary">{entry.fileName ?? "Document"}</Typography.Text>
           {entry.uploadedBy && <Typography.Text type="secondary">{entry.uploadedBy} · {String(entry.uploadedAt ?? "").replace("T", " ").slice(0, 16)}</Typography.Text>}
           <Space wrap>
@@ -1242,7 +1252,7 @@ function EvidenceUpload({
         </Space>)}
       </div>
       <Space>
-        <Tag color={evidences.length > 0 ? "green" : "orange"}>{evidences.length > 0 ? `${evidences.length} received` : "Needed"}</Tag>
+        <Tag color={evidences.length > 0 ? "green" : roadTaxReceiptNotRequired ? "default" : "orange"}>{evidences.length > 0 ? `${evidences.length} received` : roadTaxReceiptNotRequired ? "JPJ receipt exempt / JPJ 收据豁免" : "Needed"}</Tag>
         {(evidences.length === 0 || allowAdditional) && <Upload
           accept={accept}
           showUploadList={false}
