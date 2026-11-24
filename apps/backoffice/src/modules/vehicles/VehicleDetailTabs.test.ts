@@ -7,7 +7,7 @@ const vehiclePageSource = fs.readFileSync(path.resolve(__dirname, "VehiclePage.t
 function vehicleDetailTabSection() {
   const shellStart = vehiclePageSource.indexOf('<div className="fullWidth vehicleDetailTabContent">');
   const tabsStart = vehiclePageSource.lastIndexOf("<Tabs", shellStart);
-  const drawerEnd = vehiclePageSource.indexOf("\n      </Drawer>", shellStart);
+  const drawerEnd = vehiclePageSource.indexOf("\n      </BusinessDialog>", shellStart);
 
   expect(tabsStart).toBeGreaterThanOrEqual(0);
   expect(shellStart).toBeGreaterThan(tabsStart);

@@ -32,6 +32,7 @@ description: Work on the YS Heng back-office operations portal. Use for Vite Rea
 - Optimize for staff completing operational tasks: clear next actions, readable forms, useful filters, and visible status.
 - Design mobile first, then use the available tablet and desktop space for efficient scanning and comparison.
 - Use Ant Design and Pro Components patterns already present in the app.
+- Use the shared `BusinessDialog` for business detail, edit, upload, review, and settings panels. Keep new-record Modals centered and backdrop clicks non-closing. Reserve `Drawer` for mobile navigation; preserve explicit save/cancel actions, nested preview behavior, focus return, and bounded mobile scrolling.
 - Keep create/update flows tied to the API client in `src/api.ts`.
 - Surface backend validation messages, especially duplicate invoice, wrong-plate, upload limit, and role-policy errors.
 - Keep uploaded document categories aligned with backend `FileCategory` values.
@@ -52,7 +53,7 @@ description: Work on the YS Heng back-office operations portal. Use for Vite Rea
 | Enter a date or time | `DatePicker` / `TimePicker`; preserve the API date/time format |
 | Enter an amount | Existing RM amount control or `InputNumber` pattern; preserve precision and validation |
 | Read record details | `Descriptions` or the existing detail panel |
-| Edit while retaining list context | `Drawer`, sized for the viewport; use a full page when the flow needs more space |
+| Edit while retaining list context | Shared `BusinessDialog`, sized for the viewport; use a full page when the flow needs more space |
 | Confirm a consequential action | Existing `Modal` confirmation pattern with a specific action label |
 | Compare records | `Table` / `ProTable` on wide screens with the shared mobile record presentation |
 | Show related sections or actual workflow stages | `Tabs` for sections; `Steps` only for a real staged flow |
@@ -63,14 +64,14 @@ These are starting points, not a requirement to add more components. Choose the 
 ## Mobile-first layout and usability
 
 - Start with narrow-phone layouts: stacked record cards, single-column forms, wrapped filters, and reachable primary actions. Keep horizontal scrolling inside a table only when comparison cannot be simplified safely; avoid page-level overflow.
-- Adapt tablet layouts with compact grids, wrapped actions, and appropriately sized drawers. Use desktop/laptop space for scannable tables, summaries, and side-by-side fields without stretching a mobile column across the page.
+- Adapt tablet layouts with compact grids, wrapped actions, and appropriately sized dialogs. Use desktop/laptop space for scannable tables, summaries, and side-by-side fields without stretching a mobile column across the page.
 - Preserve necessary information, permitted actions, validation, and save behavior across sizes. Reflow content rather than hiding essential fields to make it fit.
 - Keep key actions visible and easy to reach. Avoid hiding important workflow steps behind unclear menus.
 - Keep forms easy to understand with clear labels, sensible defaults, validation messages, and obvious save or submit actions.
 - Keep tables easy to scan with pagination, useful filters, status tags, short column labels, and the most important row action first.
 - In back-office tables, keep row actions in a single right-fixed `Action / 操作` or `Next Action / 操作` column. Do not add separate left-side `Open` or `Details` action columns.
 - Align row action buttons with the shared `tableActionGroup` pattern: `Details` first when a details view exists, then quick workflow actions.
-- On mobile, reuse the shared record-card action styles: content-width, right-aligned actions at least 44px tall, with status metadata separate. Keep form submit actions visible and unobstructed by drawer footers.
+- On mobile, reuse the shared record-card action styles: content-width, right-aligned actions at least 44px tall, with status metadata separate. Keep form submit actions visible and unobstructed by dialog footers.
 - Reuse the app's spacing scale and Ant Design tokens for page gutters, section gaps, field spacing, and action groups. Keep related controls together, separate distinct tasks, and avoid arbitrary one-off margins or compressed labels.
 - Use clear hierarchy and minimal decoration. A compact desktop layout must still give mobile controls room to read and tap.
 - Avoid nested cards, oversized hero layouts, decorative backgrounds, and heavy visual effects in the operations portal.

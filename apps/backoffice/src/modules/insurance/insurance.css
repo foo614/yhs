@@ -1,7 +1,7 @@
 .insurancePage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; }
 .insuranceToolbar { margin-bottom: 16px; }
 .insuranceSecondary { color: var(--ant-color-text-secondary, #666); font-size: 12px; overflow-wrap: anywhere; }
-.insuranceDrawer .ant-drawer-body { overflow-wrap: anywhere; }
+.insuranceDrawer .ant-modal-body { overflow-wrap: anywhere; }
 .insuranceDrawer .ant-alert { margin-bottom: 16px; }
 .insuranceDrawer .formGrid { margin-top: 16px; }
 .insuranceCaseModal .ant-modal-body { overflow-wrap: anywhere; padding-right: 4px; }
@@ -28,7 +28,7 @@
   .insuranceToolbar > .ant-space-item { max-width: 100%; }
   .insuranceToolbar button, .insuranceDrawer button { min-height: 44px; white-space: normal; }
   .insuranceCaseModal button { min-height: 44px; white-space: normal; }
-  .insuranceDrawer .ant-drawer-footer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .insuranceDrawer .ant-modal-footer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .insuranceCharge { grid-template-columns: 1fr; gap: 0; border-bottom: 1px solid #eee; }
   .insuranceCharge > button { justify-self: end; }
 }

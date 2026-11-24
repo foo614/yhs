@@ -381,8 +381,19 @@
   }
 
   .hrAttendanceRangeControls .ant-btn {
+    display: inline-flex;
     min-height: 44px;
+    height: auto;
     padding-inline: 6px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .hrAttendanceRangeControls .ant-btn > span {
+    display: block;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .hrAttendanceTrend {

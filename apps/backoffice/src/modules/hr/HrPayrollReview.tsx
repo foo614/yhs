@@ -1,5 +1,6 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useState } from "react";
-import { Alert, Button, Descriptions, Drawer, Form, Input, InputNumber, Modal, Space, Tag, Typography } from "antd";
+import { Alert, Button, Descriptions, Form, Input, InputNumber, Modal, Space, Tag, Typography } from "antd";
 import { decideHrPayroll, hrPayslipPdfUrl, humanizeApiError, saveHrStatutory } from "../../api";
 import type { CurrentUser, HrPayPeriod, HrPayrollAction, HrPayslip, HrStatutoryInput } from "../../api";
 import { formatMoneyInput, parseMoneyInput } from "../../money";
@@ -71,7 +72,7 @@ export function HrPayrollReview({ currentUser, slip, period, onClose, onChanged,
   const actions = slip ? payrollActions(slip, currentUser) : [];
   const context = `${slip?.staffName || "Employee / 员工"} · ${period?.name || "Pay period / 薪资月份"}`;
   return <>
-    <Drawer title={`Payslip details / 薪资单详情 · ${context}`} open={Boolean(slip)} onClose={onClose} closable={!busy} maskClosable={!busy} keyboard={!busy} width="min(720px, 100vw)">
+    <BusinessDialog title={`Payslip details / 薪资单详情 · ${context}`} open={Boolean(slip)} onClose={onClose} closable={!busy} maskClosable={!busy} keyboard={!busy} width="min(720px, 100vw)">
       {slip && <Space direction="vertical" size={16} className="fullWidth">
         <Space wrap><Tag>{statusLabels[slip.status]}</Tag><Typography.Text strong>{payrollAmountLabel(slip)}: {amount(slip.netPay)}</Typography.Text></Space>
         {!complete && <Alert type="warning" showIcon message="Not final net pay / 非最终实发薪资" description="Statutory amounts are incomplete. Employer contributions must be recorded separately and do not reduce employee net pay. / 法定金额尚未填齐，雇主供款须另行记录，不从员工薪资扣除。" />}
@@ -93,8 +94,8 @@ export function HrPayrollReview({ currentUser, slip, period, onClose, onChanged,
         {slip.status === "Published" && <Typography.Text type="secondary">Published payslips are locked. / 已发布薪资单已锁定。</Typography.Text>}
         {onLoadPayslip ? <DocumentPreviewButton fileName={`payslip-${slip.id}.pdf`} mimeType="application/pdf" downloadUrl={hrPayslipPdfUrl(slip.id)} loadContent={() => onLoadPayslip(slip)} previewLabel="Preview PDF / 预览" downloadLabel="Download PDF / 下载" /> : onDownloadPayslip && <Button onClick={() => void onDownloadPayslip(slip)}>Download PDF / 下载</Button>}
       </Space>}
-    </Drawer>
-    <Modal title="Monthly statutory amounts / 每月法定扣款" open={editing && Boolean(slip)} confirmLoading={busy} width={720} closable={!busy} mask={{ closable: false }} keyboard={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Save for review / 保存待核对">
+    </BusinessDialog>
+    <Modal centered title="Monthly statutory amounts / 每月法定扣款" open={editing && Boolean(slip)} confirmLoading={busy} width={720} closable={!busy} mask={{ closable: false }} keyboard={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setEditing(false)} onOk={() => form.submit()} okText="Save for review / 保存待核对">
       {error && <Alert type="error" message={error} />}
       <Typography.Paragraph strong>{context}</Typography.Paragraph>
       <Typography.Paragraph>Use the official employee-specific assessment for this month. Enter zero explicitly when not applicable and explain the exemption. Do not include these amounts again in manual deductions. / 按此员工本月的正式计算填写；不适用时请填写零并说明，勿重复计入手动扣款。</Typography.Paragraph>
@@ -103,7 +104,7 @@ export function HrPayrollReview({ currentUser, slip, period, onClose, onChanged,
         <Form.Item name="reference" label="Calculation source, month and exemption reasons / 计算依据" rules={[{ required: true, whitespace: true }]}><Input.TextArea maxLength={1000} /></Form.Item>
       </Form>
     </Modal>
-    <Modal title={review ? actionLabels[review] : "Review payroll"} open={Boolean(review && slip)} confirmLoading={busy} width={720} closable={!busy} mask={{ closable: false }} keyboard={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setReview(undefined)} onOk={() => reviewForm.submit()} okText="Confirm / 确认">
+    <Modal centered title={review ? actionLabels[review] : "Review payroll"} open={Boolean(review && slip)} confirmLoading={busy} width={720} closable={!busy} mask={{ closable: false }} keyboard={!busy} cancelButtonProps={{ disabled: busy }} onCancel={() => setReview(undefined)} onOk={() => reviewForm.submit()} okText="Confirm / 确认">
       {error && <Alert type="error" message={error} />}
       {slip && <><Typography.Paragraph strong>{context} · {payrollAmountLabel(slip)}: {amount(slip.netPay)}</Typography.Paragraph><HrEarningsSummary slip={slip} /><HrStatutorySummary slip={slip} /><Typography.Paragraph>{slip.statutoryReference}</Typography.Paragraph></>}
       {review === "BossApprove" && <Alert type="warning" message="Final approval publishes this payslip to the employee and locks its amounts. / 最终批准后，薪资单将发布给员工且金额锁定。" />}

@@ -1,3 +1,4 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { formatScheduledDateTime } from "../../dateDisplay";
 import { insuranceCompanies } from "../../insuranceCompanies";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,7 +24,6 @@ import {
   Collapse,
   Descriptions,
   DatePicker,
-  Drawer,
   Dropdown,
   Empty,
   Form,
@@ -843,7 +843,7 @@ export function DeliveryWorkboardPage({
         }}
       />
 
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         rootClassName="deliveryWorkboardDrawer"
         width={760}
         open={Boolean(selected)}
@@ -867,9 +867,9 @@ export function DeliveryWorkboardPage({
           onRequestInvoice={() => openSecondaryAction("invoice", selected)}
           onCorrectBuyer={() => openSecondaryAction("buyer", selected)}
         />}
-      </Drawer>
+      </BusinessDialog>
 
-      <Modal mask={{ closable: false }}
+      <Modal centered mask={{ closable: false }}
         open={Boolean(secondaryAction)}
         title={secondaryAction === "cancel" ? "Cancel delivery?" : secondaryAction === "invoice" ? "Request Sales Invoice Update" : secondaryAction === "buyer" ? "Lock confirmed buyer?" : "Reschedule delivery"}
         okText={secondaryAction === "cancel" ? "Cancel delivery" : secondaryAction === "invoice" ? "Send to Finance" : secondaryAction === "buyer" ? "Confirm buyer lock" : "Save new schedule"}
@@ -918,7 +918,7 @@ function CreateDeliveryModal({
   onCreate: (values: CreateDeliveryValues) => Promise<void>;
 }) {
   return (
-    <Modal mask={{ closable: false }}
+    <Modal centered mask={{ closable: false }}
       open={open}
       title="New delivery / 新交车"
       okText="Schedule delivery"

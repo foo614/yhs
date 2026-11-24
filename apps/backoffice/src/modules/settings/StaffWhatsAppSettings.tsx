@@ -1,5 +1,6 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Button, Card, DatePicker, Descriptions, Drawer, Form, Grid, InputNumber, Modal, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from "antd";
+import { Alert, Button, Card, DatePicker, Descriptions, Form, Grid, InputNumber, Modal, Select, Space, Switch, Tabs, Tag, TimePicker, Typography, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { getStaffWhatsAppDiagnostics, getStaffWhatsAppHistory, getStaffWhatsAppPolicies, humanizeApiError, updateStaffWhatsAppPolicy,
   type StaffWhatsAppDiagnostics,
@@ -274,7 +275,7 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
       </div>
     </section>}
 
-    <Drawer title="Staff WhatsApp message" open={!!selected} onClose={() => setSelected(null)}
+    <BusinessDialog title="Staff WhatsApp message" open={!!selected} onClose={() => setSelected(null)}
       width={screens.md ? 560 : "100%"} destroyOnClose className="recordEditDrawer">
       {selected && <Space direction="vertical" size="middle" className="fullWidth">
         <Descriptions size="small" bordered column={1} items={[
@@ -302,9 +303,9 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
         {selected.failureReason && <Alert type="warning" showIcon message="Delivery issue" description={selected.failureReason} />}
         <Typography.Text type="secondary">No retry action is available from history. Check the recipient connection, sender readiness and failure reason before a new event.</Typography.Text>
       </Space>}
-    </Drawer>
+    </BusinessDialog>
 
-    <Drawer mask={{ closable: false }} title={editing ? `Edit ${descriptions[editing.category].title}` : "Edit message category"}
+    <BusinessDialog mask={{ closable: false }} title={editing ? `Edit ${descriptions[editing.category].title}` : "Edit message category"}
       open={!!editing} onClose={() => setEditing(null)} width={screens.md ? 480 : "100%"} destroyOnClose className="recordEditDrawer">
       {editing && <Form form={form} layout="vertical" onFinish={reviewSave}>
         <Typography.Paragraph type="secondary">{descriptions[editing.category].detail}</Typography.Paragraph>
@@ -327,6 +328,6 @@ export function StaffWhatsAppSettings({ staffUsers }: { staffUsers: StaffUser[] 
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={saving}>Review and save</Button></Form.Item>
         </div>
       </Form>}
-    </Drawer>
+    </BusinessDialog>
   </Space>;
 }

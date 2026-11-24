@@ -1,8 +1,9 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { BankSettlementPanel } from "./BankSettlementPanel";
 import { formatDisplayDateTime } from "../../dateDisplay";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Badge, Button, Checkbox, Collapse, DatePicker, Descriptions, Drawer, Dropdown, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, Badge, Button, Checkbox, Collapse, DatePicker, Descriptions, Dropdown, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Tooltip, Typography, Upload, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -1767,7 +1768,7 @@ export function FinancePage({
         onRetry={() => void loadInvoiceUpdateRequests()}
         onResolve={confirmInvoiceRequestResolved}
       />}
-      <Modal
+      <Modal mask={{ closable: false }} centered
         rootClassName="financeOverlay"
         title={invoiceRequestToResolve ? `Mark ${invoiceRequestToResolve.plateNumber} invoice request resolved?` : "Mark invoice request resolved?"}
         open={Boolean(invoiceRequestToResolve)}
@@ -1924,7 +1925,7 @@ export function FinancePage({
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={columns} dataSource={filteredPayments} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPayments.length, paymentPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 1120 }} locale={{ emptyText: paymentEmptyText }} />
         </Space>
       </ProCard>}
-      <Modal mask={{ closable: false }}
+      <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="Prepare sales invoice / 准备销售发票"
         width={700}
@@ -1997,7 +1998,7 @@ export function FinancePage({
 
         </Form>
       </Modal>
-      <Modal
+      <Modal mask={{ closable: false }} centered
         rootClassName="financeOverlay"
         title={invoiceReviewInput && financeSaleNeedsApproval(invoiceReviewInput)
           ? "Review invoice · approval required"
@@ -2019,7 +2020,7 @@ export function FinancePage({
           customerName={customerLabel(customers, vehicles.find((item) => item.id === invoiceReviewInput.vehicleId)?.customerId)}
         />}
       </Modal>
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeCollection" type="primary" htmlType="submit" disabled={!selectedCollectionPayment || Boolean(paymentLoadError || paymentRefreshing)} loading={v2MutationKey === `collection-${selectedCollectionPayment?.id}`}>Add payment</Button></div>}
         title="Add payment / 新增收款"
         width={600}
@@ -2046,8 +2047,8 @@ export function FinancePage({
           </Form>
           {collectionHistory(selectedCollectionPayment)}
         </Space>}
-      </Drawer>
-      <Drawer
+      </BusinessDialog>
+      <BusinessDialog
         title="Sales invoice & collection details / 销售发票与收款详情"
         width={600}
         open={Boolean(v2DetailsPaymentId)}
@@ -2067,8 +2068,8 @@ export function FinancePage({
           {selectedV2DetailsPayment.receivableStatus !== "Paid" && (selectedV2DetailsPayment.availableToAllocate ?? 0) > 0 && <Button block type="primary" disabled={Boolean(paymentLoadError || paymentRefreshing)} onClick={() => { setV2DetailsPaymentId(undefined); openAddPayment(selectedV2DetailsPayment); }}>Add payment</Button>}
           {collectionHistory(selectedV2DetailsPayment)}
         </Space>}
-      </Drawer>
-      <Modal mask={{ closable: false }} rootClassName="financeOverlay" title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim() || Boolean(paymentLoadError || paymentRefreshing), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
+      </BusinessDialog>
+      <Modal centered mask={{ closable: false }} rootClassName="financeOverlay" title="Reverse reconciled payment" open={Boolean(reverseCollectionId)} okText="Reverse payment" okButtonProps={{ danger: true, disabled: !reverseReason.trim() || Boolean(paymentLoadError || paymentRefreshing), loading: v2MutationKey === `reverse-${reverseCollectionId}` }} onCancel={() => { setReverseCollectionId(undefined); setReverseReason(""); }} onOk={async () => {
         if (!reverseCollectionId || !reverseReason.trim()) return;
         await runV2Mutation(`reverse-${reverseCollectionId}`, () => onReverseCollection(reverseCollectionId, reverseReason.trim()));
         setReverseCollectionId(undefined);
@@ -2078,7 +2079,7 @@ export function FinancePage({
         <Typography.Text strong>Reason for reversal</Typography.Text>
         <Input.TextArea aria-label="Reason for reversal" className="financeV2ReverseReason" rows={3} maxLength={500} showCount value={reverseReason} onChange={(event) => setReverseReason(event.target.value)} placeholder="Explain why this reconciled payment must be reversed" />
       </Modal>
-      <Modal mask={{ closable: false }}
+      <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="New Bank Collection / 新增收款"
         width={680}
@@ -2180,7 +2181,7 @@ export function FinancePage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Save Payment</Button></Form.Item>
         </Form>
       </ProCard>}
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financePaymentEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPayment || Boolean(paymentLoadError || paymentRefreshing)}>Update Payment</Button></div>}
         title="Payment Details / 收款详情"
         width={560}
@@ -2234,7 +2235,7 @@ export function FinancePage({
           <Form.Item name="bankFollowUpDate" label="Bank Follow-up"><Input placeholder="YYYY-MM-DD" /></Form.Item>
 
         </Form>
-      </Drawer>
+      </BusinessDialog>
       {canApproveManagementReview && financeTab === "settlements" && <ProCard title="Bank settlement / 银行结算">
         {settlementLoadError ? <Alert type="error" message="Settlement records could not be loaded" description={settlementLoadError} action={<Button onClick={() => void onRetrySettlements?.()}>Retry</Button>} /> :
           <BankSettlementPanel records={settlements.filter(row => matchesDashboardFinanceFocus(dashboardFocus, row.vehicleId, settlementMatchesDashboardAttention(row, dashboardFocus.attention, dashboardToday)))} vehicles={vehicles} canManage={canApproveManagementReview && !settlementRefreshing} refresh={async () => { await onRetrySettlements?.(); }} />}
@@ -2274,7 +2275,7 @@ export function FinancePage({
             <Pagination className="mobileRecordPagination" current={brokerCommissionPage} pageSize={financePageSize} total={filteredBrokerCommissions.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={brokerCommissionColumns} dataSource={filteredBrokerCommissions} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredBrokerCommissions.length, brokerCommissionPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 1040 }} locale={{ emptyText: brokerCommissionEmptyText }} />
-          <Modal mask={{ closable: false }}
+          <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Broker Commission / 新增经纪人佣金"
             width={620}
@@ -2314,7 +2315,7 @@ export function FinancePage({
           </Modal>
         </Space>
       </ProCard>}
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeCommissionEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditBrokerCommission || registerBlocked("brokerCommissions")}>Update Commission</Button></div>}
         title="Broker Commission Details / 经纪人佣金详情"
         width={560}
@@ -2359,7 +2360,7 @@ export function FinancePage({
             <Form.Item name="cp58Prepared" label={shortformLabel("CP58 Prepared", "Malaysian commission tax form prepared")}><Select options={[{ value: false, label: "No" }, { value: true, label: "Yes" }]} /></Form.Item>
 
           </Form>
-      </Drawer>
+      </BusinessDialog>
       {financeTab === "debt" && <ProCard
         id="debt-recovery-list-card"
         title="Debt Recovery / 欠款追讨"
@@ -2395,7 +2396,7 @@ export function FinancePage({
             <Pagination className="mobileRecordPagination" current={debtRecoveryPage} pageSize={financePageSize} total={filteredDebtRecoveries.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={debtRecoveryColumns} dataSource={filteredDebtRecoveries} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDebtRecoveries.length, debtRecoveryPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 960 }} locale={{ emptyText: debtRecoveryEmptyText }} />
-          <Modal mask={{ closable: false }}
+          <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Debt Recovery Case / 新增欠款追讨"
             width={620}
@@ -2433,7 +2434,7 @@ export function FinancePage({
           </Modal>
         </Space>
       </ProCard>}
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeDebtRecoveryEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDebtRecovery || registerBlocked("debtRecoveries")}>Update Debt Case</Button></div>}
         title="Debt Case Details / 欠款追讨详情"
         width={560}
@@ -2476,7 +2477,7 @@ export function FinancePage({
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Balance reminder note" /></Form.Item>
 
           </Form>
-      </Drawer>
+      </BusinessDialog>
       {financeTab === "vouchers" && <ProCard title="Purchase invoice accounting review / 收车发票审核">
         <Alert className="sectionIntroAlert" type="info" showIcon message="Confirm the displayed official version, invoice date and classified fee lines before AutoCount export." description="Owner-acquisition corrections reset Finance confirmation. An issued official invoice and a pending Finance review are different states." />
         <Space direction="vertical" size={12} className="fullWidth">
@@ -2583,7 +2584,7 @@ export function FinancePage({
             <Pagination className="mobileRecordPagination" current={paymentVoucherPage} pageSize={financePageSize} total={filteredPaymentVouchers.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={paymentVoucherColumns} dataSource={filteredPaymentVouchers} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredPaymentVouchers.length, paymentVoucherPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 960 }} locale={{ emptyText: paymentVoucherEmptyText }} />
-          <Modal mask={{ closable: false }}
+          <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Payment Voucher / 新增付款凭证"
             width={620}
@@ -2635,7 +2636,7 @@ export function FinancePage({
           </Modal>
         </Space>
       </ProCard>}
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financePaymentVoucherEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditPaymentVoucher || selectedEditPaymentVoucher.status !== "Pending" || registerBlocked("paymentVouchers")}>Update pending voucher</Button></div>}
         title="Payment Voucher Details / 付款凭证详情"
         width={560}
@@ -2694,7 +2695,7 @@ export function FinancePage({
             <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Booking slip / salary voucher reference" /></Form.Item>
 
           </Form>
-      </Drawer>
+      </BusinessDialog>
       {financeTab === "daily" && <ProCard
         id="daily-spend-list-card"
         title="Daily Spend / 日常支出"
@@ -2725,7 +2726,7 @@ export function FinancePage({
             <Pagination className="mobileRecordPagination" current={dailySpendPage} pageSize={financePageSize} total={filteredDailySpends.length} showSizeChanger pageSizeOptions={[10, 20, 30, 50, 100]} onChange={(page, size) => { setFinancePage(size === financePageSize ? page : 1); setFinancePageSize(size); }} />
           </div>
           <OperationsProTable className="desktopDataTable nativeSearchDesktopOnly" rowKey="id" columns={dailySpendColumns} dataSource={filteredDailySpends} nativeSearch={financeNativeSearch} pagination={tablePagination(filteredDailySpends.length, dailySpendPage, setFinancePage, financePageSize, setFinancePageSize)} scroll={{ x: 640 }} locale={{ emptyText: dailySpendEmptyText }} />
-          <Modal mask={{ closable: false }}
+          <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
             title="New Daily Spend / 新增日常支出"
             width={560}
@@ -2757,7 +2758,7 @@ export function FinancePage({
           </Modal>
         </Space>
       </ProCard>}
-      <Drawer mask={{ closable: false }}
+      <BusinessDialog mask={{ closable: false }}
         footer={<div className="financeFormFooter"><Button form="financeDailySpendEdit" type="primary" htmlType="submit" loading={legacySaving} disabled={!selectedEditDailySpend || registerBlocked("dailySpends")}>Update Daily Spend</Button></div>}
         title="Daily Spend Details / 日常支出详情"
         width={560}
@@ -2796,8 +2797,8 @@ export function FinancePage({
             <Form.Item name="isPaid" label="Status / 状态"><Select options={[{ value: false, label: "Due" }, { value: true, label: "Paid" }]} /></Form.Item>
 
           </Form>
-      </Drawer>
-      <Drawer
+      </BusinessDialog>
+      <BusinessDialog
         title="Purchase Invoice Version History / 收车发票版本记录"
         width={620}
         open={Boolean(selectedPurchaseInvoiceDetails)}
@@ -2806,7 +2807,7 @@ export function FinancePage({
         className="recordEditDrawer financeRecordDrawer"
       >
         {selectedPurchaseInvoiceDetails && <OwnerPurchaseInvoiceDetails invoice={selectedPurchaseInvoiceDetails} allowCorrections={false} />}
-      </Drawer>
+      </BusinessDialog>
     </Space>
   );
 }

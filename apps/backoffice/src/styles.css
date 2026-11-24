@@ -25,6 +25,15 @@ body {
 .loanBankFileInfo { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .loanBankComparison .ant-btn { max-width: 100%; height: auto; min-height: 44px; white-space: normal; }
 .loanBankComparison .ant-space-item { min-width: 0; max-width: 100%; }
+.loanBankRowActions .ant-upload-wrapper,
+.loanBankRowActions .ant-upload { max-width: 100%; }
+.loanBankComparison .loanBankRowActions .ant-btn { display: inline-flex; }
+.loanBankComparison .loanBankRowActions .ant-btn > span:not(.anticon) {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 @media (min-width: 768px) {
   .loanBankComparisonHead, .loanBankComparisonSummary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.1fr) minmax(0, 1.5fr) minmax(0, .8fr) minmax(0, 1.2fr); gap: 12px; }
   .loanBankComparisonHead { padding-inline: 16px; color: #61736b; font-size: 12px; }
@@ -1150,12 +1159,12 @@ button .navActionBadge .navActionBadgeUrgent {
   pointer-events: none;
 }
 
-.moduleGuideDrawer .ant-drawer-footer .ant-space,
-.moduleGuideDrawer .ant-drawer-footer .ant-space-item {
+.moduleGuideDrawer .ant-modal-footer .ant-space,
+.moduleGuideDrawer .ant-modal-footer .ant-space-item {
   max-width: 100%;
 }
 
-.moduleGuideDrawer .ant-drawer-body {
+.moduleGuideDrawer .ant-modal-body {
   padding: 20px 24px 28px;
 }
 
@@ -3477,8 +3486,8 @@ button .navActionBadge .navActionBadgeUrgent {
   overflow: hidden;
 }
 
-.leadEditDrawer .ant-drawer-body,
-.recordEditDrawer .ant-drawer-body {
+.leadEditDrawer .ant-modal-body,
+.recordEditDrawer .ant-modal-body {
   padding: 18px;
 }
 
@@ -5746,8 +5755,8 @@ button .navActionBadge .navActionBadgeUrgent {
     padding: 12px 14px !important;
   }
 
-  .leadEditDrawer .ant-drawer-body,
-  .recordEditDrawer .ant-drawer-body {
+  .leadEditDrawer .ant-modal-body,
+  .recordEditDrawer .ant-modal-body {
     padding: 14px;
   }
 
@@ -6226,10 +6235,6 @@ button .navActionBadge .navActionBadgeUrgent {
     min-height: 44px;
   }
 
-  .documentPreviewDrawer .ant-drawer-content-wrapper {
-    width: 100% !important;
-  }
-
   .documentPreviewFooter {
     align-items: stretch;
     flex-direction: column;
@@ -6265,17 +6270,17 @@ button .navActionBadge .navActionBadgeUrgent {
     height: 96px;
   }
 
-  .moduleGuideDrawer .ant-drawer-footer .ant-space,
-  .moduleGuideDrawer .ant-drawer-footer .ant-space-item,
-  .moduleGuideDrawer .ant-drawer-footer .ant-btn {
+  .moduleGuideDrawer .ant-modal-footer .ant-space,
+  .moduleGuideDrawer .ant-modal-footer .ant-space-item,
+  .moduleGuideDrawer .ant-modal-footer .ant-btn {
     width: 100%;
   }
 
-  .moduleGuideDrawer .ant-drawer-footer .ant-btn {
+  .moduleGuideDrawer .ant-modal-footer .ant-btn {
     min-height: 44px;
   }
 
-  .moduleGuideDrawer .ant-drawer-body {
+  .moduleGuideDrawer .ant-modal-body {
     padding: 16px;
   }
 
@@ -6489,6 +6494,89 @@ button .navActionBadge .navActionBadgeUrgent {
   margin-bottom: 16px;
 }
 
+.businessDialog.ant-modal {
+  top: 0;
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+}
+
+.businessDialog .ant-modal-container {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+
+.businessDialog .ant-modal-body {
+  min-height: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.businessDialog .ant-modal-header,
+.businessDialog .ant-modal-footer {
+  flex-shrink: 0;
+}
+
+.businessDialog .ant-modal-header {
+  padding-inline-end: 32px !important;
+}
+
+.businessDialogHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.businessDialogTitle,
+.businessDialogExtra {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.businessDialogExtra .ant-space {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .businessDialog.ant-modal {
+    max-width: calc(100vw - 16px);
+    margin: 8px auto;
+  }
+
+  .businessDialog .ant-modal-container {
+    max-height: calc(100dvh - 16px);
+    padding: 16px;
+  }
+
+  .businessDialog .ant-modal-footer {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .businessDialog .ant-modal-title {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 480px) {
+  .businessDialog .ant-descriptions:not(.ant-descriptions-bordered) .ant-descriptions-item-container {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .businessDialog .ant-descriptions:not(.ant-descriptions-bordered) .ant-descriptions-item-label,
+  .businessDialog .ant-descriptions:not(.ant-descriptions-bordered) .ant-descriptions-item-content {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
 .deliveryCheckGrid,
 .deliveryEvidenceGrid {
   display: grid;
@@ -6696,10 +6784,6 @@ button .navActionBadge .navActionBadgeUrgent {
   .deliveryStageFormGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .deliveryWorkboardDrawer .ant-drawer-content-wrapper {
-    width: min(760px, 94vw) !important;
-  }
 }
 
 @media (max-width: 720px) {
@@ -6808,10 +6892,6 @@ button .navActionBadge .navActionBadgeUrgent {
     align-items: center;
     padding-top: 10px;
     border-top: 1px solid #edf1ef;
-  }
-
-  .deliveryWorkboardDrawer .ant-drawer-content-wrapper {
-    width: 100vw !important;
   }
 
   .deliveryWorkboardPage .ant-btn,
@@ -7199,7 +7279,7 @@ button .navActionBadge .navActionBadgeUrgent {
     min-width: 44px;
   }
 
-  .operationsCalendarDayDrawer .ant-drawer-body {
+  .operationsCalendarDayDrawer .ant-modal-body {
     padding-bottom: max(24px, env(safe-area-inset-bottom));
   }
 
@@ -7209,37 +7289,37 @@ button .navActionBadge .navActionBadgeUrgent {
 }
 
 @media (max-width: 360px) {
-  .deliveryWorkboardDrawer .ant-drawer-header {
+  .deliveryWorkboardDrawer .businessDialogHeading {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
 
-  .deliveryWorkboardDrawer .ant-drawer-header-title,
-  .deliveryWorkboardDrawer .ant-drawer-extra {
+  .deliveryWorkboardDrawer .businessDialogTitle,
+  .deliveryWorkboardDrawer .businessDialogExtra {
     min-width: 0;
     margin-inline-start: 0;
   }
 
-  .deliveryWorkboardDrawer .ant-drawer-title {
+  .deliveryWorkboardDrawer .businessDialogTitle {
     overflow-wrap: anywhere;
     line-height: 1.35;
     white-space: normal;
   }
 
-  .deliveryWorkboardDrawer .ant-drawer-extra .ant-space {
+  .deliveryWorkboardDrawer .businessDialogExtra .ant-space {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
 
-  .deliveryWorkboardDrawer .ant-drawer-extra .ant-space-item,
-  .deliveryWorkboardDrawer .ant-drawer-extra .ant-space-item > * {
+  .deliveryWorkboardDrawer .businessDialogExtra .ant-space-item,
+  .deliveryWorkboardDrawer .businessDialogExtra .ant-space-item > * {
     min-width: 0;
     width: 100%;
   }
 
-  .deliveryWorkboardDrawer .ant-drawer-extra .ant-btn {
+  .deliveryWorkboardDrawer .businessDialogExtra .ant-btn {
     justify-content: center;
     width: 100%;
   }
@@ -7670,12 +7750,12 @@ button .navActionBadge .navActionBadgeUrgent {
   gap: 8px;
 }
 
-.financeRecordDrawer .ant-drawer-footer,
+.financeRecordDrawer .ant-modal-footer,
 .financeCreateModal .ant-modal-footer {
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 
-.financeRecordDrawer .ant-drawer-footer .ant-btn,
+.financeRecordDrawer .ant-modal-footer .ant-btn,
 .financeCreateModal .ant-modal-footer .ant-btn,
 .financeOverlay .ant-modal-footer .ant-btn,
 .documentPreviewFooter .ant-btn {
@@ -7685,10 +7765,10 @@ button .navActionBadge .navActionBadgeUrgent {
   white-space: normal;
 }
 
-.financeRecordDrawer .ant-drawer-close,
+.financeRecordDrawer .ant-modal-close,
 .financeCreateModal .ant-modal-close,
 .financeOverlay .ant-modal-close,
-.documentPreviewDrawer .ant-drawer-close {
+.documentPreviewDrawer .ant-modal-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;

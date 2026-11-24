@@ -1,3 +1,4 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { settlementBanks } from "../../settlementBanks";
 import { formatDisplayDate, formatDisplayDateTime } from "../../dateDisplay";
 import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +10,7 @@ import type { ProColumns } from "@ant-design/pro-components";
 import { enUSIntl } from "@ant-design/pro-components";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
-import { AutoComplete, Alert, Badge, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
+import { AutoComplete, Alert, Badge, Button, DatePicker, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Switch, Tabs, Tag, Tooltip, Typography, Upload, message } from "antd";
 import type { FormInstance } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { TablePaginationConfig } from "antd/es/table/interface";
@@ -2343,7 +2344,7 @@ export function VehiclePage({
   return (
     <>
       {publicationModalContext}
-      {canApproveVehicles && <Modal
+      {canApproveVehicles && <Modal mask={{ closable: false }} centered
         title={`Export stock ${stockExportLabel} / 导出库存 ${stockExportLabel}`}
         open={Boolean(stockExportFormat)}
         onCancel={() => { if (!stockExporting) setStockExportFormat(undefined); }}
@@ -2595,7 +2596,7 @@ export function VehiclePage({
         />
         </ProConfigProvider>
       </ProCard>
-      <Modal
+      <Modal centered
         mask={{ closable: false }}
         title={loanHandoffVehicle ? `Start Loan / 开始贷款 - ${loanHandoffVehicle.plateNumber}` : "Start Loan / 开始贷款"}
         width={600}
@@ -2675,7 +2676,7 @@ export function VehiclePage({
           </Space>
         ) : null}
       </Modal>
-      <Drawer
+      <BusinessDialog
         mask={{ closable: false }}
         title={selectedVehicle ? `Vehicle Details / 车辆详情 - ${selectedVehicle.plateNumber}` : "Vehicle Details / 车辆详情"}
         width={960}
@@ -3252,8 +3253,8 @@ export function VehiclePage({
           </ProCard>
           </div>
         </div>
-      </Drawer>
-      <Modal
+      </BusinessDialog>
+      <Modal centered
         mask={{ closable: false }}
         title="Create Vehicle / 新增车辆"
         width={860}
@@ -3563,7 +3564,7 @@ export function VehiclePage({
           </StepsForm.StepForm>
         </StepsForm>
       </Modal>
-      <Modal
+      <Modal centered
         mask={{ closable: false }}
         title="Check Previous Owner NRIC / 核对原车主身份证"
         width={620}
@@ -3682,7 +3683,7 @@ export function VehiclePage({
           ) : null}
         </Space>
       </Modal>
-      <Modal
+      <Modal centered
         mask={{ closable: false }}
         title="Generate Purchase Invoice / 生成收车发票"
         width={560}
@@ -3775,7 +3776,7 @@ export function VehiclePage({
           {purchaseInvoiceGenerationBlocker && <Alert type="warning" showIcon message="Generation blocked" description={purchaseInvoiceGenerationBlocker} />}
         </Space>
       </Modal>
-      <Drawer
+      <BusinessDialog
         mask={{ closable: false }}
         title="Purchase Invoice Details / 收车发票详情"
         width={560}
@@ -3825,7 +3826,7 @@ export function VehiclePage({
           <PurchaseInvoiceLineFields />
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedPurchaseInvoice}>Update Purchase Invoice</Button></Form.Item>
         </Form>}
-      </Drawer>
+      </BusinessDialog>
       {false && <ProCard id="contacts-card" title="Customer & Owner Details / 客户与原车主">
         <Tabs
           items={[
@@ -3839,7 +3840,7 @@ export function VehiclePage({
                     <Button type="primary" onClick={() => setCustomerCreateOpen(true)}>New Customer</Button>
                   </div>
                   <OperationsProTable rowKey="id" columns={customerColumns} dataSource={customers} pagination={tablePagination(5)} scroll={{ x: 720 }} locale={{ emptyText: "No customer records yet." }} />
-                  <Modal
+                  <Modal mask={{ closable: false }} centered
                     title="New Customer / 新增客户"
                     width={620}
                     open={customerCreateOpen}
@@ -3928,7 +3929,7 @@ export function VehiclePage({
                     <Button type="primary" onClick={() => setOwnerCreateOpen(true)}>New Owner</Button>
                   </div>
                   <OperationsProTable rowKey="id" columns={ownerColumns} dataSource={owners} pagination={tablePagination(5)} scroll={{ x: 520 }} locale={{ emptyText: "No previous owner records yet." }} />
-                  <Modal
+                  <Modal mask={{ closable: false }} centered
                     title="New Owner / 新增原车主"
                     width={560}
                     open={ownerCreateOpen}
@@ -3994,7 +3995,7 @@ export function VehiclePage({
           ]}
         />
       </ProCard>}
-      <Modal
+      <Modal centered
         mask={{ closable: false }}
         title="New Customer / 新增客户"
         width={620}
@@ -4059,7 +4060,7 @@ export function VehiclePage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" loading={customerCreating}>{customerCreateForLoanVehicleId ? "Create & Continue" : "Create Customer"}</Button></Form.Item>
         </Form>
       </Modal>
-      <Modal
+      <Modal centered
         mask={{ closable: false }}
         title="New Owner / 新增原车主"
         width={560}
@@ -4103,7 +4104,7 @@ export function VehiclePage({
           <Form.Item className="formActions"><Button type="primary" htmlType="submit">Create Owner</Button></Form.Item>
         </Form>
       </Modal>
-      <Drawer
+      <BusinessDialog
         mask={{ closable: false }}
         title="Customer Details / 客户详情"
         width={560}
@@ -4150,8 +4151,8 @@ export function VehiclePage({
           <Form.Item name="notes" label="Notes / 备注"><Input placeholder="Customer detail note" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedCustomer}>Update Customer</Button></Form.Item>
         </Form>
-      </Drawer>
-      <Drawer
+      </BusinessDialog>
+      <BusinessDialog
         mask={{ closable: false }}
         title="Owner Details / 原车主详情"
         width={560}
@@ -4194,7 +4195,7 @@ export function VehiclePage({
           <Form.Item name="address" label="Address / 地址"><Input placeholder="Previous owner address" /></Form.Item>
           <Form.Item className="formActions"><Button type="primary" htmlType="submit" disabled={!selectedOwner}>Update Owner</Button></Form.Item>
         </Form>
-      </Drawer>
+      </BusinessDialog>
       {false && <ProCard title="Photo & Document Upload / 照片与文件上传">
         <Form name="vehicleLegacyUpload" layout="vertical" className="formGrid">
           <Form.Item label="Car Plate">
@@ -4276,7 +4277,7 @@ export function VehiclePage({
           scroll={{ x: 760 }}
         />
       </ProCard>}
-      <Modal
+      <Modal centered
         title="Delete saved vehicle photo?"
         open={Boolean(photoDeleteConfirmation)}
         onCancel={() => {

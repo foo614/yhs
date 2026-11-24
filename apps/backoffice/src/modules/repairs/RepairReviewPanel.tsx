@@ -75,7 +75,7 @@ export function RepairReviewPanel({ canApprove, revision, onOpen, onApprove, onC
       { title: "Action / 操作", fixed: "right", render: (_, row) => actions(row) }
     ]} />
     {filtered.length === 0 && <div className="desktopDataTable repairReviewEmptyFooter">{totalSummary()}</div>}
-    <Modal mask={{ closable: false }} title="Record completed payment / 记录已付款" open={Boolean(payment)} onCancel={() => setPayment(null)} confirmLoading={saving} onOk={async () => {
+    <Modal centered mask={{ closable: false }} title="Record completed payment / 记录已付款" open={Boolean(payment)} onCancel={() => setPayment(null)} confirmLoading={saving} onOk={async () => {
       if (!payment || !paidAt) return;
       setSaving(true);
       try { await recordRepairPayment(payment.id, paidAt.format("YYYY-MM-DD"), payment.amount); setPayment(null); changed(); }

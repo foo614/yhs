@@ -1,7 +1,8 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { InfoCircleOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import { Alert, AutoComplete, Button, Checkbox, DatePicker, Drawer, Form, Input, InputNumber, Modal, Select, Space, Tooltip, Typography, Upload, message } from "antd";
+import { Alert, AutoComplete, Button, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Tooltip, Typography, Upload, message } from "antd";
 import { confirmInsuranceImport, getInsuranceChargeItems, previewInsuranceImport, previewInsuranceReceipt, recordInsuranceInsurerPayment, saveInsuranceCase, type InsuranceCase, type InsuranceCaseView, type InsuranceImportInput, type InsuranceImportPreview, type InsuranceReceipt, type InsuranceReceiptInput } from "../../api";
 import { formatDisplayDate } from "../../dateDisplay";
 import { insuranceCompanies } from "../../insuranceCompanies";
@@ -119,7 +120,7 @@ export function InsuranceCaseForm({ record, insurerNames = [], onClose, onSaved 
   </>;
   const footer = <Space wrap><Button disabled={busy} onClick={closeCaseForm}>Cancel</Button><Button type="primary" loading={busy} onClick={() => form.submit()}>Review & save / 检查保存</Button></Space>;
   const title = <Space>{record ? "Edit insurance case / 编辑保险个案" : "New insurance case / 新增保险个案"}<InsuranceHint label="Insurance case guidance">Enter this case's plate and customer details directly. Quote values are internal; quotation text, PDF and automatic sending are on hold.</InsuranceHint></Space>;
-  return record ? <Drawer mask={{ closable: false }} title={title} open onClose={closeCaseForm} width={850} className="insuranceDrawer" footer={footer}>{contents}</Drawer>
+  return record ? <BusinessDialog mask={{ closable: false }} title={title} open onClose={closeCaseForm} width={850} className="insuranceDrawer" footer={footer}>{contents}</BusinessDialog>
     : <Modal title={title} centered open onCancel={closeCaseForm} width={860} className="recordCreateModal insuranceCaseModal" mask={{ closable: false }} closable={!busy} keyboard={!busy} styles={{ body: { maxHeight: "calc(100dvh - 200px)", overflowY: "auto" } }} footer={footer}>{contents}</Modal>;
 }
 
@@ -136,7 +137,7 @@ export function InsuranceMoneyForm({ kind, selected, onClose, onSaved }: { kind:
     } catch (e) { message.error(failure(e)); }
     finally { setBusy(false); }
   }
-  return <Modal mask={{ closable: false }} title={<Space>{receipt ? "Customer receipt / 客户收款" : "Final actual insurer payment / 最终保险付款"}<InsuranceHint label="Insurance payment guidance">{receipt ? "A pending receipt does not reduce outstanding. Review the case, invoice book and amount, then explicitly confirm actual funds." : "Enter the final full amount actually paid to the insurer once. This amount calculates commission and does not settle customer outstanding."}</InsuranceHint></Space>} open onCancel={() => !busy && onClose()} onOk={() => form.submit()} okText={receipt ? "Preview receipt / 预览收款" : "Confirm final insurer settlement"} confirmLoading={busy}>
+  return <Modal centered mask={{ closable: false }} title={<Space>{receipt ? "Customer receipt / 客户收款" : "Final actual insurer payment / 最终保险付款"}<InsuranceHint label="Insurance payment guidance">{receipt ? "A pending receipt does not reduce outstanding. Review the case, invoice book and amount, then explicitly confirm actual funds." : "Enter the final full amount actually paid to the insurer once. This amount calculates commission and does not settle customer outstanding."}</InsuranceHint></Space>} open onCancel={() => !busy && onClose()} onOk={() => form.submit()} okText={receipt ? "Preview receipt / 预览收款" : "Confirm final insurer settlement"} confirmLoading={busy}>
     <Form form={form} layout="vertical" onFinish={values => void save(values)} initialValues={{ amount: receipt ? selected.outstanding : undefined, receivedDate: dayjs(), paidDate: dayjs(), paymentType: "Transfer", depositAccount: "PBB" }}>
       <Form.Item name="amount" label={receipt ? "Amount received (RM)" : "Amount paid (RM)"} rules={[{ required: true }]}><InputNumber min={0.01} precision={2} className="fullWidth" /></Form.Item>
       <Form.Item name={receipt ? "receivedDate" : "paidDate"} label={receipt ? "Received date" : "Paid date"} rules={[{ required: true }]}><DatePicker className="fullWidth" /></Form.Item>
@@ -160,7 +161,7 @@ export function InsuranceImport({ onClose, onSaved }: { onClose: () => void; onS
     catch (e) { message.error(failure(e)); }
     finally { setBusy(false); }
   }
-  return <Modal mask={{ closable: false }} title="Import existing listing / 导入旧名单" open onCancel={() => !busy && onClose()} width={850} footer={<Space wrap><Button onClick={onClose} disabled={busy}>Cancel</Button><Button loading={busy} onClick={() => void showPreview()}>Preview import / 预览导入</Button><Button type="primary" loading={busy} disabled={!preview?.records.length || !!preview.errors.length || !input} onClick={() => void (async () => { if (!input) return; setBusy(true); try { await confirmInsuranceImport({ ...input, idempotencyKey: idempotency.current }); await onSaved(); message.success("Listing imported."); } catch (e) { message.error(failure(e)); } finally { setBusy(false); } })()}>Confirm import / 确认导入</Button></Space>}>
+  return <Modal centered mask={{ closable: false }} title="Import existing listing / 导入旧名单" open onCancel={() => !busy && onClose()} width={850} footer={<Space wrap><Button onClick={onClose} disabled={busy}>Cancel</Button><Button loading={busy} onClick={() => void showPreview()}>Preview import / 预览导入</Button><Button type="primary" loading={busy} disabled={!preview?.records.length || !!preview.errors.length || !input} onClick={() => void (async () => { if (!input) return; setBusy(true); try { await confirmInsuranceImport({ ...input, idempotencyKey: idempotency.current }); await onSaved(); message.success("Listing imported."); } catch (e) { message.error(failure(e)); } finally { setBusy(false); } })()}>Confirm import / 确认导入</Button></Space>}>
     <Space direction="vertical" className="fullWidth"><InsuranceHint label="Listing import guidance">Copy the listing cells from your spreadsheet, including its header row. Place CUSTOMER PHONE NUMBER immediately after the IC NO. column. Older phone-last or no-phone templates are also supported. Use day/month/year expiry dates. Missing phone numbers still allow internal reminders.</InsuranceHint><Typography.Text code>{headers.join(" | ")}</Typography.Text><Upload accept=".tsv,.txt" showUploadList={false} beforeUpload={file => { void file.text().then(change); return Upload.LIST_IGNORE; }}><Button>Choose listing file / 选择名单文件</Button></Upload><Input.TextArea rows={8} value={text} aria-label="Tab-separated listing including header row" onChange={event => change(event.target.value)} />{preview && <>{preview.errors.map((item, index) => <Alert key={index} type="error" title={item} />)}<Typography.Text strong>{preview.records.length} rows ready for review</Typography.Text><div className="insuranceImportReview">{preview.records.map((record, index) => <div key={index}>{record.plateNumber} · {record.customerName} · {record.customerPhone || "No phone"} · {formatDisplayDate(record.expiryDate)}</div>)}</div></>}</Space>
   </Modal>;
 }

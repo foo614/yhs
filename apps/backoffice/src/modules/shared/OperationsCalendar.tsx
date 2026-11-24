@@ -1,5 +1,6 @@
+import { BusinessDialog } from "./BusinessDialog";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Calendar, DatePicker, Drawer, Empty, Form, Grid, Input, List, Modal, Select, Skeleton, Space, Spin, Tag, TimePicker, Typography } from "antd";
+import { Alert, Button, Calendar, DatePicker, Empty, Form, Grid, Input, List, Modal, Select, Skeleton, Space, Spin, Tag, TimePicker, Typography } from "antd";
 import { ClockCircleOutlined } from "@ant-design/icons";
 import { ProCard } from "@ant-design/pro-components";
 import dayjs from "dayjs";
@@ -193,7 +194,7 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
         </section>
       </div>
     </Spin>
-    <Drawer
+    <BusinessDialog
       title={date.format("ddd, D MMM YYYY")}
       placement="bottom"
       height="72vh"
@@ -205,9 +206,9 @@ export function OperationsCalendar({ onOpenDelivery, compact = false, canManageT
       {error
         ? <Alert type="error" showIcon message="Calendar unavailable" description={error} action={<Button onClick={() => setRefresh(value => value + 1)}>Try again</Button>} />
         : loading ? <Skeleton active paragraph={{ rows: 2 }} /> : <SelectedDayEvents events={selected} onOpenDelivery={onOpenDelivery} />}
-    </Drawer>
+    </BusinessDialog>
     </ProCard>
-    <Modal mask={{ closable: false }} title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
+    <Modal centered mask={{ closable: false }} title="Add calendar task / 新增日历任务" open={taskModalOpen} onCancel={() => setTaskModalOpen(false)} onOk={() => void saveTask()} confirmLoading={taskSaving} okText="Save task / 保存任务" destroyOnClose>
       {taskSaveError && <Alert type="error" showIcon message="Task could not be saved" description={taskSaveError} />}
       <Form form={taskForm} layout="vertical">
         <Form.Item name="title" label="Task / 任务" rules={[{ required: true, message: "Enter a task title." }]}><Input maxLength={160} showCount /></Form.Item>
