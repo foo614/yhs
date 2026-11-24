@@ -92,7 +92,7 @@ test.describe("isolated real back-office pilot", () => {
       await dismissModuleTour(page);
       await expect(vehicleRow(page, plate)).toBeVisible();
       await vehicleRow(page, plate).getByRole("button", { name: /Details/ }).click();
-      const drawer = page.locator(".ant-drawer-open").last();
+      const drawer = page.locator(".businessDialog:visible").last();
       await drawer.getByRole("tab", { name: "Vehicle details", exact: true }).click();
       await drawer.getByLabel("Chassis Number").fill(marker);
       const [response] = await Promise.all([
@@ -110,7 +110,7 @@ test.describe("isolated real back-office pilot", () => {
       await dismissModuleTour(page);
       await expect(vehicleRow(page, plate)).toBeVisible();
       await vehicleRow(page, plate).getByRole("button", { name: /Details/ }).click();
-      const drawer = page.locator(".ant-drawer-open").last();
+      const drawer = page.locator(".businessDialog:visible").last();
       await drawer.getByRole("tab", { name: "Vehicle details", exact: true }).click();
       await expect(drawer.getByLabel("Chassis Number")).toHaveValue(marker);
       await drawer.getByRole("button", { name: "Close", exact: true }).click();

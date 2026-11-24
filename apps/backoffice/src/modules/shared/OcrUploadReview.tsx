@@ -1,7 +1,8 @@
+import { BusinessDialog } from "./BusinessDialog";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DeleteOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import type { ProColumns } from "@ant-design/pro-components";
-import { Alert, Button, Collapse, Drawer, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
+import { Alert, Button, Collapse, Form, Input, InputNumber, Progress, Select, Space, Tag, Typography, Upload, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { UploadProps } from "antd";
 type UploadRequestOption = Parameters<NonNullable<UploadProps["customRequest"]>>[0];
@@ -124,9 +125,9 @@ function OcrReviewShell({
   }
 
   return (
-    <Drawer mask={{ closable: false }} title={title} width={560} open={open} onClose={onClose} className="recordEditDrawer ocrReviewDrawer" footer={actions}>
+    <BusinessDialog mask={{ closable: false }} title={title} width={560} open={open} onClose={onClose} className="recordEditDrawer ocrReviewDrawer" footer={actions}>
       {children}
-    </Drawer>
+    </BusinessDialog>
   );
 }
 

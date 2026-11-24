@@ -1,6 +1,7 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useMemo, useState } from "react";
 import { ProCard } from "@ant-design/pro-components";
-import { Alert, Button, Descriptions, Drawer, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Timeline, Tooltip, Typography, message } from "antd";
+import { Alert, Button, Descriptions, Empty, Form, Input, InputNumber, Modal, Pagination, Select, Space, Tag, Timeline, Tooltip, Typography, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { OperationsProTable, operationsKeywordFromFields } from "../shared/OperationsProTable";
 import { newestRecordsFirst } from "../../recordDates";
@@ -355,7 +356,7 @@ export function CashCustodyPage({
         </Space>
       </ProCard>
 
-      <Modal mask={{ closable: false }}
+      <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="Record Cash Received / 记录现金收款"
         open={createOpen}
@@ -403,7 +404,7 @@ export function CashCustodyPage({
         </Form>
       </Modal>
 
-      <Modal
+      <Modal mask={{ closable: false }} centered
         rootClassName="financeOverlay"
         title="Confirm Cash Received from Customer"
         open={Boolean(createDraft)}
@@ -436,14 +437,14 @@ export function CashCustodyPage({
         </Space>}
       </Modal>
 
-      <Drawer title="Cash Custody Details / 现金交接详情" open={Boolean(viewing)} onClose={() => setViewing(null)} footer={<Button onClick={() => setViewing(null)}>Close</Button>} width={720} className="recordEditDrawer financeRecordDrawer" destroyOnClose>
+      <BusinessDialog title="Cash Custody Details / 现金交接详情" open={Boolean(viewing)} onClose={() => setViewing(null)} footer={<Button onClick={() => setViewing(null)}>Close</Button>} width={720} className="recordEditDrawer financeRecordDrawer" destroyOnClose>
         {viewing && <Space direction="vertical" size={16} className="fullWidth">
           <CashCustodyDetails handover={viewing} />
           {viewing.officialReceiptNumber && <section className="financeDetailDocuments" aria-label="Official receipt"><Typography.Text strong>{viewing.officialReceiptNumber}</Typography.Text>{renderReceiptActions(viewing)}</section>}
         </Space>}
-      </Drawer>
+      </BusinessDialog>
 
-      <Modal rootClassName="financeOverlay" title={reviewing ? actionTitle(reviewing.action) : "Review custody action"} open={Boolean(reviewing)} onCancel={() => setReviewing(null)} confirmLoading={submitting} okButtonProps={{ disabled: Boolean(loadError || loading) }} okText={reviewing ? actionConfirmText(reviewing.action) : "Confirm"} onOk={async () => {
+      <Modal mask={{ closable: false }} centered rootClassName="financeOverlay" title={reviewing ? actionTitle(reviewing.action) : "Review custody action"} open={Boolean(reviewing)} onCancel={() => setReviewing(null)} confirmLoading={submitting} okButtonProps={{ disabled: Boolean(loadError || loading) }} okText={reviewing ? actionConfirmText(reviewing.action) : "Confirm"} onOk={async () => {
         if (!reviewing) return;
         setSubmitting(true);
         try {
@@ -456,7 +457,7 @@ export function CashCustodyPage({
         {reviewing && <Space direction="vertical" size={12} className="fullWidth"><Alert type={reviewing.action === "accept" ? "warning" : "info"} showIcon message={actionMessage(reviewing.action)} /><CashCustodyDetails handover={reviewing.handover} /></Space>}
       </Modal>
 
-      <Modal mask={{ closable: false }}
+      <Modal centered mask={{ closable: false }}
         rootClassName="financeOverlay"
         title="Reject Cash Handover"
         open={Boolean(rejecting)}

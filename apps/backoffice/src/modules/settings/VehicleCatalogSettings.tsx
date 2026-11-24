@@ -180,7 +180,7 @@ export function VehicleCatalogSettings() {
         onOpenChange={(open) => { if (!catalogSaving) setCatalogFormOpen(open); }}
         initialValues={{ isActive: true }}
         onFinish={saveCatalogModel}
-        modalProps={{ className: "vehicleCatalogModal", forceRender: true, maskClosable: false, closable: !catalogSaving, keyboard: !catalogSaving }}
+        modalProps={{ centered: true, className: "vehicleCatalogModal", forceRender: true, maskClosable: false, closable: !catalogSaving, keyboard: !catalogSaving }}
         submitter={{
           searchConfig: { submitText: catalogEditingId ? "Save changes" : "Create option", resetText: "Cancel" },
           resetButtonProps: { disabled: catalogSaving },

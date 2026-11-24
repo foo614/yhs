@@ -17,6 +17,7 @@ const fixtures = {
   "/api/loans": [{ id: "test-loan", vehicleId: vehicle.id, customerId: "test-customer", status: "Pending", louApproved: false, louDone: false, submittedAt: "2026-09-01" }],
   "/api/loans/intake/eligible-vehicles": [{ id: "eligible-bmw", plateNumber: "BMW2020", year: 2020, make: "BMW", model: "2 Series Gran Coupe M Sport" }],
   "/api/loans/test-loan/banks": [{ id: "test-bank", loanApplicationId: "test-loan", bankName: "Example Bank", status: "Pending", isSelected: false, loanAmount: 80000, interestRate: 3.2, tenureMonths: 60 }],
+  "/api/loans/test-loan/banks/test-bank/lous": [],
   "/api/loans/test-loan/document-check": { isComplete: false, missingCategories: ["LoanOriginalDocument"] },
   "/api/customers": [{ id: "test-customer", name: "Synthetic Customer With A Longer Display Name", phone: "0000000000" }],
   "/api/leads": [{ id: "test-lead", vehicleId: vehicle.id, customerName: "Synthetic Customer With A Longer Display Name", phone: "0000000000", status: "New", createdAt: "2026-09-01T10:00:00Z", message: "Please arrange a viewing and explain the available finance options." }],
@@ -624,7 +625,8 @@ async function verifyDashboardClarity() {
     await expect(page.locator(".operationsCalendarDesktopAgenda")).toContainText("Synthetic Customer With A Longer Display Name");
     if (visualEvidence) await page.locator(".operationsCalendar").screenshot({ path: `${output}/dashboard-calendar-month-detail-${width}.png` });
     await expect(page.getByRole("button", { name: "Hide month / 收起月历", exact: true })).toHaveAttribute("aria-expanded", "true");
-    await page.locator(".operationsCalendar .ant-picker-cell").filter({ has: page.getByRole("img", { name: /^2 events:/ }) }).first().click();
+    const eventCount = fixtures["/api/operations-calendar"].length;
+    await page.locator(".operationsCalendar .ant-picker-cell").filter({ has: page.getByRole("img", { name: new RegExp(`^${eventCount} events:`) }) }).first().click();
     await expect(page.getByRole("dialog")).toContainText("Synthetic Customer With A Longer Display Name");
     await inspect("dashboard-populated-day-agenda", width);
     await closeOverlay();
@@ -802,6 +804,10 @@ try {
         if (route === "insurance") {
           await page.getByRole("button", { name: "Details / 详情", exact: true }).filter({ visible: true }).first().click();
           await inspect("insurance-populated-details", width);
+          const caseDetailsDialog = page.locator(".businessDialog:visible");
+          await expect(caseDetailsDialog.locator(".ant-modal-footer")).toHaveCount(0);
+          const caseBounds = await caseDetailsDialog.boundingBox();
+          expect(Math.abs(caseBounds.x + caseBounds.width / 2 - width / 2)).toBeLessThanOrEqual(2);
           for (const section of ["Customer receipts / 客户收款", "Insurer payments / 保险公司付款", "AutoCount copy", "Documents / 文件"]) {
             await activateSection(section);
             await inspect(`insurance-section-${section.split(" /")[0].replaceAll(" ", "-")}`, width);
@@ -811,11 +817,16 @@ try {
           const receiptDialog = page.getByRole("dialog", { name: /Customer receipt/ });
           await verifyModalBackdropDraft(receiptDialog, receiptDialog.getByRole("spinbutton", { name: /Amount received/ }), "42.00");
           await page.locator(".ant-modal-close:visible").last().click();
-          await expect(page.locator(".ant-modal-wrap:visible")).toHaveCount(0);
+          await expect(page.locator(".businessDialog:visible")).toHaveCount(1);
           await page.getByRole("button", { name: "Edit case / 编辑个案", exact: true }).click();
           await inspect("insurance-case-editor", width);
-          await page.locator(".ant-drawer-close:visible").last().click();
-          await expect(page.locator(".ant-drawer-open")).toHaveCount(1);
+          // A migrated editor must keep its draft on background clicks and
+          // return focus to the underlying record after the nested dialog closes.
+          const caseEditor = page.getByRole("dialog", { name: /Edit insurance case/ });
+          await verifyModalBackdropDraft(caseEditor, caseEditor.getByRole("textbox", { name: /Customer name/ }), "Synthetic dialog draft");
+          await page.locator(".ant-modal-close:visible").last().click();
+          await expect(page.locator(".businessDialog:visible")).toHaveCount(1);
+          await expect(page.getByRole("button", { name: "Edit case / 编辑个案", exact: true })).toBeFocused();
           await closeOverlay();
           await page.getByRole("button", { name: "Import listing / 导入旧名单", exact: true }).click();
           await inspect("insurance-import-preview", width);
@@ -1204,7 +1215,10 @@ try {
           await page.getByRole("dialog").filter({ visible: true }).getByRole("button", { name: "Review and save", exact: true }).waitFor();
           await inspect("whatsapp-policy-editor", width);
           await closeOverlay();
-          await page.getByRole("tab", { name: "Sending limits", exact: true }).click();
+          const sendingLimitsTab = page.getByRole("tab", { name: "Sending limits", exact: true });
+          await sendingLimitsTab.focus();
+          await sendingLimitsTab.press("Enter");
+          await expect(sendingLimitsTab).toHaveAttribute("aria-selected", "true");
           await page.getByRole("spinbutton", { name: /Daily provider attempts/ }).waitFor();
           await inspect("whatsapp-limits", width);
           let limitWrites = 0;

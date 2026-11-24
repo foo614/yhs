@@ -1,3 +1,4 @@
+import { BusinessDialog } from "../shared/BusinessDialog";
 import { useEffect, useMemo, useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import {
@@ -6,7 +7,6 @@ import {
   Checkbox,
   DatePicker,
   Descriptions,
-  Drawer,
   Form,
   Input,
   InputNumber,
@@ -237,7 +237,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
         onOpenChange={(open) => { if (!saving) setBookingOpen(open); }}
         onFinish={submit}
         initialValues={{ specialInspection: false, isLorry: false, receiptTotal: 0, allocatedAmount: 0 }}
-        modalProps={{ forceRender: true, maskClosable: false, closable: !saving, keyboard: !saving }}
+        modalProps={{ centered: true, forceRender: true, maskClosable: false, closable: !saving, keyboard: !saving }}
         submitter={{ searchConfig: { submitText: "Create booking / 新增预约", resetText: "Cancel / 取消" }, resetButtonProps: { disabled: saving }, submitButtonProps: { loading: saving } }}
       >
           <Tag color="blue" style={{ marginBottom: 16 }}>Validity: 4 months / 有效期：4个月</Tag>
@@ -278,7 +278,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
         onOpenChange={(open) => { if (!exporting) setExportOpen(open); }}
         onFinish={exportAutoCount}
         initialValues={exportInitialValues}
-        modalProps={{ forceRender: true, maskClosable: false, closable: !exporting, keyboard: !exporting }}
+        modalProps={{ centered: true, forceRender: true, maskClosable: false, closable: !exporting, keyboard: !exporting }}
         submitter={{ searchConfig: { submitText: "Confirm export / 确认导出", resetText: "Cancel / 取消" }, resetButtonProps: { disabled: exporting }, submitButtonProps: { loading: exporting } }}
       >
         <Form.Item name="company" label="Company / 公司" rules={[{ required: true }]}><Select options={companyOptions} /></Form.Item>
@@ -313,7 +313,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
         />
       </Card>
 
-      <Drawer title={selected ? `Inspection / 验车 · ${selected.plateNumber ?? selected.vehicleId}` : "Inspection / 验车"} open={selected !== null} onClose={() => setSelected(null)} width={560}>
+      <BusinessDialog title={selected ? `Inspection / 验车 · ${selected.plateNumber ?? selected.vehicleId}` : "Inspection / 验车"} open={selected !== null} onClose={() => setSelected(null)} width={560}>
         {selected && <Space direction="vertical" size="large" style={{ width: "100%" }}>
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="Type / 类型">{inspectionTypeLabel(selected.type)}</Descriptions.Item>
@@ -346,7 +346,7 @@ export function InspectionPage({ vehicles, canExportAutoCount = false }: Inspect
             </Space>
           </div>)}
         </Space>}
-      </Drawer>
+      </BusinessDialog>
     </Space>
   );
 }

@@ -111,11 +111,11 @@ for (const width of [320, 820, 1440]) {
       }
     };
     const record = name => page.locator(width <= 720 ? ".mobileRecordCard" : ".ant-table-row").filter({ visible: true }).filter({ hasText: name }).first();
-    const close = async () => { const dialogs = page.getByRole("dialog").filter({ visible: true }); const count = await dialogs.count(); await page.locator(".ant-drawer-open .ant-drawer-close,.ant-modal-close:visible").last().click(); await expect(dialogs).toHaveCount(count - 1); };
+    const close = async () => { const dialogs = page.getByRole("dialog").filter({ visible: true }); const count = await dialogs.count(); await page.locator(".businessDialog:visible .ant-modal-close,.ant-modal-close:visible").last().click(); await expect(dialogs).toHaveCount(count - 1); };
     const capture = async name => {
       await page.evaluate(async () => { await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await Promise.all(document.getAnimations().filter(a => a.playState === "running" && Number.isFinite(a.effect?.getComputedTiming().activeDuration)).map(a => a.finished.catch(() => {}))); });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
-      const overlay = page.locator(".ant-drawer-open .ant-drawer-content,.ant-modal:visible").last();
+      const overlay = page.locator(".businessDialog:visible .ant-modal-container,.ant-modal:visible").last();
       if (await overlay.isVisible().catch(() => false)) await overlay.screenshot({ path: testInfo.outputPath(`${name}.png`) });
       else await page.screenshot({ path: testInfo.outputPath(`${name}.png`), fullPage: true });
     };
@@ -242,7 +242,7 @@ for (const width of [320, 820, 1440]) {
       await page.getByRole("combobox", { name: "Review legacy payment record", exact: true }).click();
       await page.locator(".ant-select-item-option").filter({ hasText: "TEST-INV" }).click();
     };
-    const drawer = page.locator(".ant-drawer-open").filter({ hasText: "Payment Details / 收款详情" });
+    const drawer = page.locator(".businessDialog:visible").filter({ hasText: "Payment Details / 收款详情" });
     const confirm = page.locator(".ant-modal-confirm:visible");
     try {
       await openLegacy();

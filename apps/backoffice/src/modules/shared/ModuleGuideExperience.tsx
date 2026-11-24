@@ -1,5 +1,6 @@
+import { BusinessDialog } from "./BusinessDialog";
 import { BookOutlined, PlayCircleOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
-import { Alert, Button, Collapse, Divider, Drawer, Space, Steps, Tag, Tour, Typography } from "antd";
+import { Alert, Button, Collapse, Divider, Space, Steps, Tag, Tour, Typography } from "antd";
 import type { ModuleGuideDefinition } from "../../moduleGuides";
 
 export type ModuleGuideTarget = () => HTMLElement | null;
@@ -87,7 +88,7 @@ export function ModuleGuideExperience({
 
   return (
     <>
-      <Drawer
+      <BusinessDialog
         title={(
           <Space size={8}>
             <BookOutlined />
@@ -225,7 +226,7 @@ export function ModuleGuideExperience({
             description={guide.completionReminder}
           />
         </Space>
-      </Drawer>
+      </BusinessDialog>
 
       <Tour
         key={`${guide.path}:${guide.roleLabel}`}

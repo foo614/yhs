@@ -1,6 +1,7 @@
+import { BusinessDialog } from "./BusinessDialog";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Alert, Drawer, Empty, Spin, Typography } from "antd";
+import { Alert, Empty, Spin, Typography } from "antd";
 
 export type DocumentPreviewSource = {
   fileName: string;
@@ -40,7 +41,7 @@ export function DocumentPreviewDrawer({
   useEffect(() => setDisplayError(false), [open, source?.url]);
 
   return (
-    <Drawer
+    <BusinessDialog
       title={title}
       width={720}
       open={open}
@@ -73,6 +74,6 @@ export function DocumentPreviewDrawer({
       ) : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Choose a file to preview." />
       )}
-    </Drawer>
+    </BusinessDialog>
   );
 }

@@ -100,7 +100,7 @@ for (const width of widths.filter(value => [360, 768, 1440].includes(value))) {
     expect(mutations[0]).toEqual({ selections: [{ staffUserId: "new-a", action: "Prepare", previewToken: "reviewed-new-a" }] });
     expect(slips.find(slip => slip.id === original.id)).toEqual(original);
     await row("Synthetic new-a").getByRole("button", { name: "Details / 详情", exact: true }).click();
-    const drawer = page.locator(".ant-drawer-open");
+    const drawer = page.locator(".businessDialog:visible");
     await expect(drawer.getByRole("button", { name: "Submit to Finance / 提交财务", exact: true })).toBeDisabled();
     await drawer.getByRole("button", { name: "Enter statutory amounts / 填写法定扣款", exact: true }).click();
     await expect(dialog().getByRole("spinbutton")).toHaveCount(7);
@@ -133,9 +133,9 @@ for (const width of widths.filter(value => [360, 768, 1440].includes(value))) {
       await openPayroll();
       await expect(page.getByRole("button", { name: "Prepare new payslips / 准备新薪资单", exact: true })).toHaveCount(0);
       await row("Synthetic locked").getByRole("button", { name: "Details / 详情", exact: true }).click();
-      await expect(page.locator(".ant-drawer-open").getByText("Published payslips are locked. / 已发布薪资单已锁定。", { exact: true })).toBeVisible();
+      await expect(page.locator(".businessDialog:visible").getByText("Published payslips are locked. / 已发布薪资单已锁定。", { exact: true })).toBeVisible();
       expect(previewRequests).toBe(previewCount);
-      await page.locator(".ant-drawer-open").getByRole("button", { name: "Close", exact: true }).click();
+      await page.locator(".businessDialog:visible").getByRole("button", { name: "Close", exact: true }).click();
     }
     expect(mutations).toHaveLength(3);
     expect(unexpectedMutations).toEqual([]);
