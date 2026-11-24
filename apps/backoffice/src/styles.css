@@ -25,6 +25,15 @@ body {
 .loanBankFileInfo { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .loanBankComparison .ant-btn { max-width: 100%; height: auto; min-height: 44px; white-space: normal; }
 .loanBankComparison .ant-space-item { min-width: 0; max-width: 100%; }
+.loanBankRowActions .ant-upload-wrapper,
+.loanBankRowActions .ant-upload { max-width: 100%; }
+.loanBankComparison .loanBankRowActions .ant-btn { display: inline-flex; }
+.loanBankComparison .loanBankRowActions .ant-btn > span:not(.anticon) {
+  display: block;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 @media (min-width: 768px) {
   .loanBankComparisonHead, .loanBankComparisonSummary { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.1fr) minmax(0, 1.5fr) minmax(0, .8fr) minmax(0, 1.2fr); gap: 12px; }
   .loanBankComparisonHead { padding-inline: 16px; color: #61736b; font-size: 12px; }
